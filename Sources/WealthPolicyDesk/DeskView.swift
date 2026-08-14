@@ -45,9 +45,7 @@ struct DeskView: View {
     var onEditIntake: () -> Void
     var onLoadSample: () -> Void
     var onClose: () -> Void
-    var onResetWhatIfs: () -> Void
     @State private var section: DeskTab? = .balanceSheet
-    @State private var showInspector = true
 
     private var eval: Evaluation { Engine.evaluate(household) }
 
@@ -132,7 +130,6 @@ struct DeskView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button { onEditIntake() } label: { Label("Edit my answers", systemImage: "pencil") }
-                    Button { onResetWhatIfs() } label: { Label("Reset what-ifs", systemImage: "arrow.counterclockwise") }
                     Button { onLoadSample() } label: { Label("Load sample (Harrisons)", systemImage: "person.2") }
                     if let json = exportJSON {
                         ShareLink(item: json, preview: SharePreview("Client record (JSON)")) { Label("Export record (JSON)", systemImage: "square.and.arrow.up") }
@@ -144,15 +141,6 @@ struct DeskView: View {
                     Button { onClose() } label: { Label("Back to book", systemImage: "rectangle.stack") }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
-            ToolbarItem(placement: .primaryAction) {
-                Button { showInspector.toggle() } label: {
-                    Image(systemName: "slider.horizontal.3")
-                }
-            }
-        }
-        .inspector(isPresented: $showInspector) {
-            HouseholdInspector(household: $household)
-                .inspectorColumnWidth(min: 300, ideal: 344, max: 420)
         }
     }
 

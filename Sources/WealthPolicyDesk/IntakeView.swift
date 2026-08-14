@@ -7,6 +7,17 @@
 //  welcome, the wizard, and the desk.
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
+
+/// Resign the first responder so the number-pad keyboard (which has no Return key)
+/// can be dismissed — the fix for the form scrolling around as focus moves.
+func dismissKeyboard() {
+    #if canImport(UIKit)
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    #endif
+}
 
 // MARK: - Root (public entry point)
 
@@ -36,8 +47,7 @@ public struct RootView: View {
                     exportJSON: exportJSON, exportCSV: exportCSV,
                     onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
                     onLoadSample: openSample,
-                    onClose: closeToBook,
-                    onResetWhatIfs: { household = intake?.buildHousehold() ?? Seed.sampleHousehold }
+                    onClose: closeToBook
                 )
             } else {
                 RosterView(
@@ -197,11 +207,15 @@ struct IntakeWizard: View {
                     }
                     .padding(20).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity, alignment: .center)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 footer
             }
             .background(Theme.paper.ignoresSafeArea())
             .navigationTitle("Set up my plan").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
+                ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { dismissKeyboard() } }
+            }
         }
     }
 

@@ -17,7 +17,7 @@ struct AllocationTab: View {
             StackBar(eval.allocation.filter { $0.currentBps > 0 }.map {
                 StackSegment($0.label, Double($0.currentBps), sleeveColor[$0.sleeveId] ?? Theme.muted)
             })
-            Note("What you see is the residue of funding the claims — never a target. The blended split is an output; nobody sets 60/40 and works backward.")
+            Note("Your current mix — from what you told us — against the policy target. The target itself is an output, the residue of funding your claims (nobody sets 60/40 and works backward); the gap below is what a rebalance would close. Each sleeve names what it is and the fund it maps to.")
         }
 
         Card("Sleeves — current vs target") {
@@ -36,8 +36,27 @@ struct AllocationTab: View {
                         Spacer()
                         Text("drift \(Fmt.bpsSigned(row.driftBps))").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
                     }
+                    if let s = eval.legacyPolicy.sleeve(row.sleeveId) {
+                        HStack(spacing: 5) {
+                            ForEach(s.instruments, id: \.ticker) { inst in
+                                Text(inst.ticker)
+                                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(inst.role == .primary ? Theme.ink.opacity(0.07) : Theme.card, in: Capsule())
+                                    .overlay(Capsule().stroke(Theme.rule))
+                                    .foregroundStyle(inst.role == .primary ? Theme.ink : Theme.muted)
+                            }
+                            if let loc = s.locationPreference.first {
+                                Text("· best held \(locationLabel(loc))").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            }
+                            Spacer()
+                        }
+                        .padding(.top, 2)
+                        Text(s.rationale).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
                 .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
             }
         }
@@ -93,4 +112,11 @@ struct AllocationTab: View {
         }
     }
     private func fallbackLabel(_ id: String) -> String { eval.legacyPolicy.sleeve(id)?.label ?? id }
+    private func locationLabel(_ t: AccountTaxTreatment) -> String {
+        switch t {
+        case .taxable: return "in taxable"
+        case .taxDeferred: return "in an IRA/401k"
+        case .taxFree: return "in Roth"
+        }
+    }
 }
