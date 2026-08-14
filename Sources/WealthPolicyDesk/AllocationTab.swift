@@ -37,19 +37,21 @@ struct AllocationTab: View {
                         Text("drift \(Fmt.bpsSigned(row.driftBps))").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
                     }
                     if let s = eval.legacyPolicy.sleeve(row.sleeveId) {
-                        HStack(spacing: 5) {
-                            ForEach(s.instruments, id: \.ticker) { inst in
-                                Text(inst.ticker)
-                                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(inst.role == .primary ? Theme.ink.opacity(0.07) : Theme.card, in: Capsule())
-                                    .overlay(Capsule().stroke(Theme.rule))
-                                    .foregroundStyle(inst.role == .primary ? Theme.ink : Theme.muted)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 5) {
+                                ForEach(s.instruments, id: \.ticker) { inst in
+                                    Text(inst.ticker)
+                                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(inst.role == .primary ? Theme.ink.opacity(0.07) : Theme.card, in: Capsule())
+                                        .overlay(Capsule().stroke(Theme.rule))
+                                        .foregroundStyle(inst.role == .primary ? Theme.ink : Theme.muted)
+                                }
+                                if let loc = s.locationPreference.first {
+                                    Text("· best held \(locationLabel(loc))").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                        .fixedSize()
+                                }
                             }
-                            if let loc = s.locationPreference.first {
-                                Text("· best held \(locationLabel(loc))").font(.system(size: 11)).foregroundStyle(Theme.muted)
-                            }
-                            Spacer()
                         }
                         .padding(.top, 2)
                         Text(s.rationale).font(.system(size: 12)).foregroundStyle(Theme.muted)

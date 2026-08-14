@@ -160,7 +160,7 @@ public enum TaxEfficiency: String, CaseIterable, Sendable, Hashable {
 }
 
 public struct SleeveInstrument: Sendable, Hashable {
-    public enum Role: String, Sendable, Hashable { case primary, tlhPartner = "tlh_partner" }
+    public enum Role: String, Sendable, Hashable { case primary, tlhPartner = "tlh_partner", option }
     public var ticker: String
     public var role: Role
     public init(ticker: String, role: Role) { self.ticker = ticker; self.role = role }
