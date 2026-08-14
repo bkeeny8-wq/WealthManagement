@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+build/
+DerivedData/
+
+# Node (TypeScript policy layer)
+node_modules/
+
+# Claude Code machine-local settings
+.claude/settings.local.json
