@@ -58,52 +58,72 @@ public extension Engine {
     static func resolveTargets(_ h: Household, base: InvestmentPolicy, fundedRatioBps: Bps, equityCeilingBps: Bps, ladder: LadderPlan) -> InvestmentPolicy {
         let v = h.portfolioValueUsd
         let sleeveBudget = base.sleeves.reduce(0) { $0 + $1.targetBps }      // the non-alt space (~8000 bps)
-        let equitySleeves = base.sleeves.filter { $0.id != fiSleeveId }
-        let baseEquity = equitySleeves.reduce(0) { $0 + $1.targetBps }
-        guard v > 0, sleeveBudget > 0, baseEquity > 0 else { return base }
+        let baseGrowth = base.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
+        let nonGrowth = base.sleeves.filter { $0.role != .growth }
+        guard v > 0, sleeveBudget > 0, baseGrowth > 0, !nonGrowth.isEmpty else { return base }
 
-        // 1) Bond floor = a NEAR-TERM liquidity minimum — the rebalance reserve plus
-        //    ~one year of net outflow — expressed as a share. NOT the full multi-year
-        //    ladder (requiredLiquidUsd): for an underfunded near-retiree the ladder can
-        //    exceed the whole sleeve budget and would crush equity to zero. The full
-        //    ladder stays enforced as the separate hard liquidity_floor finding; here
-        //    the equity/FI split is driven by risk and funded status, with FI never
-        //    below this modest liquidity minimum.
+        // 1) Liquidity floor = a NEAR-TERM minimum — the rebalance reserve plus ~one
+        //    year of near-term net outflow — expressed as a share. It flows to CASH
+        //    (the zero-duration bucket). NOT the full multi-year ladder, which stays
+        //    the separate hard liquidity_floor finding; here the growth/defensive
+        //    split is driven by risk and funded status, cash never below this minimum.
         let fiFloorUsd = ladder.rebalanceReserveUsd + ladder.twelveMonthFloorUsd
-        let fiFloor = max(0, min(sleeveBudget, (fiFloorUsd / v).bps))
+        let cashFloor = max(0, min(sleeveBudget, (fiFloorUsd / v).bps))
 
-        // 2) Equity ceiling = risk. bindingEquityBps is a TOTAL-portfolio equity
-        //    cap, so charge the alt budget's own equity/credit beta against it —
-        //    sleeve equity PLUS that alt beta must stay under the ceiling — then fit
-        //    within the room the bond floor leaves.
+        // 2) Growth ceiling = risk. bindingEquityBps is a TOTAL-portfolio equity cap,
+        //    so charge the alt budget's own equity/credit beta against it — sleeve
+        //    growth PLUS that alt beta stays under the ceiling — within the room the
+        //    cash floor leaves.
         let altEquiv = altEquityEquivalentBps(base)
-        let equityCeiling = max(0, min(equityCeilingBps - altEquiv, sleeveBudget - fiFloor))
-        let equityFloor = min(equityCeiling, equityDeriskFloorBps)
+        let growthCeiling = max(0, min(equityCeilingBps - altEquiv, sleeveBudget - cashFloor))
+        let growthFloor = min(growthCeiling, equityDeriskFloorBps)
 
         // 3) Funded-status glide: underfunded → ceiling, overfunded → floor.
         let span = max(1, fundedCeilBps - fundedFloorBps)
         let t = min(1.0, max(0.0, Double(fundedRatioBps - fundedFloorBps) / Double(span)))
-        let equityTarget = Int((Double(equityCeiling) * (1 - t) + Double(equityFloor) * t).rounded())
+        let growthTarget = Int((Double(growthCeiling) * (1 - t) + Double(growthFloor) * t).rounded())
+        let nonGrowthBudget = max(0, sleeveBudget - growthTarget)
 
-        // 4) Distribute equity across the equity sleeves by their structural
-        //    weights; FI absorbs the remainder so the sleeve budget is preserved.
-        var assignedEquity = 0
-        var derived: [Sleeve] = []
-        for s in base.sleeves where s.id != fiSleeveId {
+        // 4) Within non-growth, cash takes at least the liquidity floor (or its
+        //    structural share, whichever is larger); the rest of the defensive /
+        //    real-diversifier sleeves split what remains by their structural weights.
+        let baseNonGrowth = nonGrowth.reduce(0) { $0 + $1.targetBps }
+        let baseCash = nonGrowth.filter { $0.role == .cash }.reduce(0) { $0 + $1.targetBps }
+        let structuralCash = baseNonGrowth > 0 ? Int(Double(nonGrowthBudget) * Double(baseCash) / Double(baseNonGrowth)) : 0
+        let cashTarget = min(nonGrowthBudget, max(structuralCash, cashFloor))
+        let otherBudget = max(0, nonGrowthBudget - cashTarget)
+        let baseOther = nonGrowth.filter { $0.role != .cash }.reduce(0) { $0 + $1.targetBps }
+
+        // 5) Build the derived sleeves in place (order preserved). Growth scales to
+        //    growthTarget; cash to cashTarget; other non-growth to otherBudget.
+        var derived: [Sleeve] = base.sleeves.map { s in
             var ns = s
-            ns.targetBps = Int((Double(equityTarget) * Double(s.targetBps) / Double(baseEquity)).rounded())
-            assignedEquity += ns.targetBps
-            derived.append(ns)
+            switch s.role {
+            case .growth:
+                ns.targetBps = baseGrowth > 0 ? Int((Double(growthTarget) * Double(s.targetBps) / Double(baseGrowth)).rounded()) : 0
+            case .cash:
+                ns.targetBps = cashTarget
+            default:   // defensive, realDiversifier
+                ns.targetBps = baseOther > 0 ? Int((Double(otherBudget) * Double(s.targetBps) / Double(baseOther)).rounded()) : 0
+            }
+            return ns
         }
-        if let fi = base.sleeves.first(where: { $0.id == fiSleeveId }) {
-            var nfi = fi
-            nfi.targetBps = max(0, sleeveBudget - assignedEquity)
-            derived.append(nfi)
+        // Absorb per-sleeve rounding so BOTH invariants hold exactly: (a) growth
+        // sums to growthTarget — so growth + alt beta stays strictly under the risk
+        // ceiling — by folding its rounding into the largest growth sleeve; then
+        // (b) the whole budget sums to sleeveBudget by folding the remaining
+        // (cash/other) rounding into the largest NON-growth sleeve, which is
+        // guaranteed non-zero whenever there is any non-growth budget.
+        let growthResidual = growthTarget - derived.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
+        if growthResidual != 0, let gi = derived.indices.filter({ derived[$0].role == .growth })
+            .max(by: { derived[$0].targetBps < derived[$1].targetBps }) {
+            derived[gi].targetBps = max(0, derived[gi].targetBps + growthResidual)
         }
-
-        // Preserve the original sleeve order for a stable UI.
-        let order = Dictionary(base.sleeves.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
-        derived.sort { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
+        let residual = sleeveBudget - derived.reduce(0) { $0 + $1.targetBps }
+        if residual != 0, let ni = derived.indices.filter({ derived[$0].role != .growth })
+            .max(by: { derived[$0].targetBps < derived[$1].targetBps }) {
+            derived[ni].targetBps = max(0, derived[ni].targetBps + residual)
+        }
 
         var p = base
         p.sleeves = derived

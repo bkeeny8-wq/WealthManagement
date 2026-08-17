@@ -804,30 +804,31 @@ public extension IntakeModel {
         let sleeves = Seed.legacyPolicy.sleeves
         guard balance > 0 else { return [] }
         let eq = max(0, min(1, equityPct))
-        let equitySleeves = sleeves.filter { $0.id != "fixed_income_liquid" }
-        let eqWeight = Double(max(1, equitySleeves.reduce(0) { $0 + $1.targetBps }))
         let core = sleeves.first { $0.id == "us_large_core" } ?? sleeves[0]
         var out: [Position] = []
 
-        // Equity bucket: exactly balance × eq. Drop sub-ticket sleeves and RE-NORMALIZE
-        // the survivors to the FULL equity dollars — so the equity share stays exactly
-        // eq (what feeds resilience/risk), and only the sub-sleeve detail is coarsened.
-        let eqDollars = balance * eq
-        if eqDollars > 0 {
-            let survivors = equitySleeves.map { ($0, eqDollars * Double($0.targetBps) / eqWeight) }.filter { $0.1 >= 500 }
-            let sum = survivors.reduce(0) { $0 + $1.1 }
-            if sum > 0 {
-                out.append(contentsOf: survivors.map { position($0.0, accountId: accountId, treatment: treatment, value: $0.1 * eqDollars / sum, gainPct: gainPct) })
-            } else {
-                out.append(position(core, accountId: accountId, treatment: treatment, value: eqDollars, gainPct: gainPct))
-            }
-        }
-        // Fixed-income bucket: exactly balance × (1 − eq).
-        let fiDollars = balance * (1 - eq)
-        if fiDollars > 0, let fi = sleeves.first(where: { $0.id == "fixed_income_liquid" }) {
-            out.append(position(fi, accountId: accountId, treatment: treatment, value: fiDollars, gainPct: gainPct))
-        }
+        // Two buckets by role. Each holds exactly its dollars: distribute across the
+        // bucket's sleeves by structural weight, drop sub-ticket sleeves, and
+        // RE-NORMALIZE the survivors to the full bucket — so the growth share stays
+        // exactly eq (what feeds resilience/risk) and only sub-sleeve detail coarsens.
+        out += fillBucket(sleeves.filter { $0.role == .growth }, dollars: balance * eq,
+                          accountId: accountId, treatment: treatment, gainPct: gainPct)
+        out += fillBucket(sleeves.filter { $0.role != .growth }, dollars: balance * (1 - eq),
+                          accountId: accountId, treatment: treatment, gainPct: gainPct)
         return out.isEmpty ? [position(core, accountId: accountId, treatment: treatment, value: balance, gainPct: gainPct)] : out
+    }
+
+    /// Fill one asset-role bucket with `dollars`, split by the sleeves' structural
+    /// weights (survivors ≥ $500 renormalized to the exact bucket total).
+    private static func fillBucket(_ bucket: [Sleeve], dollars: Usd, accountId: String, treatment: AccountTaxTreatment, gainPct: Double) -> [Position] {
+        guard dollars > 0, !bucket.isEmpty else { return [] }
+        let weight = Double(max(1, bucket.reduce(0) { $0 + $1.targetBps }))
+        let survivors = bucket.map { ($0, dollars * Double($0.targetBps) / weight) }.filter { $0.1 >= 500 }
+        let sum = survivors.reduce(0) { $0 + $1.1 }
+        if sum > 0 {
+            return survivors.map { position($0.0, accountId: accountId, treatment: treatment, value: $0.1 * dollars / sum, gainPct: gainPct) }
+        }
+        return [position(bucket[0], accountId: accountId, treatment: treatment, value: dollars, gainPct: gainPct)]
     }
 
     private static func position(_ s: Sleeve, accountId: String, treatment: AccountTaxTreatment, value: Usd, gainPct: Double) -> Position {

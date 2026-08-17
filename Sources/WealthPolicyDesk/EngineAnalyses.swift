@@ -387,7 +387,7 @@ extension Engine {
             // Total risk-asset target = sleeve equity + the alt budget's beta. Fire
             // only when THAT sits at the risk ceiling (not when equity is merely
             // liquidity-bound below it) and the plan is still underfunded.
-            let sleeveEquityTarget = policy.sleeves.filter { $0.id != Engine.fiSleeveId }.reduce(0) { $0 + $1.targetBps }
+            let sleeveEquityTarget = policy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
             let totalRiskTarget = sleeveEquityTarget + Engine.altEquityEquivalentBps(policy)
             if bs.fundedRatioBps < 9_800, totalRiskTarget + 50 >= rp.bindingEquityBps {
                 out.append(Finding(ruleId: "underfunded_at_risk_ceiling", module: .policy, severity: .soft,

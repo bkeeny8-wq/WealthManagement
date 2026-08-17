@@ -166,10 +166,27 @@ public struct SleeveInstrument: Sendable, Hashable {
     public init(ticker: String, role: Role) { self.ticker = ticker; self.role = role }
 }
 
+/// The role an asset class plays in the plan — the axis the solver sizes along.
+public enum AssetRole: String, CaseIterable, Sendable, Hashable {
+    case growth           // equities — the return engine, bound by the risk ceiling
+    case defensive        // nominal bonds (incl. TIPS, credit, EM debt) — liability ballast
+    case realDiversifier = "real_diversifier"  // commodities / gold — inflation-shock hedge, neither stock nor bond
+    case cash             // short reserve — the zero-duration bucket that backs the liquidity floor
+    public var label: String {
+        switch self {
+        case .growth: return "Growth"
+        case .defensive: return "Defensive"
+        case .realDiversifier: return "Real diversifier"
+        case .cash: return "Cash"
+        }
+    }
+}
+
 public struct Sleeve: Identifiable, Sendable, Hashable {
     public var id: String
     public var label: String
     public var tier: SleeveTier
+    public var role: AssetRole
     public var targetBps: Bps
     public var bandBps: Bps
     public var maxBps: Bps?
@@ -178,8 +195,8 @@ public struct Sleeve: Identifiable, Sendable, Hashable {
     public var liquidityClass: LiquidityClass
     public var instruments: [SleeveInstrument]
     public var rationale: String
-    public init(id: String, label: String, tier: SleeveTier, targetBps: Bps, bandBps: Bps, maxBps: Bps?, taxEfficiency: TaxEfficiency, locationPreference: [AccountTaxTreatment], liquidityClass: LiquidityClass, instruments: [SleeveInstrument], rationale: String) {
-        self.id = id; self.label = label; self.tier = tier; self.targetBps = targetBps
+    public init(id: String, label: String, tier: SleeveTier, role: AssetRole = .growth, targetBps: Bps, bandBps: Bps, maxBps: Bps?, taxEfficiency: TaxEfficiency, locationPreference: [AccountTaxTreatment], liquidityClass: LiquidityClass, instruments: [SleeveInstrument], rationale: String) {
+        self.id = id; self.label = label; self.tier = tier; self.role = role; self.targetBps = targetBps
         self.bandBps = bandBps; self.maxBps = maxBps; self.taxEfficiency = taxEfficiency
         self.locationPreference = locationPreference; self.liquidityClass = liquidityClass
         self.instruments = instruments; self.rationale = rationale

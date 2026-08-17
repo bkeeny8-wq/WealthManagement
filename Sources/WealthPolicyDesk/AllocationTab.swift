@@ -8,8 +8,11 @@ struct AllocationTab: View {
 
     private var sleeveColor: [String: Color] {
         ["us_large_core": Theme.accent, "us_sector_tilt": Theme.amber, "us_mid_small": Theme.accent.opacity(0.6),
-         "intl_developed": Theme.asset, "emerging": Theme.asset.opacity(0.6), "real_assets": Theme.debt.opacity(0.6),
-         "fixed_income_liquid": Theme.ink.opacity(0.55)]
+         "intl_developed": Theme.asset, "intl_small": Theme.asset.opacity(0.75), "emerging": Theme.asset.opacity(0.55),
+         "real_assets": Theme.debt.opacity(0.6),
+         "fixed_income_liquid": Theme.ink.opacity(0.55), "tips": Theme.ink.opacity(0.38),
+         "credit_hy": Theme.amber.opacity(0.55), "em_debt": Theme.asset.opacity(0.4),
+         "commodities": Theme.debt.opacity(0.4), "cash": Theme.ink.opacity(0.22)]
     }
 
     var body: some View {

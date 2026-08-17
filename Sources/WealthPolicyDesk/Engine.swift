@@ -140,8 +140,9 @@ public enum Engine {
 
     // Tickers the engine treats as fixed income (sleeve mapping is the primary
     // signal; this catches unclassified legacy holdings).
-    static let fiTickers: Set<String> = ["BND", "MUB", "SCHP", "AGG", "TLT", "BIL", "VTIP", "GOVT"]
+    static let fiTickers: Set<String> = ["BND", "MUB", "SCHP", "AGG", "TLT", "BIL", "VTIP", "GOVT", "HYG", "JNK", "EMB", "SGOV"]
     static let muniTickers: Set<String> = ["MUB", "VTEB", "TFI"]
+    static let commodityTickers: Set<String> = ["DBC", "GLD", "IAU", "PDBC"]
 
     // Reference safe real rate (TIPS-like), used for funded ratio and PVs. An
     // OBSERVABLE, not a capital-market forecast — the README's distinction.
@@ -173,9 +174,9 @@ public enum Engine {
         // Allocation is an OUTPUT: derive the sleeve targets from this household's
         // funded ratio, its risk ceiling, and its liability-sized bond floor —
         // then everything downstream reads the derived policy, not a fixed seed.
-        let baseEquity = Seed.legacyPolicy.sleeves.filter { $0.id != fiSleeveId }.reduce(0) { $0 + $1.targetBps }
+        let baseGrowth = Seed.legacyPolicy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
         let derivedPolicy = resolveTargets(h, base: Seed.legacyPolicy, fundedRatioBps: bs.fundedRatioBps,
-                                           equityCeilingBps: risk?.bindingEquityBps ?? baseEquity, ladder: lad)
+                                           equityCeilingBps: risk?.bindingEquityBps ?? baseGrowth, ladder: lad)
         let alloc = resolveAllocation(h, policy: derivedPolicy)
         let alts = resolveAltSizing(h, policy: derivedPolicy)
         let item = analyzeItemization(itemizationInput(for: h, asOf: asOf), tax: tax)
@@ -199,8 +200,10 @@ public enum Engine {
     /// Risk CAPACITY is derived (horizon + income character + funded status);
     /// TOLERANCE is the household's stated (behavior-tempered) drawdown limit.
     /// The plan binds to the lower of the two — the planning-layer belief.
-    public static func riskProfile(_ h: Household, fundedRatioBps: Bps) -> RiskProfile? {
-        guard h.statedToleranceMaxDrawdownBps > 0 else { return nil }
+    /// Risk CAPACITY (equity ceiling in bps): what the SITUATION can afford —
+    /// horizon + income character + a funded-status penalty. Independent of the
+    /// household's stated tolerance, so a risk spectrum can vary tolerance against it.
+    public static func riskCapacityBps(_ h: Household, fundedRatioBps: Bps) -> Bps {
         let horizon = h.goals.compactMap { $0.horizonYears }.max() ?? 20
         var cap = 3000 + min(horizon, 30) * 150
         switch h.humanCapital.first?.character {
@@ -211,9 +214,17 @@ public enum Engine {
         case .none: break
         }
         if fundedRatioBps < 8000 { cap -= 500 }   // underfunded → less room for error
-        cap = max(2000, min(9500, cap))
-        // A drawdown tolerance implies an equity ceiling (equities can fall ~50%).
-        let tol = min(10000, h.statedToleranceMaxDrawdownBps * 2)
+        return max(2000, min(9500, cap))
+    }
+
+    /// The equity ceiling a stated max-drawdown tolerance implies (equities can
+    /// fall ~50%, so a 25% drawdown limit ≈ a 50% equity ceiling).
+    public static func toleranceEquityBps(maxDrawdownBps: Bps) -> Bps { min(10000, maxDrawdownBps * 2) }
+
+    public static func riskProfile(_ h: Household, fundedRatioBps: Bps) -> RiskProfile? {
+        guard h.statedToleranceMaxDrawdownBps > 0 else { return nil }
+        let cap = riskCapacityBps(h, fundedRatioBps: fundedRatioBps)
+        let tol = toleranceEquityBps(maxDrawdownBps: h.statedToleranceMaxDrawdownBps)
         let binding = min(cap, tol)
         return RiskProfile(capacityEquityBps: cap, toleranceImpliedEquityBps: tol,
                            bindingEquityBps: binding, gapBps: abs(cap - tol), bindingIsCapacity: cap <= tol)
@@ -516,12 +527,42 @@ public enum Engine {
     static let employerStockSectors: [String: Sector] = ["MEGABANK": .financials]
     static func employerStockSector(_ ticker: String?) -> Sector? { ticker.flatMap { employerStockSectors[$0] } }
 
-    static func isFixedIncome(_ p: Position) -> Bool { p.sleeveId == "fixed_income_liquid" || fiTickers.contains(p.ticker) }
+    /// The asset-class role of a held position, via its sleeve mapping (nil = an
+    /// unclassified / held-away lot, which falls back to ticker heuristics).
+    static func sleeveRole(_ p: Position) -> AssetRole? {
+        guard let sid = p.sleeveId else { return nil }
+        return Seed.legacyPolicy.sleeve(sid)?.role
+    }
+    static func isRealDiversifier(_ p: Position) -> Bool {
+        if sleeveRole(p) == .realDiversifier { return true }
+        return commodityTickers.contains(p.ticker)
+    }
+    static func isFixedIncome(_ p: Position) -> Bool {
+        if let r = sleeveRole(p) { return r == .defensive || r == .cash }
+        return fiTickers.contains(p.ticker)
+    }
     static func isIlliquidAlt(_ p: Position) -> Bool { p.ticker == "PCRED" || p.ticker == "PE" }
-    static func isEquity(_ p: Position) -> Bool { !isFixedIncome(p) && !isIlliquidAlt(p) && p.ticker != "BUFR" }
+    static func isEquity(_ p: Position) -> Bool {
+        if let r = sleeveRole(p) { return r == .growth }
+        return !isFixedIncome(p) && !isIlliquidAlt(p) && !isRealDiversifier(p) && p.ticker != "BUFR"
+    }
     static func assetDuration(for p: Position) -> Double {
+        switch sleeveRole(p) {
+        case .cash: return 0.3
+        case .realDiversifier: return 0.0
+        default: break
+        }
+        switch p.sleeveId {
+        case "tips", "em_debt": return 7.0
+        case "credit_hy": return 3.8
+        case "fixed_income_liquid": return 6.2
+        default: break
+        }
         if muniTickers.contains(p.ticker) { return 6.0 }
-        if p.ticker == "BND" || p.sleeveId == "fixed_income_liquid" { return 6.2 }
+        if p.ticker == "BND" { return 6.2 }
+        if p.ticker == "SGOV" || p.ticker == "BIL" { return 0.3 }
+        if p.ticker == "SCHP" || p.ticker == "VTIP" || p.ticker == "EMB" { return 7.0 }
+        if p.ticker == "HYG" || p.ticker == "JNK" { return 3.8 }
         return 5.0
     }
 }
