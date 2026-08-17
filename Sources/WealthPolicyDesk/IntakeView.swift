@@ -45,6 +45,9 @@ public struct RootView: View {
                     household: Binding($household)!,
                     clientHeader: intake != nil ? practice.header : nil,
                     exportJSON: exportJSON, exportCSV: exportCSV,
+                    committedStatuses: activeCommittedStatuses,
+                    canPersist: activeId != nil,
+                    onCommit: commitActions,
                     onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
                     onLoadSample: openSample,
                     onClose: closeToBook
@@ -75,7 +78,7 @@ public struct RootView: View {
     private func openClient(_ id: UUID) {
         guard let rec = book.first(where: { $0.id == id }) else { return }
         activeId = id; intake = rec.intake; practice = rec.practice
-        household = rec.intake.buildHousehold()
+        household = rec.household()
     }
     private func startNewClient() {
         wizardSeed = IntakeModel(); wizardPractice = PracticeMetadata(); wizardEditingId = nil; showWizard = true
@@ -107,20 +110,45 @@ public struct RootView: View {
         }
         BookStore.save(book)
         activeId = id; intake = builtIntake; practice = builtPractice
-        household = builtIntake.buildHousehold()
+        // Keep any committed moves layered on the freshly rebuilt household.
+        household = book.first(where: { $0.id == id })?.household() ?? builtIntake.buildHousehold()
+    }
+
+    /// Commit staged moves onto the open client's plan of record, persist, and
+    /// rebuild the household so the desk shows the new baseline. For the sample
+    /// (no book record) the moves apply in memory only — nothing is persisted.
+    private func commitActions(_ committed: [PlannedAction]) {
+        guard !committed.isEmpty else { return }
+        if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
+            book[i].actions.append(contentsOf: committed)
+            book[i].touch()
+            BookStore.save(book)
+            household = book[i].household()
+        } else {
+            household = (household ?? Seed.sampleHousehold).applying(committed)
+        }
+    }
+
+    private var activeCommittedActions: [PlannedAction] {
+        guard let id = activeId else { return [] }
+        return book.first(where: { $0.id == id })?.committedActions ?? []
+    }
+    private var activeCommittedStatuses: [CommittedMoveStatus] {
+        guard let id = activeId else { return [] }
+        return book.first(where: { $0.id == id })?.committedStatuses() ?? []
     }
 
     // MARK: per-client export (canonical plan, not live what-ifs)
 
     private var exportJSON: String? {
         guard let intake else { return nil }
-        let eval = Engine.evaluate(intake.buildHousehold())
+        let eval = Engine.evaluate(intake.buildHousehold().applying(activeCommittedActions))
         let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]; enc.dateEncodingStrategy = .iso8601
         return (try? enc.encode(practice.exportRecord(intake: intake, evaluation: eval))).flatMap { String(data: $0, encoding: .utf8) }
     }
     private var exportCSV: String? {
         guard let intake else { return nil }
-        let eval = Engine.evaluate(intake.buildHousehold())
+        let eval = Engine.evaluate(intake.buildHousehold().applying(activeCommittedActions))
         return CRMExportRecord.csvHeader + "\n" + practice.exportRecord(intake: intake, evaluation: eval).csvRow()
     }
 }

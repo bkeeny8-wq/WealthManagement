@@ -1,11 +1,15 @@
 //  DeskView.swift
 //  WealthPolicyDesk
 //
-//  The desk, laid out for iPad: a sidebar of sections (NavigationSplitView), a
-//  centered document column of the selected analysis, and a persistent
-//  inspector of household levers on the trailing edge. Edit a lever and every
-//  number recomputes live. Engine is a pure function of the household, so the
-//  whole surface is a view of Engine.evaluate(household).
+//  The desk, laid out for iPad: a sidebar of sections (NavigationSplitView) and a
+//  centered document column of the selected analysis. Every analysis tab is a
+//  pure read-out of Engine.evaluate(household).
+//
+//  The Planning tab is where the plan CHANGES: moves (sell/rotate) are staged
+//  against a draft copy of the household, so the whole desk previews their effect
+//  live and non-destructively (a banner marks the preview state). Nothing touches
+//  the client of record until an explicit Commit, which persists the moves and
+//  rebaselines the household. Engine being pure is what makes the preview exact.
 
 import SwiftUI
 
@@ -14,6 +18,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
     case requiredReturn = "Required Return"
     case resilience = "Resilience"
     case allocation = "Allocation"
+    case planning = "Planning"
     case constraints = "Constraints"
     case tax = "Tax"
     case decumulation = "Decumulation"
@@ -27,6 +32,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
         case .requiredReturn: return "target"
         case .resilience: return "shield.lefthalf.filled"
         case .allocation: return "chart.pie"
+        case .planning: return "arrow.left.arrow.right"
         case .constraints: return "checklist"
         case .tax: return "percent"
         case .decumulation: return "calendar"
@@ -42,12 +48,21 @@ struct DeskView: View {
     var clientHeader: ClientProfileHeader? = nil
     var exportJSON: String? = nil
     var exportCSV: String? = nil
+    var committedStatuses: [CommittedMoveStatus] = []
+    var canPersist: Bool = true
+    var onCommit: ([PlannedAction]) -> Void = { _ in }
     var onEditIntake: () -> Void
     var onLoadSample: () -> Void
     var onClose: () -> Void
     @State private var section: DeskTab? = .balanceSheet
+    /// Moves staged on the desk but not yet committed. The whole desk previews
+    /// the household with these applied; Commit clears them onto the record.
+    @State private var staged: [PlannedAction] = []
 
-    private var eval: Evaluation { Engine.evaluate(household) }
+    /// The household everything on the desk is evaluated against — the record
+    /// plus any staged (uncommitted) moves.
+    private var previewHousehold: Household { household.applying(staged) }
+    private var eval: Evaluation { Engine.evaluate(previewHousehold) }
 
     public var body: some View {
         let e = eval
@@ -59,6 +74,13 @@ struct DeskView: View {
         .navigationSplitViewStyle(.balanced)
         .tint(Theme.accent)
     }
+
+    private func commit() {
+        guard !staged.isEmpty else { return }
+        onCommit(staged.map { var a = $0; a.status = .committed; return a })
+        staged = []
+    }
+    private func discard() { staged = [] }
 
     // MARK: sidebar
 
@@ -125,6 +147,7 @@ struct DeskView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Theme.paper)
+        .safeAreaInset(edge: .top) { if !staged.isEmpty { stagingBanner } }
         .navigationTitle(tab.rawValue)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -152,6 +175,8 @@ struct DeskView: View {
         case .requiredReturn: RequiredReturnTab(eval: e)
         case .resilience:     ResilienceTab(eval: e)
         case .allocation:     AllocationTab(eval: e)
+        case .planning:       PlanningTab(base: household, staged: $staged, committed: committedStatuses,
+                                          canPersist: canPersist, onCommit: commit, onDiscard: discard)
         case .constraints:    ConstraintsTab(eval: e)
         case .tax:            TaxTab(eval: e)
         case .decumulation:   DecumulationTab(eval: e)
@@ -160,80 +185,45 @@ struct DeskView: View {
         case .learn:          LearnTab()
         }
     }
-}
 
-// MARK: - Household inspector (the live levers)
+    // MARK: staging banner (pinned above every tab while moves are staged)
 
-struct HouseholdInspector: View {
-    @Binding var household: Household
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("LEVERS").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.muted)
-
-                Card("Filing status") {
-                    ChoiceChips(FilingStatus.allCases.map { ($0, $0.rawValue.uppercased()) }, selection: household.filingStatus) { household.filingStatus = $0 }
-                }
-                Card("Real savings per year", help: Teach.help("requiredReturn")) {
-                    // Upper bound always contains the live value so a touch never clamps it.
-                    SliderRow(value: Binding(get: { household.annualSavingsUsd }, set: { household.annualSavingsUsd = $0 }),
-                              range: 0...max(200_000, household.annualSavingsUsd), step: 5_000, display: Fmt.usd(household.annualSavingsUsd))
-                    Note("Added to the corpus each year until the primary earner retires. Lowers the required return.")
-                }
-                if let idx = household.goals.firstIndex(where: { $0.kind == .spending }) {
-                    let cur = household.goals[idx].outflows.first?.amountUsd ?? 0
-                    Card("Retirement spending (today's $/yr)") {
-                        SliderRow(value: spendingBinding(idx), range: 0...max(360_000, cur), step: 5_000,
-                                  display: Fmt.usd(cur))
-                        Note("Flows every year of the horizon. Raising it raises the required return and can break the funded ratio.")
-                    }
-                }
-                Card("Legacy floor (today's $)", help: Teach.help("requiredReturn")) {
-                    SliderRow(value: Binding(get: { household.legacyFloorUsd }, set: { household.legacyFloorUsd = $0 }),
-                              range: 0...max(5_000_000, household.legacyFloorUsd), step: 100_000,
-                              display: household.legacyFloorUsd > 0 ? Fmt.usd(household.legacyFloorUsd) : "$0 — spend-down")
-                    Note("The corpus must END worth at least this. $0 spends it to zero; raise it to fund a perpetual legacy and watch the required return climb on the Required Return tab.")
-                }
-                // Sample-only demonstration levers — hidden for synthesized plans
-                // that carry no single-name concentration or muni position.
-                if household.positions.contains(where: { $0.id == "pos_aapl" }) {
-                    Card("Concentrated position (AAPL)") {
-                        SliderRow(value: positionBinding("pos_aapl"), range: 0...max(600_000, household.positions.first(where: { $0.id == "pos_aapl" })?.marketValueUsd ?? 0), step: 10_000,
-                                  display: Fmt.usd(household.positions.first(where: { $0.id == "pos_aapl" })?.marketValueUsd ?? 0))
-                        Note("A low-basis single name earmarked to step-up. Push it past 8% of the portfolio to trip the concentration flag.")
-                    }
-                }
-                if household.positions.contains(where: { $0.id == "pos_mub" }) {
-                    Card("Move the muni into the IRA") {
-                        Toggle(isOn: muniShelteredBinding) {
-                            Text("Hold MUB in the tax-deferred IRA").font(.system(size: 14.5))
-                        }.tint(Theme.debt)
-                        Note("Munis in a sheltered account is a hard error — watch the Constraints tab react.")
-                    }
-                }
-            }
-            .padding(16)
+    /// Realized-gain tax if the staged moves were committed. The taxable gains are
+    /// stacked and taxed once (summing per-move taxes would understate by ignoring
+    /// bracket stacking). Each move's marginal gain is measured against the
+    /// household left by the moves before it.
+    private var stagedTaxTotal: Usd {
+        var h = household
+        var totalGain: Usd = 0
+        for m in staged {
+            let r = Engine.realizedGainTax(h, m)
+            if r.taxable { totalGain += max(0, r.gainUsd) }
+            h = h.applying(m)
         }
-        .background(Theme.paper)
+        return Engine.ltcgTaxOnGain(household, gain: totalGain)
     }
 
-    private func spendingBinding(_ idx: Int) -> Binding<Double> {
-        Binding(
-            get: { household.goals[idx].outflows.first?.amountUsd ?? 0 },
-            set: { newVal in
-                household.goals[idx].outflows = household.goals[idx].outflows.map { Outflow(year: $0.year, amountUsd: newVal, inflationLinked: $0.inflationLinked) }
-            })
-    }
-    private func positionBinding(_ id: String) -> Binding<Double> {
-        Binding(
-            get: { household.positions.first(where: { $0.id == id })?.marketValueUsd ?? 0 },
-            set: { newVal in if let i = household.positions.firstIndex(where: { $0.id == id }) { household.positions[i].marketValueUsd = newVal } })
-    }
-    private var muniShelteredBinding: Binding<Bool> {
-        Binding(
-            get: { household.positions.first(where: { $0.id == "pos_mub" })?.accountId == "acct_ira" },
-            set: { on in if let i = household.positions.firstIndex(where: { $0.id == "pos_mub" }) { household.positions[i].accountId = on ? "acct_ira" : "acct_taxable" } })
+    private var stagingBanner: some View {
+        let taxTotal = stagedTaxTotal
+        return HStack(spacing: 12) {
+            Image(systemName: "eye.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.amber)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Previewing \(staged.count) staged move\(staged.count == 1 ? "" : "s")")
+                    .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.ink)
+                Text(taxTotal > 0 ? "Not saved · ~\(Fmt.usd(taxTotal)) tax if committed" : "Not saved · no tax realized")
+                    .font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
+            Spacer()
+            Button { discard() } label: { Text("Discard").font(.system(size: 13, weight: .semibold)) }
+                .buttonStyle(.plain).foregroundStyle(Theme.debt)
+            Button { commit() } label: {
+                Text(canPersist ? "Commit" : "Apply").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 7).background(Theme.accent, in: Capsule())
+            }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(Theme.amber.opacity(0.12))
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
     }
 }
 
@@ -261,22 +251,5 @@ struct ClientStrip: View {
         .padding(13).frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.rule))
-    }
-}
-
-/// A labelled slider with a live monospaced read-out.
-struct SliderRow: View {
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-    let step: Double
-    var display: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Spacer()
-                Text(display).font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink)
-            }
-            Slider(value: $value, in: range, step: step).tint(Theme.ink)
-        }
     }
 }

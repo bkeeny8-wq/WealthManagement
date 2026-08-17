@@ -265,12 +265,19 @@ public struct Position: Identifiable, Sendable, Hashable {
     public var holdToStepUp: Bool
     /// The advisor/client flagged this as a concentrated single-name risk.
     public var isConcentrated: Bool
-    public init(id: String, accountId: String, ticker: String, sleeveId: String?, marketValueUsd: Usd, costBasisUsd: Usd, layer: Layer, disposition: Disposition, holdToStepUp: Bool, isConcentrated: Bool = false) {
+    /// Explicit GICS sector, when known. nil = infer from the ticker (a Select
+    /// Sector SPDR) or treat as broad/unclassified. Lets a within-sleeve sector
+    /// rotation (XLK → XLP) be visible even though both share one policy sleeve.
+    public var sector: Sector?
+    public init(id: String, accountId: String, ticker: String, sleeveId: String?, marketValueUsd: Usd, costBasisUsd: Usd, layer: Layer, disposition: Disposition, holdToStepUp: Bool, isConcentrated: Bool = false, sector: Sector? = nil) {
         self.id = id; self.accountId = accountId; self.ticker = ticker; self.sleeveId = sleeveId
         self.marketValueUsd = marketValueUsd; self.costBasisUsd = costBasisUsd; self.layer = layer
         self.disposition = disposition; self.holdToStepUp = holdToStepUp; self.isConcentrated = isConcentrated
+        self.sector = sector
     }
     public var unrealizedGainUsd: Usd { marketValueUsd - costBasisUsd }
+    /// Best-effort sector: the explicit one, else inferred from a SPDR ticker.
+    public var effectiveSector: Sector? { sector ?? Sector.fromSpdr(ticker) }
     public var basisRatioBps: Bps { marketValueUsd > 0 ? (costBasisUsd / marketValueUsd).bps : 10_000 }
 }
 

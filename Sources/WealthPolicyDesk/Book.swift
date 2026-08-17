@@ -18,9 +18,12 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     public var practice: PracticeMetadata
     public var updatedAt: Date
     public var archived: Bool
+    /// The plan of record's committed moves (sell/rotate), layered on the
+    /// synthesized household in order. Staged (uncommitted) moves never land here.
+    public var actions: [PlannedAction]
 
-    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false) {
-        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived
+    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = []) {
+        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions
     }
 
     /// Forward-compatible decode: a missing/renamed field never drops the record.
@@ -31,10 +34,23 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
         practice = ((try? c.decodeIfPresent(PracticeMetadata.self, forKey: .practice)) ?? nil) ?? PracticeMetadata()
         updatedAt = ((try? c.decodeIfPresent(Date.self, forKey: .updatedAt)) ?? nil) ?? Date()
         archived = ((try? c.decodeIfPresent(Bool.self, forKey: .archived)) ?? nil) ?? false
+        actions = ((try? c.decodeIfPresent([PlannedAction].self, forKey: .actions)) ?? nil) ?? []
         if intake.adults.isEmpty { intake.adults = [IntakeAdult()] }   // invariant: ≥1 adult
     }
 
     public mutating func touch() { updatedAt = Date() }
+
+    /// The committed moves only (the plan of record).
+    public var committedActions: [PlannedAction] { actions.filter { $0.status == .committed } }
+
+    /// The household of record: the synthesized household with every committed
+    /// move applied in order. This is what the desk and exports evaluate.
+    public func household() -> Household { intake.buildHousehold().applying(committedActions) }
+
+    /// Per-move replay status against the freshly synthesized household — flags a
+    /// committed move an intake edit has since orphaned (sold holding gone) or
+    /// clamped (sold holding shrank below the recorded amount).
+    public func committedStatuses() -> [CommittedMoveStatus] { intake.buildHousehold().replayStatuses(committedActions) }
 
     /// Best available display name: the CRM name, else the primary adult, else a placeholder.
     public var displayName: String {
@@ -105,7 +121,7 @@ public enum BookStore {
 /// the planning-flag columns reflect the canonical plan, not any live what-ifs.
 public enum BookExport {
     private static func record(_ rec: ClientRecord) -> CRMExportRecord {
-        rec.practice.exportRecord(intake: rec.intake, evaluation: Engine.evaluate(rec.intake.buildHousehold()))
+        rec.practice.exportRecord(intake: rec.intake, evaluation: Engine.evaluate(rec.household()))
     }
 
     public static func ndjson(_ book: [ClientRecord]) -> String {

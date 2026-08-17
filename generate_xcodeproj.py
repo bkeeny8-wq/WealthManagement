@@ -78,6 +78,7 @@ framework_files = [
     "EngineAnalyses.swift",
     "Decumulation.swift",
     "Resilience.swift",
+    "Planning.swift",
     # design system + teaching copy
     "Theme.swift",
     "Components.swift",
@@ -90,6 +91,7 @@ framework_files = [
     "RequiredReturnTab.swift",
     "ResilienceTab.swift",
     "AllocationTab.swift",
+    "PlanningTab.swift",
     "ConstraintsTab.swift",
     "TaxTab.swift",
     "DecumulationTab.swift",
