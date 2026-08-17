@@ -164,7 +164,11 @@ extension Engine {
             let daily = dailyLiquidUsd(h)
             return LadderPlan(yearsCovered: 0, netAnnualOutflowUsd: 0, ladderSizeUsd: 0, rebalanceReserveUsd: reserve, twelveMonthFloorUsd: 0, requiredLiquidUsd: reserve, availableDailyLiquidUsd: daily, covered: daily >= reserve)
         }
-        let outflowYears = spending.outflows.map { $0.year }.sorted().prefix(years)
+        // Pre-fund only GENUINELY near-term outflows — those within the ladder's
+        // horizon (`years`) measured from today. Using `prefix(years)` grabbed the
+        // earliest N decumulation years even when retirement is decades away, which
+        // over-sized the near-term bond floor for young accumulators.
+        let outflowYears = spending.outflows.map { $0.year }.filter { $0 <= years }.sorted()
         var nets: [Usd] = []
         for y in outflowYears {
             let out = spending.outflows.first { $0.year == y }?.amountUsd ?? 0
@@ -376,6 +380,20 @@ extension Engine {
                                    title: capBound ? "Equity above risk capacity" : "Equity above stated tolerance",
                                    detail: "The book holds \(Fmt.pctBps(equityBps)) equity against a binding ceiling of \(Fmt.pctBps(rp.bindingEquityBps)) — \(capBound ? "capacity, what the situation can afford" : "tolerance, what you'll stomach"). \(Fmt.pctBps(over)) over, about \(Fmt.usdShort(over.frac * portfolio)) of equity to trim.",
                                    magnitudeUsd: over.frac * portfolio))
+            }
+            // Closes the loop honestly: when the derived equity TARGET is already
+            // pinned at the risk ceiling and the plan is still underfunded, more
+            // equity is not the lever — the gap is a funding problem.
+            // Total risk-asset target = sleeve equity + the alt budget's beta. Fire
+            // only when THAT sits at the risk ceiling (not when equity is merely
+            // liquidity-bound below it) and the plan is still underfunded.
+            let sleeveEquityTarget = policy.sleeves.filter { $0.id != Engine.fiSleeveId }.reduce(0) { $0 + $1.targetBps }
+            let totalRiskTarget = sleeveEquityTarget + Engine.altEquityEquivalentBps(policy)
+            if bs.fundedRatioBps < 9_800, totalRiskTarget + 50 >= rp.bindingEquityBps {
+                out.append(Finding(ruleId: "underfunded_at_risk_ceiling", module: .policy, severity: .soft,
+                                   title: "At the risk ceiling, still underfunded",
+                                   detail: "The target already carries the most equity your \(rp.bindingIsCapacity ? "capacity" : "tolerance") allows (\(Fmt.pctBps(rp.bindingEquityBps))), yet the plan funds only \(Fmt.pctBps(bs.fundedRatioBps)) of its claims. More equity is not the lever — close the gap by deferring or scaling a goal, or saving more.",
+                                   magnitudeUsd: 0))
             }
         }
 

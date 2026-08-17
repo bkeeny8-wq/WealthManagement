@@ -76,6 +76,7 @@ framework_files = [
     # the evaluation engine (implements the declared/implied pure functions)
     "Engine.swift",
     "EngineAnalyses.swift",
+    "AllocationSolver.swift",
     "Decumulation.swift",
     "Resilience.swift",
     "Planning.swift",

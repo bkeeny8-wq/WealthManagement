@@ -17,7 +17,7 @@ struct AllocationTab: View {
             StackBar(eval.allocation.filter { $0.currentBps > 0 }.map {
                 StackSegment($0.label, Double($0.currentBps), sleeveColor[$0.sleeveId] ?? Theme.muted)
             })
-            Note("Your current mix — from what you told us — against the policy target. The target itself is an output, the residue of funding your claims (nobody sets 60/40 and works backward); the gap below is what a rebalance would close. Each sleeve names what it is and the fund it maps to.")
+            Note("Your current mix — from what you told us — against a target we DERIVE, not set. Equity is capped at your risk ceiling, the bond sleeve carries at least your near-term liquidity floor, and where equity sits between the two is dialed by your funded ratio: underfunded leans into the ceiling, overfunded de-risks toward the floor. (Your full multi-year ladder is enforced separately, on the Constraints tab.) Change a goal and the target moves — nobody sets 60/40 and works backward. The gap below is what a rebalance would close; each sleeve names the fund it maps to.")
         }
 
         Card("Sleeves — current vs target") {

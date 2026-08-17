@@ -168,20 +168,26 @@ public enum Engine {
         var rr = requiredReturn(h, asOf: asOf, annualTaxUsd: taxByYear)
         rr.requiredRealReturnPreTaxBps = rrPre.requiredRealReturnBps
         let bs = balanceSheet(h, tax: tax, asOf: asOf, rr: rr)
-        let alloc = resolveAllocation(h, policy: Seed.legacyPolicy)
-        let alts = resolveAltSizing(h, policy: Seed.legacyPolicy)
+        let lad = ladder(h, policy: policy, asOf: asOf)
+        let risk = riskProfile(h, fundedRatioBps: bs.fundedRatioBps)
+        // Allocation is an OUTPUT: derive the sleeve targets from this household's
+        // funded ratio, its risk ceiling, and its liability-sized bond floor —
+        // then everything downstream reads the derived policy, not a fixed seed.
+        let baseEquity = Seed.legacyPolicy.sleeves.filter { $0.id != fiSleeveId }.reduce(0) { $0 + $1.targetBps }
+        let derivedPolicy = resolveTargets(h, base: Seed.legacyPolicy, fundedRatioBps: bs.fundedRatioBps,
+                                           equityCeilingBps: risk?.bindingEquityBps ?? baseEquity, ladder: lad)
+        let alloc = resolveAllocation(h, policy: derivedPolicy)
+        let alts = resolveAltSizing(h, policy: derivedPolicy)
         let item = analyzeItemization(itemizationInput(for: h, asOf: asOf), tax: tax)
         let disp = dispositions(h, tax: tax)
-        let lad = ladder(h, policy: policy, asOf: asOf)
         let mc = muniCrossover(h, tax: tax, muniYieldBps: 340, treasuryYieldBps: 430, corporateYieldBps: 520)
         let pays = h.liabilities.filter { $0.isFixedIncomeOffset }.map { paydown($0, household: h, tax: tax) }
         let decum = rothStrategy(h, tax: tax, rr: rr, asOf: asOf)
-        let findings = evaluateConstraints(h, policy: Seed.legacyPolicy, tax: tax, asOf: asOf,
+        let findings = evaluateConstraints(h, policy: derivedPolicy, tax: tax, asOf: asOf,
                                            balanceSheet: bs, allocation: alloc, altSizing: alts, ladder: lad,
                                            rothTaxSavedUsd: decum.lifetimeTaxSavedUsd)
-        let risk = riskProfile(h, fundedRatioBps: bs.fundedRatioBps)
         let resil = resilience(h, tax: tax, rr: rr, asOf: asOf, annualTaxUsd: taxByYear)
-        return Evaluation(household: h, policy: policy, legacyPolicy: Seed.legacyPolicy, tax: tax, asOf: asOf,
+        return Evaluation(household: h, policy: policy, legacyPolicy: derivedPolicy, tax: tax, asOf: asOf,
                           balanceSheet: bs, requiredReturn: rr, allocation: alloc, altSizing: alts,
                           findings: findings, itemization: item, dispositions: disp, ladder: lad, muni: mc,
                           paydowns: pays, deferredTaxTotalUsd: bs.liabilities.deferredTaxUsd,
