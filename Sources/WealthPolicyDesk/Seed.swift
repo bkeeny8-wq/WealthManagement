@@ -119,6 +119,15 @@ public enum Seed {
                rationale: "Short T-bills — the zero-duration reserve that backs the near-term liquidity floor. Sized to what you'll spend soon, not a strategic weight."),
     ]
 
+    /// A dated snapshot of the observable macro inputs (≈ mid-Aug 2026). It is a
+    /// point-in-time input — VERIFY and refresh out-of-band before any client use.
+    /// Sources: FRED (real rate, breakeven, HY OAS, Sahm), US Treasury (curve),
+    /// multpl (CAPE). The app stays offline; a generator refreshes this snapshot.
+    static let currentMacro = MacroSnapshot(
+        asOf: "2026-08-15", source: "FRED · US Treasury · multpl (verify)",
+        termSpread10y3mBps: 85, realRate10yBps: 200, breakevenBps: 230, hyOasBps: 271,
+        unemploymentBps: 430, sahmBps: 7, cape: 42.35, activityZ: 0.1)
+
     static let altBudgets: [AltFunctionBudget] = [
         .init(fn: .convexity, targetBps: 700, bandBps: 200,
               rationale: "The only function that addresses the stated problem: works in inflation shocks, where bonds fail.",
