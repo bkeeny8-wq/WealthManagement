@@ -76,13 +76,24 @@ public struct MacroSnapshot: Sendable, Hashable {
     public var copperGoldZ: Double        // copper/gold ratio trend z (+ = growth strong)
     public var spxVs200dPct: Int          // S&P 500 vs its 200-day, % (+ = uptrend)
     public var vix: Double                // CBOE VIX
-    public init(asOf: IsoDate, source: String, termSpread10y3mBps: Bps, realRate10yBps: Bps, breakevenBps: Bps, hyOasBps: Bps, unemploymentBps: Bps, sahmBps: Bps, cape: Double, activityZ: Double, hyOasChg6mBps: Bps = 0, termSpreadChg6mBps: Bps = 0, activityChg6m: Double = 0, claimsChg13wK: Int = 0, ismNewOrders: Double = 50, cyclicalDefensiveZ: Double = 0, copperGoldZ: Double = 0, spxVs200dPct: Int = 0, vix: Double = 16) {
+    // --- Real-economy breadth, prices & liquidity ---
+    public var permitsChg6mPct: Int        // building permits, 6mo % change (+ = rising)
+    public var consumerExpectations: Double // Conf Board expectations index (<70 = recessionary)
+    public var tempEmpChg6mK: Int          // temp-help employment, 6mo change (thousands; + = rising)
+    public var excessBondPremiumBps: Bps   // Gilchrist-Zakrajšek EBP (0 ≈ neutral; + = risk-off)
+    public var realM2GrowthBps: Bps        // real M2 YoY (+ = liquidity growing)
+    public var cpiYoYBps: Bps              // headline CPI YoY
+    public var cpiChg6mBps: Bps            // Δ CPI YoY over 6mo (+ = re-accelerating)
+    public init(asOf: IsoDate, source: String, termSpread10y3mBps: Bps, realRate10yBps: Bps, breakevenBps: Bps, hyOasBps: Bps, unemploymentBps: Bps, sahmBps: Bps, cape: Double, activityZ: Double, hyOasChg6mBps: Bps = 0, termSpreadChg6mBps: Bps = 0, activityChg6m: Double = 0, claimsChg13wK: Int = 0, ismNewOrders: Double = 50, cyclicalDefensiveZ: Double = 0, copperGoldZ: Double = 0, spxVs200dPct: Int = 0, vix: Double = 16, permitsChg6mPct: Int = 0, consumerExpectations: Double = 90, tempEmpChg6mK: Int = 0, excessBondPremiumBps: Bps = 0, realM2GrowthBps: Bps = 0, cpiYoYBps: Bps = 250, cpiChg6mBps: Bps = 0) {
         self.asOf = asOf; self.source = source; self.termSpread10y3mBps = termSpread10y3mBps
         self.realRate10yBps = realRate10yBps; self.breakevenBps = breakevenBps; self.hyOasBps = hyOasBps
         self.unemploymentBps = unemploymentBps; self.sahmBps = sahmBps; self.cape = cape; self.activityZ = activityZ
         self.hyOasChg6mBps = hyOasChg6mBps; self.termSpreadChg6mBps = termSpreadChg6mBps; self.activityChg6m = activityChg6m
         self.claimsChg13wK = claimsChg13wK; self.ismNewOrders = ismNewOrders; self.cyclicalDefensiveZ = cyclicalDefensiveZ
         self.copperGoldZ = copperGoldZ; self.spxVs200dPct = spxVs200dPct; self.vix = vix
+        self.permitsChg6mPct = permitsChg6mPct; self.consumerExpectations = consumerExpectations; self.tempEmpChg6mK = tempEmpChg6mK
+        self.excessBondPremiumBps = excessBondPremiumBps; self.realM2GrowthBps = realM2GrowthBps
+        self.cpiYoYBps = cpiYoYBps; self.cpiChg6mBps = cpiChg6mBps
     }
 }
 
@@ -295,6 +306,80 @@ public extension Engine {
             signals.append(.init("Volatility (VIX)", String(format: "%.0f — complacent", s.vix), .late, "Unusually low VIX — calm now, but complacency is a late-cycle tell."))
         } else {
             signals.append(.init("Volatility (VIX)", String(format: "%.0f — calm", s.vix), .neutral, "Volatility subdued and orderly."))
+        }
+
+        // === REAL-ECONOMY BREADTH, PRICES & LIQUIDITY — the interest-rate-sensitive
+        // and consumer-facing dimensions that turn first, plus the liquidity and
+        // inflation backdrop policy responds to. ===
+
+        // 16) Building permits — housing leads the cycle (most rate-sensitive).
+        if s.permitsChg6mPct < -12 {
+            score += 8; odds += 8; turning = true
+            signals.append(.init("Building permits", "\(s.permitsChg6mPct)% / 6mo — falling", .late, "Housing rolls over first — permits declining is an early cycle-top signal."))
+        } else if s.permitsChg6mPct > 10 {
+            score -= 6
+            signals.append(.init("Building permits", "+\(s.permitsChg6mPct)% / 6mo — rising", .early, "Housing turning up — the classic early-cycle, rate-sensitive lead."))
+        } else {
+            signals.append(.init("Building permits", "\(s.permitsChg6mPct >= 0 ? "+" : "")\(s.permitsChg6mPct)% / 6mo — flat", .neutral, "Housing steady — no clear turn."))
+        }
+
+        // 17) Consumer expectations — the consumer is ~70% of GDP.
+        if s.consumerExpectations < 70 {
+            score += 8; odds += 10
+            signals.append(.init("Consumer expectations", String(format: "%.0f — weak", s.consumerExpectations), .recession, "Below ~70 has historically flagged recession — the consumer is retrenching."))
+        } else if s.consumerExpectations < 85 {
+            score += 5
+            signals.append(.init("Consumer expectations", String(format: "%.0f — soft", s.consumerExpectations), .late, "Subdued expectations — spending momentum fading."))
+        } else if s.consumerExpectations <= 105 {
+            signals.append(.init("Consumer expectations", String(format: "%.0f — steady", s.consumerExpectations), .neutral, "Expectations around average."))
+        } else {
+            score -= 6
+            signals.append(.init("Consumer expectations", String(format: "%.0f — buoyant", s.consumerExpectations), .early, "Optimistic consumer — a spending tailwind."))
+        }
+
+        // 18) Temp employment — firms cut temps before permanent staff.
+        if s.tempEmpChg6mK < -40 {
+            score += 8; odds += 8; turning = true
+            signals.append(.init("Temp employment (6mo)", "\(s.tempEmpChg6mK)k — falling", .late, "Temp help is cut first — an early labor crack, ahead of payrolls."))
+        } else if s.tempEmpChg6mK > 15 {
+            score -= 4
+            signals.append(.init("Temp employment (6mo)", "+\(s.tempEmpChg6mK)k — rising", .early, "Temp hiring firm — labor demand expanding at the margin."))
+        } else {
+            signals.append(.init("Temp employment (6mo)", "\(s.tempEmpChg6mK >= 0 ? "+" : "")\(s.tempEmpChg6mK)k — flat", .neutral, "Temp staffing roughly stable."))
+        }
+
+        // 19) Excess bond premium — the risk-appetite slice of credit spreads.
+        if s.excessBondPremiumBps > 120 {
+            score += 8; odds += 12; turning = true
+            signals.append(.init("Excess bond premium", "\(Fmt.bpsSigned(s.excessBondPremiumBps)) — elevated", .recession, "EBP spikes ahead of recessions — risk appetite is contracting."))
+        } else if s.excessBondPremiumBps < -50 {
+            score -= 6
+            signals.append(.init("Excess bond premium", "\(Fmt.bpsSigned(s.excessBondPremiumBps)) — loose", .early, "Below-average EBP — abundant risk appetite, easy financial conditions."))
+        } else {
+            signals.append(.init("Excess bond premium", "\(Fmt.bpsSigned(s.excessBondPremiumBps)) — normal", .neutral, "Risk appetite near its long-run average."))
+        }
+
+        // 20) Real money growth — liquidity feeding (or starving) the cycle.
+        if s.realM2GrowthBps < -100 {
+            score += 8; odds += 6
+            signals.append(.init("Real M2 growth", "\(Fmt.pctBps(s.realM2GrowthBps)) — contracting", .late, "Real money contracting — policy is genuinely tight, a drag ahead."))
+        } else if s.realM2GrowthBps > 150 {
+            score -= 4
+            signals.append(.init("Real M2 growth", "\(Fmt.pctBps(s.realM2GrowthBps)) — ample", .early, "Real money growing — liquidity supports activity."))
+        } else {
+            signals.append(.init("Real M2 growth", "\(Fmt.pctBps(s.realM2GrowthBps)) — neutral", .neutral, "Money growth roughly matching inflation."))
+        }
+
+        // 21) Inflation — overheating late, sub-target into recession; drives policy.
+        let cpi = s.cpiYoYBps
+        if cpi > 400 {
+            score += 6; if s.cpiChg6mBps > 0 { odds += 4 }
+            signals.append(.init("Inflation (CPI)", "\(Fmt.pctBps(cpi))\(s.cpiChg6mBps > 0 ? " — hot, rising" : " — hot")", .late, "Above-target inflation keeps policy restrictive — a late-cycle squeeze."))
+        } else if cpi < 120 {
+            score += 4; odds += 6
+            signals.append(.init("Inflation (CPI)", "\(Fmt.pctBps(cpi)) — very low", .recession, "Sub-target inflation often accompanies demand weakness."))
+        } else {
+            signals.append(.init("Inflation (CPI)", "\(Fmt.pctBps(cpi)) — near target", .neutral, "Inflation around the policy target — no cycle extreme from prices."))
         }
 
         // Resolve phase, inning, odds.

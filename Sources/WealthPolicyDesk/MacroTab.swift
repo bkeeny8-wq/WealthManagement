@@ -85,13 +85,17 @@ struct MacroTab: View {
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
     }
 
-    private let signalCategories = ["Growth & activity", "Labor", "Rates & policy", "Credit", "Equity & market"]
+    private let signalCategories = ["Growth & activity", "Labor", "Housing", "Consumer", "Inflation", "Rates & policy", "Money & liquidity", "Credit", "Equity & market"]
     private func category(of name: String) -> String {
         let n = name.lowercased()
         if n.contains("ism") || n.contains("activity") { return "Growth & activity" }
-        if n.contains("sahm") || n.contains("labor") || n.contains("claims") { return "Labor" }
+        if n.contains("sahm") || n.contains("labor") || n.contains("claims") || n.contains("temp") { return "Labor" }
+        if n.contains("permit") || n.contains("housing") { return "Housing" }
+        if n.contains("consumer") { return "Consumer" }
+        if n.contains("inflation") || n.contains("cpi") { return "Inflation" }
+        if n.contains("m2") || n.contains("money") || n.contains("liquidity") { return "Money & liquidity" }
         if n.contains("curve") || n.contains("policy rate") { return "Rates & policy" }
-        if n.contains("credit") { return "Credit" }
+        if n.contains("credit") || n.contains("bond premium") { return "Credit" }
         return "Equity & market"
     }
 
