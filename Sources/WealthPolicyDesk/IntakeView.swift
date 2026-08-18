@@ -32,6 +32,7 @@ public struct RootView: View {
     @State private var practice = PracticeMetadata()
 
     @State private var showWizard = false
+    @State private var showEcon = false          // the firm-wide Econ backdrop, top-level (no client)
     @State private var wizardSeed = IntakeModel()
     @State private var wizardPractice = PracticeMetadata()
     @State private var wizardEditingId: UUID?    // nil ⇒ creating a new client
@@ -40,7 +41,9 @@ public struct RootView: View {
 
     public var body: some View {
         Group {
-            if household != nil {
+            if showEcon {
+                EconView(onClose: { showEcon = false })
+            } else if household != nil {
                 DeskView(
                     household: Binding($household)!,
                     clientHeader: intake != nil ? practice.header : nil,
@@ -57,6 +60,7 @@ public struct RootView: View {
                     book: book,
                     onOpen: openClient,
                     onNew: startNewClient,
+                    onEcon: { showEcon = true },
                     onSample: openSample,
                     onArchiveToggle: toggleArchive,
                     onDelete: deleteClient,
@@ -158,6 +162,7 @@ public struct RootView: View {
 struct WelcomeView: View {
     var onStart: () -> Void
     var onSample: () -> Void
+    var onEcon: () -> Void = {}
     var body: some View {
         ZStack {
             Theme.paper.ignoresSafeArea()
@@ -181,6 +186,10 @@ struct WelcomeView: View {
                             .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.rule))
                     }.buttonStyle(.plain)
+                    Button(action: onEcon) {
+                        Label("See the Econ backdrop", systemImage: "globe.americas")
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent)
+                    }.buttonStyle(.plain).padding(.top, 2)
                 }
                 Text(Teach.disclosure).font(.system(size: 11)).foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center).frame(maxWidth: 460)

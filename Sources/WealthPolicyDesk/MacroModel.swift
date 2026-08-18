@@ -52,6 +52,24 @@ public enum MacroCategory: String, CaseIterable, Sendable, Hashable {
     case market = "Equity & market"
 }
 
+/// Where an indicator sits in the cycle's timing chain. The pedagogical payoff:
+/// leading signals roll over first, so when the leading group leans late while
+/// the coincident group still reads steady, that divergence *is* the turn — a
+/// signal the flat, all-in-one board hides.
+public enum MacroTiming: String, CaseIterable, Sendable, Hashable {
+    case leading = "Leading"
+    case coincident = "Coincident"
+    case lagging = "Lagging"
+    /// One-line role in the cycle read (shown under the group header).
+    public var blurb: String {
+        switch self {
+        case .leading:    return "move before the cycle turns"
+        case .coincident: return "where the economy is right now"
+        case .lagging:    return "confirm the trend after the fact"
+        }
+    }
+}
+
 public enum MacroUnit: String, Sendable, Hashable { case pct, bps, index, zscore, levelK, ratio, count }
 
 /// A value threshold: at or below `upTo`, the indicator leans `lean` (labeled).
@@ -70,13 +88,14 @@ public struct MacroIndicator: Identifiable, Sendable, Hashable {
     public var unit: MacroUnit
     public var importance: Int    // 1–3 (3 = premier leading indicator)
     public var oddsWeight: Int    // added to recession odds when in its worst (recession) band
+    public var timing: MacroTiming
     public var source: String
     public var descriptor: String
     public var bands: [MacroBand]
     public var id: String { name }
-    public init(_ name: String, _ category: MacroCategory, _ value: Double, _ unit: MacroUnit, importance: Int, oddsWeight: Int, source: String, descriptor: String, bands: [MacroBand]) {
+    public init(_ name: String, _ category: MacroCategory, _ value: Double, _ unit: MacroUnit, importance: Int, oddsWeight: Int, timing: MacroTiming = .coincident, source: String, descriptor: String, bands: [MacroBand]) {
         self.name = name; self.category = category; self.value = value; self.unit = unit
-        self.importance = importance; self.oddsWeight = oddsWeight; self.source = source
+        self.importance = importance; self.oddsWeight = oddsWeight; self.timing = timing; self.source = source
         self.descriptor = descriptor; self.bands = bands
     }
     /// The current band (first whose upTo the value clears, ascending).

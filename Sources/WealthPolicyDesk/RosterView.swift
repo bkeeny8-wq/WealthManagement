@@ -12,6 +12,7 @@ struct RosterView: View {
     let book: [ClientRecord]
     var onOpen: (UUID) -> Void
     var onNew: () -> Void
+    var onEcon: () -> Void
     var onSample: () -> Void
     var onArchiveToggle: (UUID) -> Void
     var onDelete: (UUID) -> Void
@@ -26,7 +27,7 @@ struct RosterView: View {
 
     var body: some View {
         if book.isEmpty {
-            WelcomeView(onStart: onNew, onSample: onSample)
+            WelcomeView(onStart: onNew, onSample: onSample, onEcon: onEcon)
         } else {
             NavigationStack {
                 ScrollView {
@@ -43,6 +44,10 @@ struct RosterView: View {
                 .background(Theme.paper)
                 .navigationTitle("Book of business")
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: onEcon) { Label("Econ", systemImage: "globe.americas") }
+                            .tint(Theme.accent)
+                    }
                     ToolbarItem(placement: .primaryAction) {
                         Button(action: onNew) { Label("New client", systemImage: "person.badge.plus") }
                     }
