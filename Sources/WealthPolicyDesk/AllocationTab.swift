@@ -7,7 +7,7 @@ struct AllocationTab: View {
     let eval: Evaluation
 
     private var sleeveColor: [String: Color] {
-        ["us_large_core": Theme.accent, "us_sector_tilt": Theme.amber, "us_mid_small": Theme.accent.opacity(0.6),
+        ["us_large_core": Theme.accent, "us_factor_tilt": Theme.accent.opacity(0.8), "us_sector_tilt": Theme.amber, "us_mid_small": Theme.accent.opacity(0.6),
          "intl_developed": Theme.asset, "intl_small": Theme.asset.opacity(0.75), "emerging": Theme.asset.opacity(0.55),
          "real_assets": Theme.debt.opacity(0.6),
          "fixed_income_liquid": Theme.ink.opacity(0.55), "tips": Theme.ink.opacity(0.38),

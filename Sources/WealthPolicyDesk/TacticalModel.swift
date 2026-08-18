@@ -102,6 +102,7 @@ public extension TacticalTilt {
     var tiltSleeveId: String? {
         switch ticker {
         case "XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLI", "XLB", "XLU", "XLRE", "XLC": return "us_sector_tilt"
+        case "VLUE", "MTUM", "QUAL", "USMV", "VUG": return "us_factor_tilt"   // factor via the dedicated factor sleeve
         case "VOO", "VT": return "us_large_core"
         case "IWM": return "us_mid_small"
         case "VEA": return "intl_developed"

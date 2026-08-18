@@ -57,10 +57,16 @@ public enum Seed {
 
     static let sleeves: [Sleeve] = [
         // --- Growth (equities) — the return engine, bound by the risk ceiling ---
-        Sleeve(id: "us_large_core", label: "US Large Core", tier: .core, role: .growth, targetBps: 2000, bandBps: 500, maxBps: nil,
+        Sleeve(id: "us_large_core", label: "US Large Core", tier: .core, role: .growth, targetBps: 1650, bandBps: 500, maxBps: nil,
                taxEfficiency: .high, locationPreference: [.taxable, .taxFree, .taxDeferred], liquidityClass: .daily,
                instruments: [.init(ticker: "VOO", role: .primary), .init(ticker: "SPLG", role: .tlhPartner)],
                rationale: "Beta anchor. Held in taxable and never sold under a step-up earmark."),
+        Sleeve(id: "us_factor_tilt", label: "US Factor Tilt", tier: .satellite, role: .growth, targetBps: 350, bandBps: 200, maxBps: 800,
+               taxEfficiency: .moderate, locationPreference: [.taxDeferred, .taxFree], liquidityClass: .daily,
+               instruments: [.init(ticker: "VLUE", role: .primary),
+                             .init(ticker: "MTUM", role: .option), .init(ticker: "QUAL", role: .option),
+                             .init(ticker: "USMV", role: .option), .init(ticker: "VUG", role: .option)],
+               rationale: "A single-factor overweight — value, momentum, quality, or low-vol — implemented with its factor ETF. Which factor is the tactical call (set on the Tilts tab), carved from the cap-weighted core. Held sheltered; factor rotation is tax-inefficient."),
         Sleeve(id: "us_sector_tilt", label: "SPDR Sector Tilt", tier: .satellite, role: .growth, targetBps: 700, bandBps: 300, maxBps: 1200,
                taxEfficiency: .moderate, locationPreference: [.taxDeferred], liquidityClass: .daily,
                instruments: [.init(ticker: "XLK", role: .primary),

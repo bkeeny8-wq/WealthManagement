@@ -144,6 +144,7 @@ public extension Engine {
         var classes: [AssetClassCME] = [
             // Equities (Grinold-Kroner). Regional CAPEs and payout/growth are dials.
             equity("us_large_core",  "US Large Core",           div: 130, buyback: 150, growth: 160, cape: capeUS, fairCape: 27),
+            equity("us_factor_tilt", "US Factor Tilt",          div: 170, buyback: 130, growth: 160, cape: 34,     fairCape: 24),
             equity("us_sector_tilt", "SPDR Sector Tilt",        div: 130, buyback: 150, growth: 160, cape: capeUS, fairCape: 27),
             equity("us_mid_small",   "US Mid/Small",            div: 140, buyback: 100, growth: 180, cape: 28,     fairCape: 22),
             equity("intl_developed", "International Developed",  div: 320, buyback:  50, growth: 130, cape: 17,     fairCape: 18),

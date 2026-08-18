@@ -51,7 +51,7 @@ public extension Engine {
 
     static func riskBucket(sleeveId: String) -> MarketRiskBucket {
         switch sleeveId {
-        case "us_large_core", "us_sector_tilt", "us_mid_small": return .usEq
+        case "us_large_core", "us_factor_tilt", "us_sector_tilt", "us_mid_small": return .usEq
         case "intl_developed", "intl_small": return .intlEq
         case "emerging": return .emEq
         case "real_assets": return .realEstate
