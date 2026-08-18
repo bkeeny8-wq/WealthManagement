@@ -483,6 +483,7 @@ public enum Seed {
             incomeProfile: HouseholdIncomeProfile(incomeCorrelation: 0.45, primaryShareOfIncomeBps: 6600, survivableOnSingleIncome: true),
             socialSecurity: ssProfiles, goals: goals, externalAssets: externalAssets,
             eligibilityTierId: "tier_3", accounts: accounts, positions: positions, liabilities: liabilities,
-            annualSavingsUsd: 80_000, legacyFloorUsd: 1_000_000, protection: protection, equityComp: equityComp)
+            annualSavingsUsd: 80_000, legacyFloorUsd: 1_000_000, statedToleranceMaxDrawdownBps: 3000,
+            protection: protection, equityComp: equityComp)
     }()
 }
