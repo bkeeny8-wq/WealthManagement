@@ -56,9 +56,33 @@ public enum PastBehavior: String, Codable, CaseIterable, Hashable {
     }
 }
 
+/// A forward, dollar-anchored loss-reaction — the single most predictive risk-
+/// tolerance item. What the client says they'd actually DO in a severe year
+/// tempers a stated max-loss threshold (words are cheaper than actions), and it
+/// applies even to someone who wasn't invested for the last drawdown.
+public enum LossReaction: String, Codable, CaseIterable, Hashable {
+    case sellAll, sellSome, hold, buyMore
+    public var label: String {
+        switch self {
+        case .sellAll:  return "Sell to stop the loss"
+        case .sellSome: return "Trim some"
+        case .hold:     return "Hold the course"
+        case .buyMore:  return "Buy more"
+        }
+    }
+    /// Forward-reaction multiplier on stated tolerance.
+    var toleranceMultiplier: Double {
+        switch self { case .sellAll: return 0.6; case .sellSome: return 0.85; case .hold: return 1.0; case .buyMore: return 1.15 }
+    }
+}
+
 public enum WorryFraming: String, Codable, CaseIterable, Hashable {
     case drop, shortfall
     public var label: String { self == .drop ? "A big temporary drop" : "Not reaching the goal" }
+    /// Orientation tilt: a shortfall-worried client bears more volatility to reach
+    /// the goal; a drop-worried client less. A small, honest nudge — the framing's
+    /// bigger job (which frontier point to highlight) arrives with the frontier.
+    var toleranceTiltMultiplier: Double { self == .drop ? 0.95 : 1.05 }
 }
 
 public enum LegacyPriority: String, Codable, CaseIterable, Hashable {
@@ -318,8 +342,9 @@ public struct IntakeModel: Codable, Hashable {
     public var legacyFloorUsd: Usd = 0
 
     // 8 — personality / risk
-    public var lossToleranceBps: Bps = 2500       // stated max single-year drawdown
-    public var pastBehavior: PastBehavior = .held
+    public var lossToleranceBps: Bps = 2000       // stated max single-year drawdown (the threshold; on the chip grid)
+    public var pastBehavior: PastBehavior = .held         // revealed history
+    public var forwardLossReaction: LossReaction = .hold  // stated forward reaction to a severe year
     public var worry: WorryFraming = .shortfall
     public var legacyPriority: LegacyPriority = .niceToHave
     public var spendingFlexibility: SpendingFlexibility = .some
@@ -418,6 +443,7 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .legacyFloorUsd)) ?? nil { legacyFloorUsd = v }
         if let v = (try? c.decodeIfPresent(Bps.self, forKey: .lossToleranceBps)) ?? nil { lossToleranceBps = v }
         if let v = (try? c.decodeIfPresent(PastBehavior.self, forKey: .pastBehavior)) ?? nil { pastBehavior = v }
+        if let v = (try? c.decodeIfPresent(LossReaction.self, forKey: .forwardLossReaction)) ?? nil { forwardLossReaction = v }
         if let v = (try? c.decodeIfPresent(WorryFraming.self, forKey: .worry)) ?? nil { worry = v }
         if let v = (try? c.decodeIfPresent(LegacyPriority.self, forKey: .legacyPriority)) ?? nil { legacyPriority = v }
         if let v = (try? c.decodeIfPresent(SpendingFlexibility.self, forKey: .spendingFlexibility)) ?? nil { spendingFlexibility = v }
@@ -518,6 +544,29 @@ public struct RiskProfile: Sendable, Hashable {
 // MARK: - Build a Household from the intake
 
 public extension IntakeModel {
+
+    // MARK: - Risk-tolerance composition (a glass box)
+
+    /// The stated max-loss threshold snapped to the questionnaire's discrete grid,
+    /// so the chip, the readout, and the composition can never disagree.
+    var statedThresholdBps: Bps { [1000, 2000, 3000, 4000].min(by: { abs($0 - lossToleranceBps) < abs($1 - lossToleranceBps) }) ?? 2000 }
+
+    /// The behavioral temper on the stated threshold: the blend of revealed history
+    /// and a stated forward reaction, each cheaper than living through a real
+    /// drawdown. Averaging (not multiplying) avoids double-penalizing.
+    var behaviorTemperMultiplier: Double { (pastBehavior.toleranceMultiplier + forwardLossReaction.toleranceMultiplier) / 2 }
+
+    /// The composed max single-year drawdown tolerance: the stated threshold,
+    /// tempered by behavior, tilted by which failure the client fears more.
+    var effectiveMaxDrawdownBps: Bps {
+        let v = Double(statedThresholdBps) * behaviorTemperMultiplier * worry.toleranceTiltMultiplier
+        return max(500, min(5000, Int(v.rounded())))
+    }
+
+    /// The equity ceiling that drawdown tolerance implies (equities fall ~50% in a
+    /// crash, so ceiling ≈ 2×). Mirrors Engine.toleranceEquityBps; a frontier-derived
+    /// mapping replaces the 2× rule once the frontier lands.
+    var impliedEquityCeilingBps: Bps { min(10000, effectiveMaxDrawdownBps * 2) }
 
     func buildHousehold() -> Household {
         let yr = Self.currentYear
@@ -681,7 +730,7 @@ public extension IntakeModel {
         var floor = legacyFloorUsd
         if floor == 0 && legacyPriority == .essential { floor = totalInvestableUsd }   // preserve real principal
         if floor == 0 && legacyPriority == .niceToHave { floor = totalInvestableUsd * 0.5 }
-        let effectiveTolerance = Int(Double(lossToleranceBps) * pastBehavior.toleranceMultiplier)
+        let effectiveTolerance = effectiveMaxDrawdownBps
 
         let tier = Self.tier(forInvestable: totalInvestableUsd)
 

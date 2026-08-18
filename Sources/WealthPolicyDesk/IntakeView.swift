@@ -602,14 +602,27 @@ struct IntakeWizard: View {
         VStack(spacing: 14) {
             Card("How much loss could you take?", help: Teach.help("requiredReturn")) {
                 ChoiceChips([(1000, "10%"), (2000, "20%"), (3000, "30%"), (4000, "40%+")], selection: nearestTolerance) { intake.lossToleranceBps = $0 }
-                Note("In a single bad year, the drop at which you'd feel you had to act. This implies a ceiling on equity.")
+                Note("In a single bad year, the drop at which you'd feel you had to act. On ~\(Fmt.usdShort(intake.totalInvestableUsd)) that's about a \(Fmt.usdShort(Double(nearestTolerance) / 10000.0 * intake.totalInvestableUsd)) fall — the threshold, which implies a ceiling on equity.")
+            }
+            Card("If a severe year actually hit…") {
+                ChoiceChips(LossReaction.allCases.map { ($0, $0.label) }, selection: intake.forwardLossReaction) { intake.forwardLossReaction = $0 }
+                Note("A 2008-style year takes your ~\(Fmt.usdShort(intake.totalInvestableUsd)) down about 35%, to ~\(Fmt.usdShort(intake.totalInvestableUsd * 0.65)). What would you most likely do? What you'd DO tempers what you SAY you'll tolerate.")
             }
             Card("In the last big market drop, you…") {
                 ChoiceChips(PastBehavior.allCases.map { ($0, $0.label) }, selection: intake.pastBehavior) { intake.pastBehavior = $0 }
-                Note("Revealed behavior tempers stated tolerance — words and actions often disagree.")
+                Note("Revealed history is the second behavioral check — and it catches the client who wasn't invested last time.")
             }
             Card("What worries you more?") {
                 ChoiceChips(WorryFraming.allCases.map { ($0, $0.label) }, selection: intake.worry) { intake.worry = $0 }
+                Note("A drop-worried client is nudged toward stability; a shortfall-worried one toward the return the goal needs.")
+            }
+            Card("Your risk read") {
+                LedgerRow("Stated threshold", Fmt.pctBps(intake.statedThresholdBps), color: Theme.muted)
+                LedgerRow("× behavior (history + reaction)", String(format: "%.2f×", intake.behaviorTemperMultiplier), color: Theme.muted)
+                LedgerRow("× outlook", String(format: "%.2f×", intake.worry.toleranceTiltMultiplier), color: Theme.muted)
+                LedgerRow("Effective max drawdown", Fmt.pctBps(intake.effectiveMaxDrawdownBps), color: Theme.ink, bold: true)
+                LedgerRow("Implies an equity ceiling near", Fmt.pctBps(intake.impliedEquityCeilingBps), color: Theme.asset, bold: true)
+                Note("This is TOLERANCE. Your situation's CAPACITY — horizon, income stability, funded status — is computed on the desk, and the plan binds to the lower of the two: never more risk than you can afford or will stomach.", icon: "info.circle", color: Theme.muted)
             }
             Card("Is leaving a legacy…") {
                 ChoiceChips(LegacyPriority.allCases.map { ($0, $0.label) }, selection: intake.legacyPriority) { intake.legacyPriority = $0 }
@@ -641,9 +654,7 @@ struct IntakeWizard: View {
     }
 
     // helpers
-    private var nearestTolerance: Int {
-        [1000, 2000, 3000, 4000].min(by: { abs($0 - intake.lossToleranceBps) < abs($1 - intake.lossToleranceBps) }) ?? 2000
-    }
+    private var nearestTolerance: Int { intake.statedThresholdBps }
     private func bpsAsPct(_ b: Binding<Bps>) -> Binding<Double> {
         Binding(get: { Double(b.wrappedValue) / 10_000 }, set: { b.wrappedValue = Int(($0 * 10_000).rounded()) })
     }
