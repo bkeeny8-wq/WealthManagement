@@ -7,6 +7,10 @@ import Charts
 struct RequiredReturnTab: View {
     let eval: Evaluation
     private var rr: RequiredReturn { eval.requiredReturn }
+    private var recon: CMEReconciliation {
+        let cme = Engine.capitalMarketExpectations(Seed.macroIndicators, regime: Engine.macroRegime(Seed.macroIndicators))
+        return Engine.cmeReconciliation(eval, cme: cme)
+    }
 
     var body: some View {
         Card("Required real return", help: Teach.help("requiredReturn")) {
@@ -24,6 +28,17 @@ struct RequiredReturnTab: View {
                 }
             }
             Note("The gap of \(Fmt.bps(rr.requiredRealReturnBps - rr.requiredRealReturnWithFlexibilityBps)) is what deferring and scaling the spending goal buys — for free. Deferring a goal beats taking more risk.", icon: "arrow.down.right", color: Theme.accent)
+        }
+
+        Card("Expected vs required — is the market priced to fund this plan?") {
+            let rec = recon
+            LedgerRow("Required real (after-tax)", Fmt.pctBps(rec.requiredRealBps), color: Theme.ink, bold: true)
+            reconRow("Strategic target", rec.target.expectedRealBps, rec.gapTargetBps)
+            reconRow("Current holdings", rec.current.expectedRealBps, rec.gapCurrentBps)
+            if rec.unpricedResidualBps > 25 {
+                Note("\(Fmt.pctBps(rec.unpricedResidualBps)) of current holdings aren't mapped to a sleeve (e.g. a concentrated stock) and are priced here as US-large equity.", icon: "questionmark.circle", color: Theme.muted)
+            }
+            Note("Both figures are REAL. \"Expected\" is what the market is priced to deliver on this allocation (Econ → Capital market expectations), gross of fund fees and annual investment taxes. \"Required\" is the rate the corpus must actually compound at — it already funds the plan's own taxes. Because expected is gross of those frictions, read a small positive gap as roughly funded, not a true cushion. A gap the market isn't priced to close is closed by saving more, spending less, or deferring a goal (required with flexibility: \(Fmt.pctBps(rec.requiredFlexBps))) — not by reaching for risk the market isn't paying for.", icon: "scalemass")
         }
 
         Card("After-tax — the tax drag", help: Teach.help("requiredReturn")) {
@@ -73,5 +88,20 @@ struct RequiredReturnTab: View {
             LedgerRow("Funded ratio", Fmt.pctBps(rr.fundedRatioBps), color: rr.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber, bold: true)
             Note("PVs use a \(Fmt.pctBps(rr.safeRealRateBps)) safe real rate (TIPS-like) — an observable, not a capital-market forecast. Report the required return first; let assumptions answer how plausible it is.")
         }
+    }
+
+    /// One portfolio's expected real return vs the required hurdle, with a verdict chip.
+    private func reconRow(_ label: String, _ expected: Bps, _ gap: Bps) -> some View {
+        let verdict = CMEReconciliation.verdict(gap)
+        let color: Color = verdict == .cushion ? Theme.asset : (verdict == .stretch ? Theme.debt : Theme.amber)
+        return HStack(spacing: 8) {
+            Text(label).font(.system(size: 13)).foregroundStyle(Theme.ink)
+            Spacer()
+            Text(Fmt.pctBps(expected)).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink)
+            Text(Fmt.bpsSigned(gap)).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(color)
+            Text(verdict.rawValue.uppercased()).font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                .padding(.horizontal, 6).padding(.vertical, 2).background(color, in: Capsule())
+        }
+        .padding(.vertical, 3)
     }
 }

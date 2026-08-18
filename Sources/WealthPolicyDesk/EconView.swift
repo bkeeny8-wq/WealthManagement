@@ -21,6 +21,7 @@ struct EconView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     masthead
                     MacroTab()
+                    CapitalMarketTab()
                     SentimentTab()
                 }
                 .padding(24)
