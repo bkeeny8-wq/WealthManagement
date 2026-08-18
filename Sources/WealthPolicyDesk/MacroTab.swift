@@ -33,8 +33,15 @@ struct MacroTab: View {
         }
 
         Card("Signals — what's driving the read") {
-            ForEach(r.signals) { s in signalRow(s) }
-            Note("Every input is observable and shown with its lean, so the inning is auditable — no black box. Late-leaning signals push the cycle later; the Sahm trigger or deep credit stress flips it to recession.", color: Theme.muted)
+            ForEach(signalCategories, id: \.self) { cat in
+                let sigs = r.signals.filter { category(of: $0.name) == cat }
+                if !sigs.isEmpty {
+                    Text(cat.uppercased()).font(.system(size: 10, weight: .heavy)).foregroundStyle(Theme.accent)
+                        .padding(.top, 8)
+                    ForEach(sigs) { s in signalRow(s) }
+                }
+            }
+            Note("Every input is observable and shown with its lean, so the inning is auditable — no black box. The read balances a strong real economy against stretched assets; late-leaning signals push the cycle later, and the Sahm trigger, an ISM collapse, or a market rollover flips it to recession.", color: Theme.muted)
         }
     }
 
@@ -76,6 +83,16 @@ struct MacroTab: View {
         }
         .padding(.vertical, 7)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+    }
+
+    private let signalCategories = ["Growth & activity", "Labor", "Rates & policy", "Credit", "Equity & market"]
+    private func category(of name: String) -> String {
+        let n = name.lowercased()
+        if n.contains("ism") || n.contains("activity") { return "Growth & activity" }
+        if n.contains("sahm") || n.contains("labor") || n.contains("claims") { return "Labor" }
+        if n.contains("curve") || n.contains("policy rate") { return "Rates & policy" }
+        if n.contains("credit") { return "Credit" }
+        return "Equity & market"
     }
 
     private func phaseColor(_ p: CyclePhase) -> Color {

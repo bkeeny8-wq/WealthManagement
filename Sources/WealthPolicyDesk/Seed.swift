@@ -127,7 +127,8 @@ public enum Seed {
         asOf: "2026-08-15", source: "FRED · US Treasury · multpl (verify)",
         termSpread10y3mBps: 85, realRate10yBps: 200, breakevenBps: 230, hyOasBps: 271,
         unemploymentBps: 430, sahmBps: 7, cape: 42.35, activityZ: 0.1,
-        hyOasChg6mBps: -12, termSpreadChg6mBps: 20, activityChg6m: 0.0)
+        hyOasChg6mBps: -12, termSpreadChg6mBps: 20, activityChg6m: 0.0,
+        claimsChg13wK: 3, ismNewOrders: 56.7, cyclicalDefensiveZ: 0.4, copperGoldZ: -0.2, spxVs200dPct: 12, vix: 14.25)
 
     static let altBudgets: [AltFunctionBudget] = [
         .init(fn: .convexity, targetBps: 700, bandBps: 200,

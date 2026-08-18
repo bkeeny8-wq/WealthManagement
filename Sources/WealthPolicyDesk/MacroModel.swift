@@ -69,11 +69,20 @@ public struct MacroSnapshot: Sendable, Hashable {
     public var hyOasChg6mBps: Bps         // Δ HY OAS over 6mo (+ = widening off lows)
     public var termSpreadChg6mBps: Bps    // Δ 10y−3m over 6mo (+ = steepening)
     public var activityChg6m: Double      // Δ activity z over 6mo (+ = accelerating)
-    public init(asOf: IsoDate, source: String, termSpread10y3mBps: Bps, realRate10yBps: Bps, breakevenBps: Bps, hyOasBps: Bps, unemploymentBps: Bps, sahmBps: Bps, cape: Double, activityZ: Double, hyOasChg6mBps: Bps = 0, termSpreadChg6mBps: Bps = 0, activityChg6m: Double = 0) {
+    // --- Broader market & survey data ---
+    public var claimsChg13wK: Int         // initial claims 4wk-MA, 13-week change (thousands; + = rising)
+    public var ismNewOrders: Double       // ISM manufacturing new orders (50 = neutral)
+    public var cyclicalDefensiveZ: Double // cyclicals-vs-defensives relative-trend z (+ = risk-on)
+    public var copperGoldZ: Double        // copper/gold ratio trend z (+ = growth strong)
+    public var spxVs200dPct: Int          // S&P 500 vs its 200-day, % (+ = uptrend)
+    public var vix: Double                // CBOE VIX
+    public init(asOf: IsoDate, source: String, termSpread10y3mBps: Bps, realRate10yBps: Bps, breakevenBps: Bps, hyOasBps: Bps, unemploymentBps: Bps, sahmBps: Bps, cape: Double, activityZ: Double, hyOasChg6mBps: Bps = 0, termSpreadChg6mBps: Bps = 0, activityChg6m: Double = 0, claimsChg13wK: Int = 0, ismNewOrders: Double = 50, cyclicalDefensiveZ: Double = 0, copperGoldZ: Double = 0, spxVs200dPct: Int = 0, vix: Double = 16) {
         self.asOf = asOf; self.source = source; self.termSpread10y3mBps = termSpread10y3mBps
         self.realRate10yBps = realRate10yBps; self.breakevenBps = breakevenBps; self.hyOasBps = hyOasBps
         self.unemploymentBps = unemploymentBps; self.sahmBps = sahmBps; self.cape = cape; self.activityZ = activityZ
         self.hyOasChg6mBps = hyOasChg6mBps; self.termSpreadChg6mBps = termSpreadChg6mBps; self.activityChg6m = activityChg6m
+        self.claimsChg13wK = claimsChg13wK; self.ismNewOrders = ismNewOrders; self.cyclicalDefensiveZ = cyclicalDefensiveZ
+        self.copperGoldZ = copperGoldZ; self.spxVs200dPct = spxVs200dPct; self.vix = vix
     }
 }
 
@@ -213,6 +222,79 @@ public extension Engine {
             signals.append(.init("Activity momentum (6mo)", String(format: "Δz = %+.1f — accelerating", s.activityChg6m), .early, "Growth gaining momentum — early/mid expansion."))
         } else {
             signals.append(.init("Activity momentum (6mo)", String(format: "Δz = %+.1f — steady", s.activityChg6m), .neutral, "Growth momentum roughly flat."))
+        }
+
+        // === BROADER MARKET & SURVEY DATA — the market's own cycle vote plus the
+        // best hard-data leaders, so the read isn't carried by rates and valuation
+        // alone. This is where "the economy is strong" balances "assets look late". ===
+
+        // 10) Jobless claims — the fastest labor leading indicator (leads Sahm).
+        if s.claimsChg13wK > 40 {
+            score += 10; odds += 12; turning = true
+            signals.append(.init("Jobless claims (13wk)", "+\(s.claimsChg13wK)k — rising", .late, "Claims turning up is the earliest labor crack — it leads the Sahm trigger."))
+        } else if s.claimsChg13wK < -20 {
+            score -= 6
+            signals.append(.init("Jobless claims (13wk)", "\(s.claimsChg13wK)k — falling", .early, "Claims still improving — labor demand firm."))
+        } else {
+            signals.append(.init("Jobless claims (13wk)", "\(s.claimsChg13wK >= 0 ? "+" : "")\(s.claimsChg13wK)k — flat", .neutral, "No labor crack: claims low and stable."))
+        }
+
+        // 11) ISM manufacturing new orders — the premier survey leading indicator.
+        if s.ismNewOrders < 45 {
+            score += 12; odds += 15
+            signals.append(.init("ISM new orders", String(format: "%.1f — contracting", s.ismNewOrders), .recession, "Deep sub-50: manufacturing demand contracting — recessionary."))
+        } else if s.ismNewOrders < 50 {
+            score += 8
+            signals.append(.init("ISM new orders", String(format: "%.1f — soft", s.ismNewOrders), .late, "Below 50: new orders shrinking — late-cycle demand fade."))
+        } else if s.ismNewOrders <= 53 {
+            signals.append(.init("ISM new orders", String(format: "%.1f — steady", s.ismNewOrders), .neutral, "Around the 50 line — demand roughly stable."))
+        } else {
+            score -= 8
+            signals.append(.init("ISM new orders", String(format: "%.1f — strong", s.ismNewOrders), .early, "Well above 50 and rising — robust demand, a healthy real economy."))
+        }
+
+        // 12) Cyclicals vs. defensives — the equity market's own cycle vote.
+        if s.cyclicalDefensiveZ < -0.4 {
+            score += 10; odds += 8; turning = true
+            signals.append(.init("Cyclicals vs defensives", String(format: "z = %+.1f — defensives lead", s.cyclicalDefensiveZ), .late, "The market is rotating to defensives — pricing a slowdown."))
+        } else if s.cyclicalDefensiveZ > 0.3 {
+            score -= 6
+            signals.append(.init("Cyclicals vs defensives", String(format: "z = %+.1f — cyclicals lead", s.cyclicalDefensiveZ), .early, "Cyclicals leading — the market is voting risk-on / early-mid."))
+        } else {
+            signals.append(.init("Cyclicals vs defensives", String(format: "z = %+.1f — mixed", s.cyclicalDefensiveZ), .neutral, "No clear rotation."))
+        }
+
+        // 13) Copper/gold — "Dr. Copper" vs. the haven; an industrial-demand read.
+        if s.copperGoldZ < -0.5 {
+            score += 8; odds += 6
+            signals.append(.init("Copper / gold", String(format: "z = %+.1f — gold leads", s.copperGoldZ), .late, "Gold outrunning copper — the market bids safety over growth."))
+        } else if s.copperGoldZ > 0.5 {
+            score -= 6
+            signals.append(.init("Copper / gold", String(format: "z = %+.1f — copper leads", s.copperGoldZ), .early, "Copper outrunning gold — industrial demand firm, growth intact."))
+        } else {
+            signals.append(.init("Copper / gold", String(format: "z = %+.1f — balanced", s.copperGoldZ), .neutral, "No clear growth-vs-safety tilt."))
+        }
+
+        // 14) Equity trend — the index is itself a leading indicator; a rollover leads.
+        if s.spxVs200dPct < -5 {
+            score += 10; odds += 8; turning = true
+            signals.append(.init("Equity trend (vs 200d)", "\(s.spxVs200dPct)% — below trend", .late, "The index has rolled below its 200-day — a leading risk-off signal."))
+        } else if s.spxVs200dPct > 3 {
+            score -= 6
+            signals.append(.init("Equity trend (vs 200d)", "+\(s.spxVs200dPct)% — uptrend", .early, "Index above a rising 200-day — no market rollover; risk-on."))
+        } else {
+            signals.append(.init("Equity trend (vs 200d)", "\(s.spxVs200dPct >= 0 ? "+" : "")\(s.spxVs200dPct)% — flat", .neutral, "Index churning around its 200-day."))
+        }
+
+        // 15) Volatility — stress vs. complacency.
+        if s.vix > 28 {
+            score += 8; odds += 10; turning = true
+            signals.append(.init("Volatility (VIX)", String(format: "%.0f — stressed", s.vix), .recession, "Elevated VIX — the market is repricing risk; stress is here."))
+        } else if s.vix < 13 {
+            score += 4
+            signals.append(.init("Volatility (VIX)", String(format: "%.0f — complacent", s.vix), .late, "Unusually low VIX — calm now, but complacency is a late-cycle tell."))
+        } else {
+            signals.append(.init("Volatility (VIX)", String(format: "%.0f — calm", s.vix), .neutral, "Volatility subdued and orderly."))
         }
 
         // Resolve phase, inning, odds.
