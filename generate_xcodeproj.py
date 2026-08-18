@@ -79,6 +79,7 @@ framework_files = [
     "AllocationSolver.swift",
     "RiskScale.swift",
     "MacroModel.swift",
+    "MacroIndicators.swift",
     "Decumulation.swift",
     "Resilience.swift",
     "Planning.swift",
