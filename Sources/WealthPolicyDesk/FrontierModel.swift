@@ -79,7 +79,7 @@ public extension Engine {
 
         // The client's own portfolios from the solved allocation.
         func clientPoint(target: Bool) -> FrontierPoint {
-            var sleeves = eval.allocation.map { (id: $0.sleeveId, label: $0.label, bps: target ? $0.targetBps : $0.currentBps) }
+            var sleeves = eval.allocation.map { (id: $0.sleeveId, label: $0.label, bps: target ? $0.strategicTargetBps : $0.currentBps) }
             let alts = eval.altSizing.map { (fn: $0.fn, bps: target ? $0.targetBps : $0.currentBps) }
             if !target {   // fold an unclassified concentrated lot in, priced as equity (as the CME reconciliation does)
                 let recog = sleeves.reduce(0) { $0 + max(0, $1.bps) } + alts.reduce(0) { $0 + max(0, $1.bps) }

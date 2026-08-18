@@ -51,6 +51,7 @@ public struct RootView: View {
                     committedStatuses: activeCommittedStatuses,
                     canPersist: activeId != nil,
                     onCommit: commitActions,
+                    onCommitTilts: commitTilts,
                     onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
                     onLoadSample: openSample,
                     onClose: closeToBook
@@ -133,6 +134,22 @@ public struct RootView: View {
         }
     }
 
+    /// Persist committed tactical tilts onto the open client's plan of record (or,
+    /// for the sample, apply them in memory only).
+    private func commitTilts(_ committed: [TacticalTiltAction]) {
+        guard !committed.isEmpty else { return }
+        if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
+            book[i].tilts.append(contentsOf: committed)
+            book[i].touch()
+            BookStore.save(book)
+            household = book[i].household()
+        } else {
+            var h = household ?? Seed.sampleHousehold
+            h.tacticalTilts.append(contentsOf: committed)
+            household = h
+        }
+    }
+
     private var activeCommittedActions: [PlannedAction] {
         guard let id = activeId else { return [] }
         return book.first(where: { $0.id == id })?.committedActions ?? []
@@ -141,18 +158,30 @@ public struct RootView: View {
         guard let id = activeId else { return [] }
         return book.first(where: { $0.id == id })?.committedStatuses() ?? []
     }
+    private var activeCommittedTilts: [TacticalTiltAction] {
+        guard let id = activeId else { return [] }
+        return book.first(where: { $0.id == id })?.committedTilts ?? []
+    }
 
     // MARK: per-client export (canonical plan, not live what-ifs)
 
+    /// The household of record for export — committed moves AND tilts applied, so
+    /// the desk export matches the roster (whole-book) export for the same client.
+    private func exportHousehold(_ intake: IntakeModel) -> Household {
+        var h = intake.buildHousehold().applying(activeCommittedActions)
+        h.tacticalTilts = activeCommittedTilts
+        return h
+    }
+
     private var exportJSON: String? {
         guard let intake else { return nil }
-        let eval = Engine.evaluate(intake.buildHousehold().applying(activeCommittedActions))
+        let eval = Engine.evaluate(exportHousehold(intake))
         let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]; enc.dateEncodingStrategy = .iso8601
         return (try? enc.encode(practice.exportRecord(intake: intake, evaluation: eval))).flatMap { String(data: $0, encoding: .utf8) }
     }
     private var exportCSV: String? {
         guard let intake else { return nil }
-        let eval = Engine.evaluate(intake.buildHousehold().applying(activeCommittedActions))
+        let eval = Engine.evaluate(exportHousehold(intake))
         return CRMExportRecord.csvHeader + "\n" + practice.exportRecord(intake: intake, evaluation: eval).csvRow()
     }
 }

@@ -222,7 +222,9 @@ public extension Engine {
     /// Reconcile both portfolios (strategic target and current holdings) against the
     /// plan's required real return.
     static func cmeReconciliation(_ eval: Evaluation, cme: CapitalMarketSet) -> CMEReconciliation {
-        let targetSleeves  = eval.allocation.map { (id: $0.sleeveId, label: $0.label, bps: $0.targetBps) }
+        // Price the forecast-free STRATEGIC target (pre-tilt), so the "strategic
+        // target" line stays about the policy, not the tactical overlay.
+        let targetSleeves  = eval.allocation.map { (id: $0.sleeveId, label: $0.label, bps: $0.strategicTargetBps) }
         var currentSleeves = eval.allocation.map { (id: $0.sleeveId, label: $0.label, bps: $0.currentBps) }
         let targetAlts  = eval.altSizing.map { (fn: $0.fn, bps: $0.targetBps) }
         let currentAlts = eval.altSizing.map { (fn: $0.fn, bps: $0.currentBps) }

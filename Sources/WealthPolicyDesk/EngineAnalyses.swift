@@ -13,7 +13,7 @@ extension Engine {
 
     // MARK: - Allocation (current vs target; the emergent "what it looks like")
 
-    public static func resolveAllocation(_ h: Household, policy: InvestmentPolicy) -> [AllocationRow] {
+    public static func resolveAllocation(_ h: Household, policy: InvestmentPolicy, strategic: InvestmentPolicy? = nil) -> [AllocationRow] {
         let total = max(1, h.portfolioValueUsd)
         return policy.sleeves.map { s in
             let current = h.positions.filter { $0.sleeveId == s.id }.reduce(0) { $0 + $1.marketValueUsd }
@@ -22,7 +22,8 @@ extension Engine {
             let inner = s.bandBps
             let outer = Int(Double(s.bandBps) * policy.rebalance.outerBandMultiplier)
             let status: AllocationRow.Status = abs(drift) >= outer ? .outerBreach : (abs(drift) >= inner ? .innerBreach : .within)
-            return AllocationRow(sleeveId: s.id, label: s.label, tier: s.tier, targetBps: s.targetBps, currentBps: currentBps, driftBps: drift, innerBandBps: inner, outerBandBps: outer, status: status)
+            let strat = strategic?.sleeves.first { $0.id == s.id }?.targetBps ?? s.targetBps
+            return AllocationRow(sleeveId: s.id, label: s.label, tier: s.tier, targetBps: s.targetBps, strategicTargetBps: strat, currentBps: currentBps, driftBps: drift, innerBandBps: inner, outerBandBps: outer, status: status)
         }
     }
 
@@ -536,6 +537,7 @@ extension Engine {
 
         // --- Tactical tilts ---
         out.append(contentsOf: validateTilts(Seed.tiltPolicy, asOf: asOf))
+        out.append(contentsOf: validateTacticalTilts(h.tacticalTilts))
 
         // Sort: hard first, then by dollars at stake (bigger first), then module.
         return out.sorted {

@@ -51,7 +51,8 @@ public struct AllocationRow: Identifiable, Sendable, Hashable {
     public var sleeveId: String
     public var label: String
     public var tier: SleeveTier
-    public var targetBps: Bps
+    public var targetBps: Bps              // tactical target (strategic ± committed tilts)
+    public var strategicTargetBps: Bps = 0 // the forecast-free target before tilts
     public var currentBps: Bps
     public var driftBps: Bps
     public var innerBandBps: Bps
@@ -177,7 +178,11 @@ public enum Engine {
         let baseGrowth = Seed.legacyPolicy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
         let derivedPolicy = resolveTargets(h, base: Seed.legacyPolicy, fundedRatioBps: bs.fundedRatioBps,
                                            equityCeilingBps: risk?.bindingEquityBps ?? baseGrowth, ladder: lad)
-        let alloc = resolveAllocation(h, policy: derivedPolicy)
+        // Tactical layer: the sentiment-sourced tilts deviate the strategic target
+        // within budget (funded within-role), producing the tactical target. Drifts
+        // and downstream reads track the tactical target; the strategic is kept.
+        let tacticalPolicy = applyTacticalTilts(derivedPolicy, tilts: h.tacticalTilts)
+        let alloc = resolveAllocation(h, policy: tacticalPolicy, strategic: derivedPolicy)
         let alts = resolveAltSizing(h, policy: derivedPolicy)
         let item = analyzeItemization(itemizationInput(for: h, asOf: asOf), tax: tax)
         let disp = dispositions(h, tax: tax)

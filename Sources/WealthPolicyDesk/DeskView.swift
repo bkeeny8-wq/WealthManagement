@@ -55,6 +55,7 @@ struct DeskView: View {
     var committedStatuses: [CommittedMoveStatus] = []
     var canPersist: Bool = true
     var onCommit: ([PlannedAction]) -> Void = { _ in }
+    var onCommitTilts: ([TacticalTiltAction]) -> Void = { _ in }
     var onEditIntake: () -> Void
     var onLoadSample: () -> Void
     var onClose: () -> Void
@@ -62,10 +63,15 @@ struct DeskView: View {
     /// Moves staged on the desk but not yet committed. The whole desk previews
     /// the household with these applied; Commit clears them onto the record.
     @State private var staged: [PlannedAction] = []
+    @State private var stagedTilts: [TacticalTiltAction] = []
 
     /// The household everything on the desk is evaluated against — the record
-    /// plus any staged (uncommitted) moves.
-    private var previewHousehold: Household { household.applying(staged) }
+    /// plus any staged (uncommitted) moves and tactical tilts.
+    private var previewHousehold: Household {
+        var h = household.applying(staged)
+        h.tacticalTilts = household.tacticalTilts + stagedTilts
+        return h
+    }
     private var eval: Evaluation { Engine.evaluate(previewHousehold) }
 
     public var body: some View {
@@ -80,11 +86,12 @@ struct DeskView: View {
     }
 
     private func commit() {
-        guard !staged.isEmpty else { return }
-        onCommit(staged.map { var a = $0; a.status = .committed; return a })
-        staged = []
+        guard !staged.isEmpty || !stagedTilts.isEmpty else { return }
+        if !staged.isEmpty { onCommit(staged.map { var a = $0; a.status = .committed; return a }) }
+        if !stagedTilts.isEmpty { onCommitTilts(stagedTilts.map { var t = $0; t.status = .committed; return t }) }
+        staged = []; stagedTilts = []
     }
-    private func discard() { staged = [] }
+    private func discard() { staged = []; stagedTilts = [] }
 
     // MARK: sidebar
 
@@ -151,7 +158,7 @@ struct DeskView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Theme.paper)
-        .safeAreaInset(edge: .top) { if !staged.isEmpty { stagingBanner } }
+        .safeAreaInset(edge: .top) { if !staged.isEmpty || !stagedTilts.isEmpty { stagingBanner } }
         .navigationTitle(tab.rawValue)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -181,7 +188,8 @@ struct DeskView: View {
         case .allocation:     AllocationTab(eval: e)
         case .riskScale:      RiskScaleTab(eval: e)
         case .frontier:       FrontierTab(eval: e)
-        case .planning:       PlanningTab(base: household, staged: $staged, committed: committedStatuses,
+        case .planning:       PlanningTab(base: household, staged: $staged, stagedTilts: $stagedTilts,
+                                          committed: committedStatuses, committedTilts: household.tacticalTilts,
                                           canPersist: canPersist, onCommit: commit, onDiscard: discard)
         case .constraints:    ConstraintsTab(eval: e)
         case .tax:            TaxTab(eval: e)
@@ -209,12 +217,19 @@ struct DeskView: View {
         return Engine.ltcgTaxOnGain(household, gain: totalGain)
     }
 
+    private var previewLabel: String {
+        var parts: [String] = []
+        if !staged.isEmpty { parts.append("\(staged.count) move\(staged.count == 1 ? "" : "s")") }
+        if !stagedTilts.isEmpty { parts.append("\(stagedTilts.count) tilt\(stagedTilts.count == 1 ? "" : "s")") }
+        return "Previewing " + parts.joined(separator: " + ") + " staged"
+    }
+
     private var stagingBanner: some View {
         let taxTotal = stagedTaxTotal
         return HStack(spacing: 12) {
             Image(systemName: "eye.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.amber)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Previewing \(staged.count) staged move\(staged.count == 1 ? "" : "s")")
+                Text(previewLabel)
                     .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.ink)
                 Text(taxTotal > 0 ? "Not saved · ~\(Fmt.usd(taxTotal)) tax if committed" : "Not saved · no tax realized")
                     .font(.system(size: 11)).foregroundStyle(Theme.muted)

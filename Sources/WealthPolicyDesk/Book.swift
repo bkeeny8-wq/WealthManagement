@@ -21,9 +21,12 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     /// The plan of record's committed moves (sell/rotate), layered on the
     /// synthesized household in order. Staged (uncommitted) moves never land here.
     public var actions: [PlannedAction]
+    /// The plan of record's committed tactical tilts (sentiment-sourced sleeve
+    /// deviations). Staged (uncommitted) tilts never land here.
+    public var tilts: [TacticalTiltAction] = []
 
-    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = []) {
-        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions
+    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = [], tilts: [TacticalTiltAction] = []) {
+        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions; self.tilts = tilts
     }
 
     /// Forward-compatible decode: a missing/renamed field never drops the record.
@@ -35,6 +38,7 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
         updatedAt = ((try? c.decodeIfPresent(Date.self, forKey: .updatedAt)) ?? nil) ?? Date()
         archived = ((try? c.decodeIfPresent(Bool.self, forKey: .archived)) ?? nil) ?? false
         actions = ((try? c.decodeIfPresent([PlannedAction].self, forKey: .actions)) ?? nil) ?? []
+        tilts = ((try? c.decodeIfPresent([TacticalTiltAction].self, forKey: .tilts)) ?? nil) ?? []
         if intake.adults.isEmpty { intake.adults = [IntakeAdult()] }   // invariant: ≥1 adult
     }
 
@@ -42,10 +46,17 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
 
     /// The committed moves only (the plan of record).
     public var committedActions: [PlannedAction] { actions.filter { $0.status == .committed } }
+    /// The committed tactical tilts only.
+    public var committedTilts: [TacticalTiltAction] { tilts.filter { $0.status == .committed } }
 
-    /// The household of record: the synthesized household with every committed
-    /// move applied in order. This is what the desk and exports evaluate.
-    public func household() -> Household { intake.buildHousehold().applying(committedActions) }
+    /// The household of record: the synthesized household with every committed move
+    /// applied in order, carrying the committed tactical tilts so the engine can
+    /// deviate the tactical allocation. This is what the desk and exports evaluate.
+    public func household() -> Household {
+        var h = intake.buildHousehold().applying(committedActions)
+        h.tacticalTilts = committedTilts
+        return h
+    }
 
     /// Per-move replay status against the freshly synthesized household — flags a
     /// committed move an intake edit has since orphaned (sold holding gone) or

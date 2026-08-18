@@ -39,6 +39,10 @@ struct AllocationTab: View {
                         Spacer()
                         Text("drift \(Fmt.bpsSigned(row.driftBps))").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
                     }
+                    if row.targetBps != row.strategicTargetBps {
+                        Text("tactical tilt · strategic \(Fmt.pctBps(row.strategicTargetBps)) \(Fmt.bpsSigned(row.targetBps - row.strategicTargetBps)) → \(Fmt.pctBps(row.targetBps))")
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
+                    }
                     if let s = eval.legacyPolicy.sleeve(row.sleeveId) {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 5) {

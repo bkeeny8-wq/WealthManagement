@@ -13,7 +13,9 @@ import SwiftUI
 struct PlanningTab: View {
     let base: Household                 // household of record (committed applied)
     @Binding var staged: [PlannedAction]
+    @Binding var stagedTilts: [TacticalTiltAction]
     let committed: [CommittedMoveStatus]
+    let committedTilts: [TacticalTiltAction]
     let canPersist: Bool
     var onCommit: () -> Void
     var onDiscard: () -> Void
@@ -44,8 +46,69 @@ struct PlanningTab: View {
     var body: some View {
         intro
         composer
-        if !staged.isEmpty { stagedCard }
+        tiltComposer
+        if !staged.isEmpty || !stagedTilts.isEmpty { stagedCard }
         if !committed.isEmpty { committedCard }
+    }
+
+    // MARK: tactical-tilt composer (sentiment → governed per-client tilt)
+
+    private var tiltBudget: TiltPolicy { Seed.tiltPolicy }
+    private var stageableCandidates: [TacticalTilt] {
+        Seed.tacticalTilts.filter { $0.isStageable }.sorted { abs($0.netScore) > abs($1.netScore) }
+    }
+    private var tiltUsedBps: Bps { (committedTilts + stagedTilts).reduce(0) { $0 + abs($1.deviationBps) } }
+    private func exactlyStaged(_ c: TacticalTilt) -> Bool { (committedTilts + stagedTilts).contains { $0.sourceName == c.name } }
+    /// One active tilt per sleeve — the sleeve holds a single tactical bet, so a
+    /// different candidate on the same sleeve can't stack on top.
+    private func sleeveOccupied(_ c: TacticalTilt) -> Bool {
+        guard let s = c.tiltSleeveId else { return true }
+        return (committedTilts + stagedTilts).contains { $0.sleeveId == s && $0.sourceName != c.name }
+    }
+    private func sleeveLabel(_ id: String) -> String { Seed.legacyPolicy.sleeves.first { $0.id == id }?.label ?? id }
+
+    private var tiltComposer: some View {
+        Card("Tactical tilts — from sentiment") {
+            Note("Turn a sentiment candidate (Econ → Sentiment) into a governed tilt for THIS client: a signed sleeve deviation, funded within the same role so the risk level is unchanged, carrying the candidate's thesis and a 6-month review. Committed tilts move the tactical target on the Allocation tab, within a \(Fmt.pctBps(tiltBudget.maxTotalAbsoluteDeviationBps)) total budget (\(Fmt.pctBps(tiltBudget.maxSingleSectorDeviationBps)) per tilt).")
+            LedgerRow("Tilt budget used", "\(Fmt.pctBps(tiltUsedBps)) of \(Fmt.pctBps(tiltBudget.maxTotalAbsoluteDeviationBps))",
+                      color: tiltUsedBps > tiltBudget.maxTotalAbsoluteDeviationBps ? Theme.debt : Theme.ink, bold: true)
+            Text("STAGEABLE CANDIDATES").font(.system(size: 10, weight: .heavy)).foregroundStyle(Theme.muted).padding(.top, 6)
+            ForEach(stageableCandidates.prefix(10)) { c in candidateTiltRow(c) }
+        }
+    }
+
+    private func candidateTiltRow(_ c: TacticalTilt) -> some View {
+        let dev = c.proposedDeviationBps(maxSingleBps: tiltBudget.maxSingleSectorDeviationBps)
+        let staged = exactlyStaged(c)
+        let occupied = sleeveOccupied(c)
+        let disabled = staged || occupied
+        let label = staged ? "Staged" : (occupied ? "Sleeve used" : "Stage")
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(c.name).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.ink)
+                    Text(c.stance.short).font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1).background(dev >= 0 ? Theme.asset : Theme.debt, in: Capsule())
+                }
+                Text("\(sleeveLabel(c.tiltSleeveId ?? "")) · \(Fmt.bpsSigned(dev))").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
+            Spacer(minLength: 8)
+            Button { stageTilt(c) } label: {
+                Text(label).font(.system(size: 12, weight: .bold)).foregroundStyle(disabled ? Theme.muted : .white)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(disabled ? Theme.card : Theme.accent, in: Capsule())
+                    .overlay(disabled ? Capsule().stroke(Theme.rule) : nil)
+            }.buttonStyle(.plain).disabled(disabled)
+        }
+        .padding(.vertical, 5)
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+    }
+
+    private func stageTilt(_ c: TacticalTilt) {
+        guard let sleeve = c.tiltSleeveId, !exactlyStaged(c), !sleeveOccupied(c) else { return }
+        let dev = c.proposedDeviationBps(maxSingleBps: tiltBudget.maxSingleSectorDeviationBps)
+        let review = Calendar.current.date(byAdding: .month, value: 6, to: Date())
+        stagedTilts.append(TacticalTiltAction(sleeveId: sleeve, deviationBps: dev, sourceName: c.name, thesis: c.thesis, reviewDate: review, status: .staged))
     }
 
     // MARK: intro
@@ -155,7 +218,8 @@ struct PlanningTab: View {
 
     private var stagedCard: some View {
         Card("Staged — previewing, not saved") {
-            ForEach(staged) { a in moveRow(action: a, badge: "STAGED", badgeColor: Theme.amber, warning: nil) }
+            ForEach(staged) { a in moveRow(action: a, badge: "MOVE", badgeColor: Theme.amber, warning: nil) }
+            ForEach(stagedTilts) { t in stagedTiltRow(t) }
             HStack {
                 Button { onDiscard() } label: {
                     Text("Discard all").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.debt)
@@ -180,6 +244,23 @@ struct PlanningTab: View {
                 moveRow(action: s.action, badge: "COMMITTED", badgeColor: Theme.asset, warning: statusWarning(s))
             }
         }
+    }
+
+    private func stagedTiltRow(_ t: TacticalTiltAction) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text("Tilt \(sleeveLabel(t.sleeveId)) \(Fmt.bpsSigned(t.deviationBps))")
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)
+                Spacer()
+                Text("TILT · \(t.sourceName)").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                    .padding(.horizontal, 7).padding(.vertical, 3).background(Theme.accent, in: Capsule())
+            }
+            if !t.thesis.isEmpty {
+                Text(t.thesis).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 7)
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
     }
 
     private func statusWarning(_ s: CommittedMoveStatus) -> String? {

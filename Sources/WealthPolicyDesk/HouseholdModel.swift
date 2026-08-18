@@ -393,6 +393,11 @@ public struct Household: Identifiable, Sendable, Hashable {
     /// tolerance-vs-capacity risk readout.
     public var statedToleranceMaxDrawdownBps: Bps
 
+    /// Committed tactical tilts (sentiment-sourced sleeve deviations). Carried on the
+    /// household so the engine can deviate the tactical target from the strategic one.
+    /// Defaulted, so no construction site needs to change.
+    public var tacticalTilts: [TacticalTiltAction] = []
+
     /// Transition: annual realized-gain budget (0 = not set), the currently
     /// scheduled annual realized gain from unwinding held-away positions, and
     /// the policy for positions that will never be sold.
