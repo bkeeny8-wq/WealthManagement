@@ -126,7 +126,8 @@ public enum Seed {
     static let currentMacro = MacroSnapshot(
         asOf: "2026-08-15", source: "FRED · US Treasury · multpl (verify)",
         termSpread10y3mBps: 85, realRate10yBps: 200, breakevenBps: 230, hyOasBps: 271,
-        unemploymentBps: 430, sahmBps: 7, cape: 42.35, activityZ: 0.1)
+        unemploymentBps: 430, sahmBps: 7, cape: 42.35, activityZ: 0.1,
+        hyOasChg6mBps: -12, termSpreadChg6mBps: 20, activityChg6m: 0.0)
 
     static let altBudgets: [AltFunctionBudget] = [
         .init(fn: .convexity, targetBps: 700, bandBps: 200,

@@ -65,10 +65,15 @@ public struct MacroSnapshot: Sendable, Hashable {
     public var sahmBps: Bps               // Sahm real-time indicator (50 = 0.50 trigger)
     public var cape: Double               // Shiller CAPE
     public var activityZ: Double          // coincident activity, z-score (0 = trend, <0 below)
-    public init(asOf: IsoDate, source: String, termSpread10y3mBps: Bps, realRate10yBps: Bps, breakevenBps: Bps, hyOasBps: Bps, unemploymentBps: Bps, sahmBps: Bps, cape: Double, activityZ: Double) {
+    // --- Direction / momentum (6-month change) — turning-point signals ---
+    public var hyOasChg6mBps: Bps         // Δ HY OAS over 6mo (+ = widening off lows)
+    public var termSpreadChg6mBps: Bps    // Δ 10y−3m over 6mo (+ = steepening)
+    public var activityChg6m: Double      // Δ activity z over 6mo (+ = accelerating)
+    public init(asOf: IsoDate, source: String, termSpread10y3mBps: Bps, realRate10yBps: Bps, breakevenBps: Bps, hyOasBps: Bps, unemploymentBps: Bps, sahmBps: Bps, cape: Double, activityZ: Double, hyOasChg6mBps: Bps = 0, termSpreadChg6mBps: Bps = 0, activityChg6m: Double = 0) {
         self.asOf = asOf; self.source = source; self.termSpread10y3mBps = termSpread10y3mBps
         self.realRate10yBps = realRate10yBps; self.breakevenBps = breakevenBps; self.hyOasBps = hyOasBps
         self.unemploymentBps = unemploymentBps; self.sahmBps = sahmBps; self.cape = cape; self.activityZ = activityZ
+        self.hyOasChg6mBps = hyOasChg6mBps; self.termSpreadChg6mBps = termSpreadChg6mBps; self.activityChg6m = activityChg6m
     }
 }
 
@@ -167,6 +172,49 @@ public extension Engine {
             signals.append(.init("Activity trend", String(format: "z = %+.1f — near trend", s.activityZ), .neutral, "Growth around trend."))
         }
 
+        // === DIRECTION / MOMENTUM — turns, not levels. A tight spread WIDENING calls
+        // the peak; a wide spread NARROWING calls the trough; the curve UN-INVERTS as
+        // a recession begins; activity momentum leads the coincident data. ===
+        var turning = false
+
+        // 7) Credit direction.
+        let dHy = s.hyOasChg6mBps
+        if dHy > 40 {
+            score += 12; odds += min(25, dHy / 8); turning = true
+            signals.append(.init("Credit direction (6mo)", "\(Fmt.bpsSigned(dHy)) — widening", .late, "Spreads widening off their lows — the classic peak signal, even from a tight level."))
+        } else if dHy < -80 && (s.hyOasBps - dHy) > 550 {
+            score -= 15
+            signals.append(.init("Credit direction (6mo)", "\(Fmt.bpsSigned(dHy)) — narrowing off wides", .early, "Spreads peaking and compressing off a stressed level — a recovery signal."))
+        } else {
+            signals.append(.init("Credit direction (6mo)", "\(Fmt.bpsSigned(dHy)) — stable", .neutral, "No credit turn: spreads roughly flat."))
+        }
+
+        // 8) Curve direction — un-inversion is the recession-onset tell, not a green light.
+        let dCurve = s.termSpreadChg6mBps
+        let priorCurve = s.termSpread10y3mBps - dCurve   // the curve 6 months ago
+        if priorCurve < 0 && s.termSpread10y3mBps >= 0 && dCurve > 40 {
+            score += 15; odds += 20; turning = true
+            signals.append(.init("Curve direction (6mo)", "un-inverted, \(Fmt.bpsSigned(dCurve))", .recession, "The curve bull-steepens right AS a recession begins — the opposite of a green light."))
+        } else if dCurve > 30 {
+            signals.append(.init("Curve direction (6mo)", "\(Fmt.bpsSigned(dCurve)) — steepening", .neutral, "Steepening from a positive curve — mid-cycle, not a turn."))
+        } else if dCurve < -30 {
+            score += 6
+            signals.append(.init("Curve direction (6mo)", "\(Fmt.bpsSigned(dCurve)) — flattening", .late, "Flattening — policy biting, the cycle maturing."))
+        } else {
+            signals.append(.init("Curve direction (6mo)", "\(Fmt.bpsSigned(dCurve)) — stable", .neutral, "Little change in the curve."))
+        }
+
+        // 9) Activity momentum.
+        if s.activityChg6m < -0.3 {
+            score += 10; odds += 12; turning = true
+            signals.append(.init("Activity momentum (6mo)", String(format: "Δz = %+.1f — decelerating", s.activityChg6m), .late, "Growth losing momentum — the leading edge of a slowdown."))
+        } else if s.activityChg6m > 0.3 {
+            score -= 8
+            signals.append(.init("Activity momentum (6mo)", String(format: "Δz = %+.1f — accelerating", s.activityChg6m), .early, "Growth gaining momentum — early/mid expansion."))
+        } else {
+            signals.append(.init("Activity momentum (6mo)", String(format: "Δz = %+.1f — steady", s.activityChg6m), .neutral, "Growth momentum roughly flat."))
+        }
+
         // Resolve phase, inning, odds.
         let recessionOdds = min(9500, max(200, odds * 100))
         score = min(100, max(0, score))
@@ -177,12 +225,16 @@ public extension Engine {
         else { phase = .late }
         let inning = min(9, max(1, 1 + Int((Double(score) / 100.0 * 8.0).rounded())))
 
+        // Direction resolves what levels can't: is this a STABLE read or a TURN?
+        let turnClause = turning
+            ? " The direction signals are starting to turn — the leading edge is moving, watch it."
+            : " The direction signals are quiet — spreads stable, curve not un-inverting, momentum steady — so it's a STABLE read, not a turn."
         let headline: String
         switch phase {
         case .recession: headline = "The coincident data is contracting — the cycle has turned. Recession odds \(Fmt.pctBps(recessionOdds))."
-        case .late: headline = "Late-cycle expansion — inning \(inning). No firm recession signal yet, but the late-leaning signals dominate."
-        case .mid: headline = "Mid expansion — inning \(inning). Growth intact, policy near neutral, no cycle extreme in view."
-        case .early: headline = "Early cycle — inning \(inning). The signals lean toward recovery off a trough."
+        case .late: headline = "Late-cycle expansion — inning \(inning). No firm recession signal yet, but the late-leaning signals dominate." + turnClause
+        case .mid: headline = "Mid expansion — inning \(inning). Growth intact, policy near neutral, no cycle extreme in view." + turnClause
+        case .early: headline = "Early cycle — inning \(inning). The signals lean toward recovery off a trough." + turnClause
         }
 
         return MacroRegime(phase: phase, inning: inning, cycleScore: score, recessionOddsBps: recessionOdds,
