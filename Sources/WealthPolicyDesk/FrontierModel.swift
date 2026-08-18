@@ -106,7 +106,10 @@ public extension Engine {
         let withinTol = toleranceStated ? curve.filter { $0.drawdownBps <= stated } : []
         let hasBand = !withinTol.isEmpty
         let reachable: Bps? = hasBand ? withinTol.map { $0.expRealBps }.max() : nil
-        let frontierTolEquity: Bps? = hasBand ? withinTol.map { $0.equityBps }.max() : nil
+        // Report the equity CEILING the solver binds to (matches the Balance Sheet /
+        // Risk Scale), not the growth-only share of the curve point — the two differ
+        // by the alt equity-beta that also counts against the budget.
+        let frontierTolEquity: Bps? = hasBand ? (eval.riskProfile?.toleranceImpliedEquityBps ?? withinTol.map { $0.equityBps }.max()) : nil
         let required = eval.requiredReturn.requiredRealReturnBps
 
         return FrontierChart(

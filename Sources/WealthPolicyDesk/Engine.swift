@@ -170,7 +170,7 @@ public enum Engine {
         rr.requiredRealReturnPreTaxBps = rrPre.requiredRealReturnBps
         let bs = balanceSheet(h, tax: tax, asOf: asOf, rr: rr)
         let lad = ladder(h, policy: policy, asOf: asOf)
-        let risk = riskProfile(h, fundedRatioBps: bs.fundedRatioBps)
+        let risk = riskProfile(h, fundedRatioBps: bs.fundedRatioBps, ladder: lad)
         // Allocation is an OUTPUT: derive the sleeve targets from this household's
         // funded ratio, its risk ceiling, and its liability-sized bond floor —
         // then everything downstream reads the derived policy, not a fixed seed.
@@ -217,14 +217,16 @@ public enum Engine {
         return max(2000, min(9500, cap))
     }
 
-    /// The equity ceiling a stated max-drawdown tolerance implies (equities can
-    /// fall ~50%, so a 25% drawdown limit ≈ a 50% equity ceiling).
-    public static func toleranceEquityBps(maxDrawdownBps: Bps) -> Bps { min(10000, maxDrawdownBps * 2) }
-
-    public static func riskProfile(_ h: Household, fundedRatioBps: Bps) -> RiskProfile? {
+    /// The equity ceiling a stated max-drawdown tolerance implies — read off the
+    /// FRONTIER (the highest-equity portfolio the solver would build whose modeled
+    /// drawdown stays within the limit), not the old flat 2× rule. Diversification-
+    /// aware: the "defensive" sleeves carry real credit/commodity/alt risk, so this
+    /// is usually more conservative than 2×. Uses volatilities/correlations only —
+    /// the strategic target stays free of return forecasts.
+    public static func riskProfile(_ h: Household, fundedRatioBps: Bps, ladder: LadderPlan) -> RiskProfile? {
         guard h.statedToleranceMaxDrawdownBps > 0 else { return nil }
         let cap = riskCapacityBps(h, fundedRatioBps: fundedRatioBps)
-        let tol = toleranceEquityBps(maxDrawdownBps: h.statedToleranceMaxDrawdownBps)
+        let tol = toleranceEquityBps(h, fundedRatioBps: fundedRatioBps, ladder: ladder, maxDrawdownBps: h.statedToleranceMaxDrawdownBps)
         let binding = min(cap, tol)
         return RiskProfile(capacityEquityBps: cap, toleranceImpliedEquityBps: tol,
                            bindingEquityBps: binding, gapBps: abs(cap - tol), bindingIsCapacity: cap <= tol)

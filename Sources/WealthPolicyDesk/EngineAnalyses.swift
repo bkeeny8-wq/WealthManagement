@@ -370,7 +370,7 @@ extension Engine {
         // --- Risk: does the book hold more equity than the household can afford or stomach? ---
         // The risk profile (capacity vs tolerance, bound to the lower) was previously
         // computed and only displayed; here it becomes a binding check on the allocation.
-        if let rp = riskProfile(h, fundedRatioBps: bs.fundedRatioBps) {
+        if let rp = riskProfile(h, fundedRatioBps: bs.fundedRatioBps, ladder: lad) {
             let equityUsd = h.positions.filter { isEquity($0) }.reduce(0) { $0 + $1.marketValueUsd }
             let equityBps = (equityUsd / portfolio).bps
             let over = equityBps - rp.bindingEquityBps

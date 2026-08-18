@@ -40,8 +40,8 @@ struct FrontierTab: View {
             }
             LedgerRow("Capacity", "\(pct(f.capacityEquityBps)) equity → σ \(pct(f.capacityVolBps))", color: Theme.muted)
 
-            if f.targetExceedsToleranceBps > 0 {
-                Note("The solved target's modeled drawdown (\(pct(f.target.drawdownBps))) exceeds the stated tolerance (\(pct(f.toleranceDrawdownBps))). The allocation solver still maps tolerance to equity with the flat 2× rule, which this frontier shows is too generous for this diversified mix — reconciling the two is the next refinement.", icon: "exclamationmark.triangle", color: Theme.amber)
+            if f.targetExceedsToleranceBps > 100 {
+                Note("The solved target's modeled drawdown (\(pct(f.target.drawdownBps))) sits above the stated tolerance (\(pct(f.toleranceDrawdownBps))) — capacity or a liquidity floor is holding equity here, not tolerance.", icon: "exclamationmark.triangle", color: Theme.amber)
             }
             toleranceNote(f)
         }
@@ -94,7 +94,7 @@ struct FrontierTab: View {
             let tail = fte >= flat
                 ? "Diversification lets more risk assets ride under the same drawdown."
                 : "The 3σ model prices every sleeve's own volatility — including the alts, credit, and commodities in the defensive half — so it reads MORE conservative than the naive equity-only 2× rule."
-            Note("Frontier-derived tolerance equity: the highest-equity portfolio whose modeled drawdown stays inside the stated limit is \(pct(fte)) equity, versus \(pct(flat)) from the old flat 2× rule. \(tail)", icon: "info.circle", color: Theme.muted)
+            Note("Frontier-derived tolerance equity: the highest-equity portfolio whose modeled drawdown stays inside the stated limit is \(pct(fte)) equity — the ceiling the solver now binds to — versus \(pct(flat)) from the old flat 2× rule. \(tail)", icon: "info.circle", color: Theme.muted)
         } else if f.toleranceStated {
             Note("The stated \(pct(f.toleranceDrawdownBps)) drawdown limit sits below the menu's ~\(pct(f.minDrawdownBps)) floor, so no equity level is 'tolerable' — the flat 2× rule would have claimed \(pct(f.flatToleranceEquityBps)) equity, which the diversification-aware model rejects.", icon: "info.circle", color: Theme.muted)
         }

@@ -88,4 +88,37 @@ public extension Engine {
     /// puts a ~16% equity vol near the ~50% drawdown the old flat rule assumed — but
     /// now diversification (bonds cutting σ) earns a lower drawdown honestly.
     static func modeledDrawdownBps(volBps: Bps) -> Bps { Int((Double(volBps) * 3.0).rounded()) }
+
+    // MARK: - Frontier-derived tolerance mapping
+
+    /// The modeled drawdown of the solver's own portfolio at each equity ceiling —
+    /// the risk profile of the app's real menu for this household. Sweeps the
+    /// forecast-free solver (alts a fixed budget, bonds the residual) and prices the
+    /// risk of each rung. Uses only volatilities/correlations — never return forecasts.
+    static func drawdownByCeiling(_ h: Household, fundedRatioBps: Bps, ladder: LadderPlan) -> [(ceilingBps: Bps, drawdownBps: Bps)] {
+        var out: [(ceilingBps: Bps, drawdownBps: Bps)] = []
+        var e = 1500
+        while e <= 9500 {
+            let pol = resolveTargets(h, base: Seed.legacyPolicy, fundedRatioBps: fundedRatioBps, equityCeilingBps: e, ladder: ladder)
+            let vol = portfolioVolBps(sleeves: pol.sleeves.map { (id: $0.id, bps: $0.targetBps) },
+                                      alts: pol.altBudgets.map { (fn: $0.fn, bps: $0.targetBps) })
+            out.append((e, modeledDrawdownBps(volBps: vol)))
+            e += 250
+        }
+        return out
+    }
+
+    /// The highest equity ceiling whose modeled drawdown stays within the stated
+    /// limit — the frontier-derived replacement for the flat 2× rule. It reads the
+    /// drawdown off the diversified portfolio the solver would actually build, so a
+    /// mix whose "defensive" half carries credit/commodity/alt risk earns a lower
+    /// ceiling than the naive equity-only rule. Falls back to the most-defensive
+    /// ceiling when even that exceeds the limit (nothing lower can be built).
+    static func toleranceEquityBps(fromCurve curve: [(ceilingBps: Bps, drawdownBps: Bps)], maxDrawdownBps: Bps) -> Bps {
+        curve.filter { $0.drawdownBps <= maxDrawdownBps }.map { $0.ceilingBps }.max() ?? (curve.first?.ceilingBps ?? 3000)
+    }
+
+    static func toleranceEquityBps(_ h: Household, fundedRatioBps: Bps, ladder: LadderPlan, maxDrawdownBps: Bps) -> Bps {
+        toleranceEquityBps(fromCurve: drawdownByCeiling(h, fundedRatioBps: fundedRatioBps, ladder: ladder), maxDrawdownBps: maxDrawdownBps)
+    }
 }

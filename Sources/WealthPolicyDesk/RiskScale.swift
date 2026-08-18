@@ -30,6 +30,9 @@ public extension Engine {
     /// that drawdown tolerance, with the household's own rung flagged.
     static func riskLadder(_ h: Household, fundedRatioBps: Bps, ladder: LadderPlan) -> [RiskModelPortfolio] {
         let cap = riskCapacityBps(h, fundedRatioBps: fundedRatioBps)
+        // The drawdown of the solver's portfolio at each equity ceiling — computed
+        // once and reused, so every rung reads its tolerance off the same frontier.
+        let ddCurve = drawdownByCeiling(h, fundedRatioBps: fundedRatioBps, ladder: ladder)
         let altTotal = Seed.legacyPolicy.altBudgets.reduce(0) { $0 + $1.targetBps }
         let base: [(String, Bps)] = [("Defensive", 1500), ("Conservative", 2000), ("Moderate", 3000), ("Growth", 4000), ("Aggressive", 5000)]
         let clientDd = h.statedToleranceMaxDrawdownBps
@@ -41,7 +44,7 @@ public extension Engine {
         }
         rungs.sort { $0.dd < $1.dd }
         return rungs.map { rung in
-            let tolEq = toleranceEquityBps(maxDrawdownBps: rung.dd)
+            let tolEq = toleranceEquityBps(fromCurve: ddCurve, maxDrawdownBps: rung.dd)
             let binding = min(cap, tolEq)
             let pol = resolveTargets(h, base: Seed.legacyPolicy, fundedRatioBps: fundedRatioBps, equityCeilingBps: binding, ladder: ladder)
             func sum(_ role: AssetRole) -> Bps { pol.sleeves.filter { $0.role == role }.reduce(0) { $0 + $1.targetBps } }
