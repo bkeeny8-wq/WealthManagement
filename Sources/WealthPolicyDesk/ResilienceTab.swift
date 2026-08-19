@@ -11,11 +11,25 @@ struct ResilienceTab: View {
     let eval: Evaluation
     private var res: ResilienceAnalysis { eval.resilience }
 
+    private var shortfall: ShortfallEstimate {
+        let cme = Engine.capitalMarketExpectations(Seed.macroIndicators, regime: Engine.macroRegime(Seed.macroIndicators))
+        return Engine.shortfallEstimate(eval, cme: cme)
+    }
+
     private var verdict: (label: String, color: Color) {
         if res.stressCount == 0 { return ("—", Theme.muted) }
         if res.stresses.contains(where: { !$0.survives }) { return ("Fragile", Theme.debt) }
         if res.stresses.contains(where: { !$0.meetsFloor }) { return ("Exposed", Theme.amber) }
         return ("Resilient", Theme.asset)
+    }
+
+    private func shortfallColor(_ b: ShortfallBand) -> Color {
+        switch b {
+        case .low: return Theme.asset
+        case .moderate: return Theme.ink
+        case .elevated: return Theme.amber
+        case .high: return Theme.debt
+        }
     }
 
     var body: some View {
@@ -30,6 +44,8 @@ struct ResilienceTab: View {
                 }
                 Note("The required return is the average the plan needs. These stresses hold that average fixed and only change what a single number can't see: whether a bad miss, or a bad ORDER of returns, breaks the plan. No market forecast — the sequences are historical patterns re-centered to your own required return and scaled by equity exposure.")
             }
+
+            shortfallCard
 
             StatGrid([
                 StatTile("Required return", Fmt.pctBps(res.requiredRealReturnBps), sub: "the plan's average", color: Theme.ink),
@@ -51,6 +67,38 @@ struct ResilienceTab: View {
                               color: s.depletionAge != nil ? Theme.debt : (s.terminalBalanceUsd >= res.legacyFloorUsd ? Theme.asset : Theme.amber))
                 }
             }
+        }
+    }
+
+    private var shortfallCard: some View {
+        let s = shortfall
+        // Expected (CME) is GROSS of fund fees + annual investment taxes; required is
+        // after-tax — the firm-wide convention (Required Return / Frontier tabs), so a
+        // thin positive margin is "roughly funded", not a true cushion. Read direction:
+        // the true odds are, if anything, a touch higher than shown.
+        let frictionBps = 75
+        let margin = s.marginBps
+        let marginColor: Color = margin < 0 ? Theme.debt : (margin < frictionBps ? Theme.amber : Theme.asset)
+        let marginCopy: String = margin < 0
+            ? "The market is priced below what this plan needs, so the median outcome is itself a shortfall — the gap closes through flexibility, not more risk."
+            : (margin < frictionBps
+                ? "The median outcome only just clears the bar — and expected is GROSS of fund fees and annual taxes, so read a thin positive margin as roughly funded, not a real cushion."
+                : "The median outcome clears the bar even net of the gross-expected caveat; the spread is what leaves any miss on the table.")
+        return Card("Shortfall probability — the odds the plan falls short") {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(Fmt.pctBps(s.shortfallProbBps, 0)).font(.system(size: 34, weight: .bold, design: .serif)).foregroundStyle(shortfallColor(s.band))
+                Text("\(s.band.label) — chance the target mix earns less than the plan needs over \(s.horizonYears)y")
+                    .font(.system(size: 15)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            LedgerRow("Required real return — after-tax", Fmt.pctBps(s.requiredRealBps), color: Theme.ink)
+            LedgerRow("Expected — CME, target mix, gross", Fmt.pctBps(s.expectedRealBps), color: marginColor)
+            LedgerRow("Median margin", Fmt.bpsSigned(s.marginBps), color: marginColor, bold: true)
+            LedgerRow("Portfolio σ — 1yr · annualized /\(s.horizonYears)y", "\(Fmt.pctBps(s.volBps)) · \(Fmt.pctBps(s.annualizedSigmaBps))", color: Theme.muted)
+            if s.currentShortfallProbBps != s.shortfallProbBps {
+                LedgerRow("Current holdings, for contrast", Fmt.pctBps(s.currentShortfallProbBps, 0),
+                          color: s.currentShortfallProbBps < s.shortfallProbBps ? Theme.asset : Theme.debt)
+            }
+            Note("Risk as the odds of missing the goal, not just a bad year: P(realized real return < required) over the horizon, with the expected return from the capital-market model and σ from the risk model — an analytic normal estimate whose spread shrinks by √time. \(marginCopy) Expected is gross of fund fees and annual investment taxes while the required return is after-tax (the same basis the Required Return and Frontier tabs use) — so the true odds are, if anything, a touch higher than shown. A lower-equity target can RAISE this number even as it lowers drawdown — the capacity-vs-tolerance tension, made numeric. Uses the QUARANTINED forecast (the CME): it reconciles, it never sets the target.", icon: "dice")
         }
     }
 

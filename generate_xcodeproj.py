@@ -88,6 +88,7 @@ framework_files = [
     "ExposureLookthrough.swift",
     "FactorLookthrough.swift",
     "RebalanceModel.swift",
+    "ShortfallModel.swift",
     "Decumulation.swift",
     "Resilience.swift",
     "Planning.swift",
