@@ -34,7 +34,10 @@ struct RebalanceTab: View {
             LedgerRow("Sell → buy", "\(Fmt.usdShort(p.totalSellsUsd)) → \(Fmt.usdShort(p.totalBuysUsd))", color: Theme.muted)
             LedgerRow("Turnover", Fmt.pctBps(p.turnoverBps), color: Theme.muted)
             LedgerRow("Realized gain", Fmt.usdSigned(p.realizedGainUsd), color: p.realizedGainUsd > 0 ? Theme.amber : Theme.asset)
-            LedgerRow("Est. tax (LTCG)", Fmt.usd(p.estTaxUsd), color: p.estTaxUsd > 0 ? Theme.amber : Theme.asset, bold: true)
+            if p.realizedShortTermUsd > 0 {
+                LedgerRow("of which short-term / long-term", "\(Fmt.usdShort(p.realizedShortTermUsd)) / \(Fmt.usdShort(p.realizedLongTermUsd))", color: Theme.muted)
+            }
+            LedgerRow("Est. tax", Fmt.usd(p.estTaxUsd), color: p.estTaxUsd > 0 ? Theme.amber : Theme.asset, bold: true)
             if p.gainBudgetUsd > 0 {
                 LedgerRow("Gain budget", Fmt.usd(p.gainBudgetUsd), color: p.budgetBinds ? Theme.debt : Theme.asset)
             }
@@ -75,6 +78,10 @@ struct RebalanceTab: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(t.side == .sell ? Theme.debt : Theme.asset, in: Capsule())
                 Text(t.ticker).font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink)
+                if t.side == .sell && t.shortTermGainUsd > 0 {
+                    Text(t.longTermGainUsd > 0 ? "ST+LT" : "ST").font(.system(size: 8.5, weight: .heavy)).foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1.5).background(Theme.amber, in: Capsule())
+                }
                 Text("· \(t.accountLabel)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
                 Spacer()
                 Text(Fmt.usd(t.amountUsd)).font(.system(size: 14, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink)

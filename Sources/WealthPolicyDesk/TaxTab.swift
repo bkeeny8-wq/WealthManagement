@@ -7,8 +7,13 @@ struct TaxTab: View {
     let eval: Evaluation
     private var it: ItemizationAnalysis { eval.itemization }
     private var mc: MuniCrossover { eval.muni }
+    private var embedded: (shortTerm: Usd, longTerm: Usd, taxUsd: Usd, longTermOnlyTaxUsd: Usd, hasLots: Bool) {
+        Engine.embeddedGains(eval.household, asOf: eval.asOf)
+    }
 
     var body: some View {
+        embeddedGainsCard
+
         Card("SALT window & the marginal mortgage dollar", help: Teach.help("salt")) {
             HeadlineFigure(Fmt.pctBps(it.marginalValueOfMortgageInterestBps),
                            caption: it.itemizes ? "value of the next mortgage-interest dollar" : "not itemizing — no value",
@@ -67,6 +72,26 @@ struct TaxTab: View {
                 LedgerRow("Conversion window", "age \(w.fromAge)–\(w.toAge)", color: Theme.ink)
                 LedgerRow("Cliffs watched", eval.policy.withdrawal.cliffAwareness.joined(separator: ", ").uppercased(), color: Theme.amber)
                 Note("The retirement-to-RMD window is worth more than any tilt. v1 flags opportunities — ‘you have headroom in the 22% bracket’ — rather than optimizing, capturing most of the value without being right about future law.")
+            }
+        }
+    }
+
+    @ViewBuilder private var embeddedGainsCard: some View {
+        let e = embedded
+        if e.shortTerm != 0 || e.longTerm != 0 {
+            let penalty = e.taxUsd - e.longTermOnlyTaxUsd
+            Card("Embedded capital gains — short vs long term") {
+                Note("The unrealized gains in your taxable, sellable holdings, split by how long each lot has been held. A short-term lot — under about a year — is taxed as ORDINARY income, not at the lower long-term rate, so realizing it costs more. Hold-to-step-up lots are excluded (they extinguish at death).")
+                LedgerRow("Long-term gain", Fmt.usd(e.longTerm), color: e.longTerm >= 0 ? Theme.asset : Theme.debt)
+                LedgerRow("Short-term gain", Fmt.usd(e.shortTerm), color: e.shortTerm > 0 ? Theme.amber : Theme.muted)
+                LedgerRow("Tax if realized today", Fmt.usd(e.taxUsd), color: Theme.ink, bold: true)
+                if penalty > 100 {
+                    LedgerRow("Short-term penalty", Fmt.usdSigned(penalty), color: Theme.debt, bold: true)
+                    Note("Letting the short-term lots season past a year would cut the realize-today tax by \(Fmt.usdShort(penalty)) — the cost of selling a recently bought lot at ordinary rates.", icon: "clock", color: Theme.muted)
+                }
+                if !e.hasLots {
+                    Note("No dated tax lots on file — gains are assumed long-term. Enter real lots to see the short-term split.", color: Theme.muted)
+                }
             }
         }
     }

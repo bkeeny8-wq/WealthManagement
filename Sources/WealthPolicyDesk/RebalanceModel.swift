@@ -38,6 +38,8 @@ public struct RebalanceTrade: Identifiable, Sendable, Hashable {
     public var sleeveLabel: String
     public var amountUsd: Usd
     public var realizedGainUsd: Usd      // sells in taxable accounts; 0 otherwise
+    public var shortTermGainUsd: Usd = 0 // portion of realizedGain held < ~1yr (taxed as ordinary)
+    public var longTermGainUsd: Usd = 0
     public var rationale: String
 }
 
@@ -59,7 +61,9 @@ public struct RebalancePlan: Sendable {
     public var totalSellsUsd: Usd
     public var turnoverBps: Bps           // gross traded ÷ portfolio
     public var realizedGainUsd: Usd       // net taxable realized gain (losses net down)
-    public var estTaxUsd: Usd             // canonical stacked LTCG tax on the net gain
+    public var realizedShortTermUsd: Usd  // of which short-term (taxed as ordinary)
+    public var realizedLongTermUsd: Usd   // of which long-term (LTCG rates)
+    public var estTaxUsd: Usd             // stacked ST-as-ordinary + LT-as-LTCG tax on the net gain
     public var correctionFractionBps: Bps // how far toward target each trade goes
     public var gainBudgetUsd: Usd         // realized-gain headroom available to this plan (0 = none set)
     public var budgetBinds: Bool
@@ -108,6 +112,7 @@ public extension Engine {
         var trades: [RebalanceTrade] = []
         var totalSells: Usd = 0
         var netRealizedGain: Usd = 0
+        var totalST: Usd = 0, totalLT: Usd = 0
         var heldOutUsd: Usd = 0
 
         for gap in gaps where gap.traded && gap.gapUsd < 0 {
@@ -135,12 +140,16 @@ public extension Engine {
                     }
                 }
                 if sellUsd < 1 { continue }
-                let taxableGain = (t == .taxable) ? lotGain : 0
-                totalSells += sellUsd; netRealizedGain += taxableGain
+                // Actual short/long-term split of the (possibly budget-capped) slice.
+                // Lowest-gain lots sell first, so the split total never exceeds the cap.
+                let (stSlice, ltSlice) = (t == .taxable) ? p.realizedGainSplit(sellUsd: sellUsd, asOf: asOf) : (0, 0)
+                let taxableGain = stSlice + ltSlice
+                totalSells += sellUsd; netRealizedGain += taxableGain; totalST += stSlice; totalLT += ltSlice
                 trades.append(RebalanceTrade(id: "sell-\(p.id)", side: .sell, ticker: p.ticker,
                     accountId: p.accountId, accountLabel: h.account(p.accountId)?.label ?? p.accountId,
                     treatment: t, sleeveId: gap.sleeveId, sleeveLabel: gap.label, amountUsd: sellUsd,
-                    realizedGainUsd: taxableGain, rationale: sellRationale(p, treatment: t)))
+                    realizedGainUsd: taxableGain, shortTermGainUsd: stSlice, longTermGainUsd: ltSlice,
+                    rationale: sellRationale(p, treatment: t)))
                 raise -= sellUsd
             }
         }
@@ -163,7 +172,7 @@ public extension Engine {
                 rationale: buyRationale(sleeve, ticker: ticker)))
         }
 
-        let estTax = netRealizedGain > 0 ? ltcgTaxOnGain(h, gain: netRealizedGain) : 0
+        let estTax = capitalGainsTaxAggregate(h, shortTerm: totalST, longTerm: totalLT, asOf: asOf)
         let fundingGap = max(0, desiredBuys - totalSells)
         let excessCash = max(0, totalSells - totalBuys)
 
@@ -186,7 +195,8 @@ public extension Engine {
 
         let grossTraded = totalBuys + totalSells
         return RebalancePlan(trades: trades, sleeveGaps: gaps, totalBuysUsd: totalBuys, totalSellsUsd: totalSells,
-            turnoverBps: (grossTraded / total).bps, realizedGainUsd: netRealizedGain, estTaxUsd: estTax,
+            turnoverBps: (grossTraded / total).bps, realizedGainUsd: netRealizedGain,
+            realizedShortTermUsd: totalST, realizedLongTermUsd: totalLT, estTaxUsd: estTax,
             correctionFractionBps: reb.correctionFractionBps,
             gainBudgetUsd: hasBudget ? budgetCap : 0, budgetBinds: budgetBinds,
             fundingGapUsd: fundingGap, excessCashUsd: excessCash, heldOutUsd: heldOutUsd,

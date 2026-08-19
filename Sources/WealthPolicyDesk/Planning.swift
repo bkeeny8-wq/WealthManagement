@@ -106,19 +106,29 @@ public extension Household {
         let tax = Engine.realizedGainTaxOn(self, sold, sellUsd: proceeds).taxUsd
         let reinvest = max(0, proceeds - tax)
 
-        // 1) Reduce (or remove) the sold lot, shrinking basis proportionally.
+        // 1) Reduce (or remove) the sold lot, shrinking basis — and its tax lots —
+        //    proportionally (an approximate pro-rata sale that keeps the aggregate
+        //    consistent with the per-lot detail).
         if removed {
             h.positions.remove(at: i)
         } else {
             h.positions[i].marketValueUsd = newMV
             h.positions[i].costBasisUsd = sold.costBasisUsd * (1 - frac)
+            h.positions[i].lots = sold.lots.map {
+                TaxLot(id: $0.id, marketValueUsd: $0.marketValueUsd * (1 - frac),
+                       costBasisUsd: $0.costBasisUsd * (1 - frac), acquisitionDate: $0.acquisitionDate)
+            }
         }
 
-        // 2) Grow an existing bought lot, or create one, in the same account.
+        // 2) Grow an existing bought lot, or create one, in the same account. A freshly
+        //    bought lot is dated today, so it is correctly short-term until it seasons.
+        let freshLot = TaxLot(id: "\(a.sellAccountId)_\(a.buyTicker)_\(a.id.uuidString.prefix(8))",
+                              marketValueUsd: reinvest, costBasisUsd: reinvest, acquisitionDate: Engine.planningAsOf)
         let sleeveForBuy = a.buySleeveId ?? sold.sleeveId
         if let j = h.positions.firstIndex(where: { $0.accountId == a.sellAccountId && $0.ticker == a.buyTicker }) {
             h.positions[j].marketValueUsd += reinvest
             h.positions[j].costBasisUsd += reinvest
+            if !h.positions[j].lots.isEmpty { h.positions[j].lots.append(freshLot) }   // keep the empty=aggregate invariant
             if let sec = a.buySector { h.positions[j].sector = sec }
         } else {
             h.positions.append(Position(
@@ -126,7 +136,7 @@ public extension Household {
                 accountId: a.sellAccountId, ticker: a.buyTicker, sleeveId: sleeveForBuy,
                 marketValueUsd: reinvest, costBasisUsd: reinvest, layer: sold.layer,
                 disposition: sold.disposition, holdToStepUp: false, isConcentrated: false,
-                sector: a.buySector))
+                sector: a.buySector, lots: [freshLot]))
         }
         return h
     }
@@ -179,15 +189,13 @@ public extension Engine {
         let frac = p.marketValueUsd > 0 ? sell / p.marketValueUsd : 0
         let rawGain = p.unrealizedGainUsd * frac                 // signed: a loss stays negative
         guard h.treatment(of: p) == .taxable else { return (rawGain, 0, false, 0) }
-        let gain = max(0, rawGain)                               // a loss realizes no tax here
-        let (grossOrdinary, ordinaryTaxable) = currentOrdinaryIncome(h, asOf: asOf, capGains: gain)
-        let tax = Seed.tax2026
-        let filing = h.filingStatus
-        let stdDed = tax.standardDeduction[filing] ?? 0
-        let taxableGains = max(0, gain - max(0, stdDed - grossOrdinary))   // unused std ded spills onto gains
-        let ltcg = ltcgTaxStacked(taxableGains, ordinaryTaxable: ordinaryTaxable, breakpoints: tax.ltcgBreakpoints[filing] ?? [])
-        let niit = niitTax(magi: grossOrdinary + gain, netInvestmentIncome: gain, filing: filing, tax: tax)
-        return (rawGain, ltcg + niit, true, ordinaryTaxable)
+        // Split the realized gain by holding period; short-term is taxed as ordinary. A
+        // position with no lots yields (0, rawGain) — the original long-term assumption.
+        let (st, lt) = p.realizedGainSplit(sellUsd: sell, asOf: asOf)
+        let (grossOrdinary, ordinaryTaxable) = currentOrdinaryIncome(h, asOf: asOf, capGains: max(0, st + lt))
+        let taxUsd = capitalGainsTax(shortTerm: st, longTerm: lt, grossOrdinary: grossOrdinary,
+                                     ordinaryTaxable: ordinaryTaxable, filing: h.filingStatus, tax: Seed.tax2026)
+        return (rawGain, taxUsd, true, ordinaryTaxable)
     }
 
     /// Action-level convenience.
@@ -202,14 +210,8 @@ public extension Engine {
     /// taxable moves and taxing the total once, rather than each in isolation
     /// (independent per-move taxing understates by ignoring bracket stacking).
     static func ltcgTaxOnGain(_ h: Household, gain: Usd, asOf: IsoDate = Engine.planningAsOf) -> Usd {
-        guard gain > 0 else { return 0 }
-        let (grossOrdinary, ordinaryTaxable) = currentOrdinaryIncome(h, asOf: asOf, capGains: gain)
-        let tax = Seed.tax2026
-        let filing = h.filingStatus
-        let stdDed = tax.standardDeduction[filing] ?? 0
-        let taxableGains = max(0, gain - max(0, stdDed - grossOrdinary))
-        return ltcgTaxStacked(taxableGains, ordinaryTaxable: ordinaryTaxable, breakpoints: tax.ltcgBreakpoints[filing] ?? [])
-             + niitTax(magi: grossOrdinary + gain, netInvestmentIncome: gain, filing: filing, tax: tax)
+        // A long-term-only gain; the short/long-term-aware path with shortTerm: 0.
+        capitalGainsTaxAggregate(h, shortTerm: 0, longTerm: gain, asOf: asOf)
     }
 
     /// The household's current-year ordinary income for stacking a realized gain:

@@ -269,11 +269,16 @@ public struct Position: Identifiable, Sendable, Hashable {
     /// Sector SPDR) or treat as broad/unclassified. Lets a within-sleeve sector
     /// rotation (XLK → XLP) be visible even though both share one policy sleeve.
     public var sector: Sector?
-    public init(id: String, accountId: String, ticker: String, sleeveId: String?, marketValueUsd: Usd, costBasisUsd: Usd, layer: Layer, disposition: Disposition, holdToStepUp: Bool, isConcentrated: Bool = false, sector: Sector? = nil) {
+    /// Real tax lots, when known. Empty = a single aggregated lot of unknown vintage,
+    /// treated as long-term (the app's original behaviour). When non-empty the lots
+    /// detail the position — their market values and bases sum to this position's — and
+    /// carry acquisition dates, so a realized gain splits into short- vs long-term.
+    public var lots: [TaxLot] = []
+    public init(id: String, accountId: String, ticker: String, sleeveId: String?, marketValueUsd: Usd, costBasisUsd: Usd, layer: Layer, disposition: Disposition, holdToStepUp: Bool, isConcentrated: Bool = false, sector: Sector? = nil, lots: [TaxLot] = []) {
         self.id = id; self.accountId = accountId; self.ticker = ticker; self.sleeveId = sleeveId
         self.marketValueUsd = marketValueUsd; self.costBasisUsd = costBasisUsd; self.layer = layer
         self.disposition = disposition; self.holdToStepUp = holdToStepUp; self.isConcentrated = isConcentrated
-        self.sector = sector
+        self.sector = sector; self.lots = lots
     }
     public var unrealizedGainUsd: Usd { marketValueUsd - costBasisUsd }
     /// Best-effort sector: the explicit one, else inferred from a SPDR ticker.

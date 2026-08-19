@@ -453,7 +453,10 @@ public enum Seed {
         let positions = [
             // Taxable — the low-basis, held-to-step-up core.
             Position(id: "pos_voo", accountId: "acct_taxable", ticker: "VOO", sleeveId: "us_large_core", marketValueUsd: 720_000, costBasisUsd: 250_000, layer: .strategic, disposition: .holdToStepUp, holdToStepUp: true),
-            Position(id: "pos_vea", accountId: "acct_taxable", ticker: "VEA", sleeveId: "intl_developed", marketValueUsd: 310_000, costBasisUsd: 268_000, layer: .strategic, disposition: .holdToStepUp, holdToStepUp: false),
+            Position(id: "pos_vea", accountId: "acct_taxable", ticker: "VEA", sleeveId: "intl_developed", marketValueUsd: 310_000, costBasisUsd: 268_000, layer: .strategic, disposition: .stepUpThenSell, holdToStepUp: false, lots: [
+                TaxLot(id: "pos_vea_lt", marketValueUsd: 220_000, costBasisUsd: 200_000, acquisitionDate: "2019-05-10"),   // seasoned → long-term
+                TaxLot(id: "pos_vea_st", marketValueUsd: 90_000, costBasisUsd: 68_000, acquisitionDate: "2026-03-15"),    // recent → short-term, big gain
+            ]),
             Position(id: "pos_aapl", accountId: "acct_taxable", ticker: "AAPL", sleeveId: nil, marketValueUsd: 240_000, costBasisUsd: 28_000, layer: .strategic, disposition: .holdToStepUp, holdToStepUp: true, isConcentrated: true),
             Position(id: "pos_mub", accountId: "acct_taxable", ticker: "MUB", sleeveId: "fixed_income_liquid", marketValueUsd: 160_000, costBasisUsd: 158_000, layer: .strategic, disposition: .stepUpThenSell, holdToStepUp: false),
             // Tax-deferred — ordinary-income and phantom-income instruments.
