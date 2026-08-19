@@ -92,6 +92,7 @@ framework_files = [
     "WealthGlideModel.swift",
     "TaxLotModel.swift",
     "OwnershipModel.swift",
+    "EquityCompModel.swift",
     "Decumulation.swift",
     "Resilience.swift",
     "Planning.swift",

@@ -502,10 +502,16 @@ extension Engine {
                                    detail: "A grant dated \(ec.pending83bGrantDate) awaits an 83(b) election — a 30-day, irrevocable window. File before it closes."))
             }
             if ec.plannedExerciseAndHold && ec.isoBargainElementUsd > 0 {
+                let a = isoAmt(h, asOf: asOf)
+                let detail: String
+                if let a = a, a.amtOwedUsd > 0 {
+                    detail = "The \(Fmt.usdShort(a.bargainElementUsd)) bargain element becomes an AMT preference — about \(Fmt.usdShort(a.amtOwedUsd)) of AMT is due with NO cash received (an ~\(Fmt.pctBps(a.effectiveAmtRateBps)) effective hit). You can exercise ~\(Fmt.usdShort(a.crossoverBargainUsd)) AMT-free this year — stage the rest across tax years to the crossover, or exercise-and-sell to fund the tax."
+                } else {
+                    detail = "A \(Fmt.usdShort(ec.isoBargainElementUsd)) bargain element becomes an AMT preference item. At current income it stays under the AMT crossover (~\(Fmt.usdShort(a?.crossoverBargainUsd ?? 0)) exercisable AMT-free) — but the crossover moves with income; verify before exercising."
+                }
                 out.append(Finding(ruleId: "iso_amt_exposure", module: .planning, severity: .hard,
-                                   title: "ISO exercise-and-hold AMT exposure",
-                                   detail: "A \(Fmt.usdShort(ec.isoBargainElementUsd)) bargain element becomes an AMT preference item — tax due with no cash received. Model the crossover price before exercising.",
-                                   magnitudeUsd: ec.isoBargainElementUsd))
+                                   title: "ISO exercise-and-hold AMT exposure", detail: detail,
+                                   magnitudeUsd: a?.amtOwedUsd ?? ec.isoBargainElementUsd))
             }
             if (ec.isInsider || ec.tradingWindow != .open) && !ec.has10b51Plan {
                 out.append(Finding(ruleId: "blackout_diversification_unscheduled", module: .planning, severity: .soft,
@@ -513,9 +519,10 @@ extension Engine {
                                    detail: "Insider/blackout status with no 10b5-1 plan. Diversification must be scheduled ahead through the cooling-off period, not executed on demand."))
             }
             if ec.qsbs != .none {
+                let extra = qsbsExclusion(h).map { " Up to \(Fmt.usdShort($0.perIssuerCapUsd)) of gain per issuer can be excluded (100% for post-2010 stock held 5+ years) — as much as \(Fmt.usdShort($0.maxFederalTaxExcludedUsd)) of federal tax." } ?? ""
                 out.append(Finding(ruleId: "qsbs_verify", module: .planning, severity: .soft,
-                                   title: "QSBS eligibility to verify",
-                                   detail: "Possible QSBS flagged (\(ec.qsbs.label)). Exclusion rules are specific and were recently modified — verify holding-period and gross-asset tests before relying on it."))
+                                   title: "QSBS exclusion to verify",
+                                   detail: "Possible QSBS flagged (\(ec.qsbs.label)).\(extra) Verify the 5-year holding and $50M gross-asset tests — the rules are specific and were recently modified — before relying on it."))
             }
         }
 

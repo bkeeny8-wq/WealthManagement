@@ -10,9 +10,13 @@ struct TaxTab: View {
     private var embedded: (shortTerm: Usd, longTerm: Usd, taxUsd: Usd, longTermOnlyTaxUsd: Usd, hasLots: Bool) {
         Engine.embeddedGains(eval.household, asOf: eval.asOf)
     }
+    private var isoAmt: IsoAmtResult? { Engine.isoAmt(eval.household) }
+    private var qsbs: QsbsExclusion? { Engine.qsbsExclusion(eval.household) }
+    private var disabilityPv: Usd { Engine.disabilityGapPv(eval.household) }
 
     var body: some View {
         embeddedGainsCard
+        decisionFlagsCard
 
         Card("SALT window & the marginal mortgage dollar", help: Teach.help("salt")) {
             HeadlineFigure(Fmt.pctBps(it.marginalValueOfMortgageInterestBps),
@@ -72,6 +76,33 @@ struct TaxTab: View {
                 LedgerRow("Conversion window", "age \(w.fromAge)–\(w.toAge)", color: Theme.ink)
                 LedgerRow("Cliffs watched", eval.policy.withdrawal.cliffAwareness.joined(separator: ", ").uppercased(), color: Theme.amber)
                 Note("The retirement-to-RMD window is worth more than any tilt. v1 flags opportunities — ‘you have headroom in the 22% bracket’ — rather than optimizing, capturing most of the value without being right about future law.")
+            }
+        }
+    }
+
+    @ViewBuilder private var decisionFlagsCard: some View {
+        if isoAmt != nil || qsbs != nil || disabilityPv > 0 {
+            Card("Decision-grade flags — equity comp & protection") {
+                if let a = isoAmt {
+                    Note("Exercising ISOs and HOLDING creates an AMT preference — tax due with no shares sold. The crossover is how much bargain element you can exercise before AMT bites; stage exercises across years to stay under it.")
+                    LedgerRow("ISO bargain element", Fmt.usd(a.bargainElementUsd), color: Theme.ink)
+                    LedgerRow("AMT due — cash, no proceeds", Fmt.usd(a.amtOwedUsd), color: a.amtOwedUsd > 0 ? Theme.debt : Theme.asset, bold: true)
+                    if a.amtOwedUsd > 0 { LedgerRow("Effective AMT rate", Fmt.pctBps(a.effectiveAmtRateBps), color: Theme.debt) }
+                    LedgerRow("AMT-free crossover this year", Fmt.usd(a.crossoverBargainUsd), color: Theme.asset, bold: true)
+                    Note("Tentative minimum tax \(Fmt.usdShort(a.tentativeMinTaxUsd)) vs regular tax \(Fmt.usdShort(a.regularTaxUsd)) on AMTI \(Fmt.usdShort(a.amtiUsd)). AMT parameters are dated 2026 estimates subject to the TCJA sunset — verify.", color: Theme.muted)
+                }
+                if let q = qsbs {
+                    if isoAmt != nil { Divider().overlay(Theme.rule).padding(.vertical, 2) }
+                    LedgerRow("§1202 QSBS — status", q.status.label, color: Theme.ink)
+                    LedgerRow("Exclusion cap per issuer", Fmt.usd(q.perIssuerCapUsd), color: Theme.asset)
+                    LedgerRow("Federal tax it can erase", Fmt.usd(q.maxFederalTaxExcludedUsd), color: Theme.asset, bold: true)
+                    Note("Greater of $10M or 10× basis, 100% excluded for stock acquired after 2010 and held 5+ years. Verify the holding-period and $50M gross-asset tests.", color: Theme.muted)
+                }
+                if disabilityPv > 0 {
+                    if isoAmt != nil || qsbs != nil { Divider().overlay(Theme.rule).padding(.vertical, 2) }
+                    LedgerRow("Disability gap — present value", Fmt.usd(disabilityPv), color: Theme.debt, bold: true)
+                    Note("The unfunded monthly disability-income gap, valued over the working years at the safe real rate — what the coverage shortfall is really worth as a lump.", color: Theme.muted)
+                }
             }
         }
     }
