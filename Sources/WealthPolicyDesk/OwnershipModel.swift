@@ -93,7 +93,9 @@ public extension Engine {
             rows.append(AccountStepUp(accountId: a.id, label: a.label, ownerLabel: ownerLabel(a.ownership, h: h),
                 kind: a.ownership.kind, embeddedGainUsd: gain,
                 firstDeathStepUpUsd: steppedUp, taxSavedUsd: steppedUp * ltcgRate))
-            if isCouple { cpSaved += gain * ltcgRate }              // community property would step up the full gain
+            // Community property would step up the full gain — but only for property that
+            // can be transmuted; an entity interest's inside basis doesn't step up that way.
+            if isCouple && a.ownership.kind != .entity { cpSaved += gain * ltcgRate }
         }
         return TitlingStepUp(accounts: rows.sorted { $0.embeddedGainUsd > $1.embeddedGainUsd },
             totalEmbeddedGainUsd: rows.reduce(0) { $0 + $1.embeddedGainUsd },
