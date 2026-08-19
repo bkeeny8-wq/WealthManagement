@@ -178,12 +178,12 @@ public extension Engine {
     static let planningAsOf: IsoDate = "2026-08-11"
 
     /// The capital-gains tax that selling `sellUsd` of `p` in `h` realizes TODAY.
-    /// Zero inside a tax-deferred or Roth account. For a taxable lot: an estimated
-    /// long-term cap-gains tax (assumes a long-term holding — Position carries no
-    /// acquisition date) stacked on the household's CURRENT ordinary income
-    /// (wages + pension + RMD + taxable Social Security), with the unused standard
-    /// deduction sheltering the gain and NIIT on top — mirroring the decumulation
-    /// engine's own year tax. The returned gain is SIGNED (a loss is negative).
+    /// Zero inside a tax-deferred or Roth account. For a taxable lot the realized gain is
+    /// split by holding period (choosing lots tax-first) — short-term taxed as ordinary,
+    /// long-term at LTCG — stacked on the household's CURRENT ordinary income (wages +
+    /// pension + RMD + taxable Social Security), with the unused standard deduction
+    /// sheltering the gain and NIIT on top. The returned `gainUsd` is the SIGNED gain
+    /// actually realized by that lot selection (matching what is taxed).
     static func realizedGainTaxOn(_ h: Household, _ p: Position, sellUsd: Usd, asOf: IsoDate = Engine.planningAsOf) -> (gainUsd: Usd, taxUsd: Usd, taxable: Bool, ordinaryTaxableUsd: Usd) {
         let sell = min(max(0, sellUsd), p.marketValueUsd)
         let frac = p.marketValueUsd > 0 ? sell / p.marketValueUsd : 0
@@ -195,7 +195,7 @@ public extension Engine {
         let (grossOrdinary, ordinaryTaxable) = currentOrdinaryIncome(h, asOf: asOf, capGains: max(0, st + lt))
         let taxUsd = capitalGainsTax(shortTerm: st, longTerm: lt, grossOrdinary: grossOrdinary,
                                      ordinaryTaxable: ordinaryTaxable, filing: h.filingStatus, tax: Seed.tax2026)
-        return (rawGain, taxUsd, true, ordinaryTaxable)
+        return (st + lt, taxUsd, true, ordinaryTaxable)         // report the gain actually taxed (lot-specific), not the blended pro-rata
     }
 
     /// Action-level convenience.

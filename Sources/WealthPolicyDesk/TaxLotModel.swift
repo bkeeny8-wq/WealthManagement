@@ -33,7 +33,7 @@ public struct TaxLot: Identifiable, Codable, Sendable, Hashable {
               let ay = Int(acquisitionDate.prefix(4)), let sy = Int(asOf.prefix(4)) else { return true }
         if sy > ay + 1 { return true }
         if sy < ay + 1 { return false }
-        return String(asOf.dropFirst(4)) >= String(acquisitionDate.dropFirst(4))   // same (acq+1) year → compare MM-DD
+        return String(asOf.dropFirst(4)) > String(acquisitionDate.dropFirst(4))   // MORE than a year: the anniversary day itself is still short-term
     }
 }
 

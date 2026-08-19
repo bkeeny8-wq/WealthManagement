@@ -214,13 +214,16 @@ struct DeskView: View {
     /// household left by the moves before it.
     private var stagedTaxTotal: Usd {
         var h = household
-        var totalGain: Usd = 0
+        var totalST: Usd = 0, totalLT: Usd = 0
         for m in staged {
-            let r = Engine.realizedGainTax(h, m)
-            if r.taxable { totalGain += max(0, r.gainUsd) }
+            if let p = h.positions.first(where: { $0.accountId == m.sellAccountId && $0.ticker == m.sellTicker }),
+               h.treatment(of: p) == .taxable {
+                let (st, lt) = p.realizedGainSplit(sellUsd: m.sellUsd, asOf: Engine.planningAsOf)
+                totalST += st; totalLT += lt        // short-term taxed as ordinary, matching the commit path
+            }
             h = h.applying(m)
         }
-        return Engine.ltcgTaxOnGain(household, gain: totalGain)
+        return Engine.capitalGainsTaxAggregate(household, shortTerm: totalST, longTerm: totalLT)
     }
 
     private var previewLabel: String {
