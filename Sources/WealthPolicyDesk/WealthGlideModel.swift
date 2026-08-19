@@ -60,8 +60,11 @@ public extension Engine {
         }
 
         let peak = points.max { $0.totalUsd < $1.totalUsd }
-        // First zero-portfolio age strictly after retirement (the projection floors at 0).
-        let depletion = points.first { $0.age > retireAge && $0.financialUsd <= 0 }?.age
+        // A GENUINE early run-out floors to 0 for years before the horizon ends. The
+        // required-return path is solved to land exactly at the legacy floor, so with a
+        // zero floor it touches 0 only at the terminal node — exclude that last point so
+        // an on-plan landing isn't mislabeled a shortfall (and doesn't flip on rounding).
+        let depletion = points.dropLast().first { $0.age > retireAge && $0.financialUsd <= 0 }?.age
 
         return WealthGlide(
             points: points, retirementAge: retireAge, retirementYear: year0 + max(0, retireAge - age0),

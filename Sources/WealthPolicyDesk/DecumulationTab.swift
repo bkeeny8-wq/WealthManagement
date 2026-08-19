@@ -96,7 +96,7 @@ struct DecumulationTab: View {
         }
         let atRetirement = g.points.first { $0.age >= g.retirementAge }
         return Card("Lifetime wealth glide") {
-            Note("Where the money is over a life, in today's real dollars. Human capital — the value of earnings still ahead — converts into the portfolio as you save, reaching zero at retirement; the portfolio grows through accumulation, peaks near retirement, then draws down to fund spending. The financial line is the plan's own required-return path — whether real returns can DELIVER it is the Resilience and Shortfall question.")
+            Note("Where the money is over a life, in today's real dollars. Human capital — the value of earnings still ahead — converts into the portfolio as you save, tapering to zero as those earnings end; the portfolio grows through accumulation, peaks near retirement, then draws down to fund spending. The financial line is the plan's own required-return path — whether real returns can DELIVER it is the Resilience and Shortfall question.")
             Chart {
                 ForEach(bands) { b in
                     AreaMark(x: .value("Age", b.age), y: .value("Value", b.usd))
