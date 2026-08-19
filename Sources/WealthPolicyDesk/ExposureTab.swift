@@ -11,6 +11,7 @@ import SwiftUI
 struct ExposureTab: View {
     let eval: Evaluation
     private var ex: ExposureView { Engine.exposureMatrix(eval.household) }
+    private var fx: FactorTiltView { Engine.factorExposure(eval.household) }
 
     var body: some View {
         let e = ex
@@ -74,6 +75,53 @@ struct ExposureTab: View {
                 bar(label: row.geo, bps: row.bps, cap: cap, overIsHard: hard, exempt: row.geo == "US")
             }
         }
+
+        Card("Factor tilts — implied by holdings") {
+            Note("The systematic bet the book carries relative to the cap-weighted market (0 = market). A book can look diversified by sector and country yet lean hard on one factor — momentum, growth, or defensives. Broad index funds sit at 0; sector funds, factor funds, and concentrated single names (which inherit their sector's factor character) move the needle. Dated loadings — verify.")
+            ForEach(fx.tilts) { t in factorBar(t) }
+            Note(fx.summary, icon: "scope", color: Theme.ink)
+        }
+    }
+
+    // Diverging center bar: 0 = market at the midline; positive fills toward the long
+    // (right) end of the axis, negative toward the short (left) end.
+    private func factorBar(_ t: FactorTilt) -> some View {
+        let maxScale = 0.30
+        let frac = min(1, abs(t.tilt) / maxScale)
+        let col = t.notable ? Theme.accent : Theme.accent.opacity(0.45)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(t.axis.label).font(.system(size: 13, weight: t.notable ? .semibold : .regular)).foregroundStyle(Theme.ink)
+                Spacer()
+                Text(signedTilt(t.tilt)).font(.system(size: 12.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(t.notable ? Theme.accent : Theme.muted)
+            }
+            GeometryReader { geo in
+                let half = geo.size.width / 2, barW = max(2, frac * half)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.rule.opacity(0.35)).frame(height: 6)
+                    // Only draw the fill for a non-zero tilt; a market-neutral axis (rounds to
+                    // 0.00) shows just the center tick, no directional nub biased to one side.
+                    if abs(t.tilt) >= 0.005 {
+                        Capsule().fill(col).frame(width: barW, height: 6)
+                            .offset(x: t.tilt >= 0 ? half : half - barW)
+                    }
+                    Rectangle().fill(Theme.muted.opacity(0.55)).frame(width: 1, height: 13)
+                        .offset(x: half - 0.5)
+                }.frame(height: 14)
+            }.frame(height: 14)
+            HStack {
+                Text(t.axis.shortName).font(.system(size: 9.5)).foregroundStyle(Theme.muted)
+                Spacer()
+                Text(t.axis.longName).font(.system(size: 9.5)).foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(.vertical, 5)
+    }
+
+    private func signedTilt(_ x: Double) -> String {
+        let s = String(format: "%+.2f", x)
+        return (s == "+0.00" || s == "-0.00") ? "0.00" : s
     }
 
     private func bar(label: String, bps: Bps, cap: Bps, overIsHard: Bool, exempt: Bool = false) -> some View {

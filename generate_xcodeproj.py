@@ -86,6 +86,7 @@ framework_files = [
     "CapitalMarketRisk.swift",
     "FrontierModel.swift",
     "ExposureLookthrough.swift",
+    "FactorLookthrough.swift",
     "Decumulation.swift",
     "Resilience.swift",
     "Planning.swift",
