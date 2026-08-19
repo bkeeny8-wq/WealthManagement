@@ -21,6 +21,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
     case exposure = "Exposure"
     case riskScale = "Risk Scale"
     case frontier = "Frontier"
+    case rebalance = "Rebalance"
     case planning = "Planning"
     case constraints = "Constraints"
     case tax = "Tax"
@@ -38,6 +39,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
         case .exposure: return "square.grid.3x3.fill"
         case .riskScale: return "slider.horizontal.3"
         case .frontier: return "chart.dots.scatter"
+        case .rebalance: return "arrow.triangle.2.circlepath"
         case .planning: return "arrow.left.arrow.right"
         case .constraints: return "checklist"
         case .tax: return "percent"
@@ -191,6 +193,7 @@ struct DeskView: View {
         case .exposure:       ExposureTab(eval: e)
         case .riskScale:      RiskScaleTab(eval: e)
         case .frontier:       FrontierTab(eval: e)
+        case .rebalance:      RebalanceTab(eval: e)
         case .planning:       PlanningTab(base: household, staged: $staged, stagedTilts: $stagedTilts,
                                           committed: committedStatuses, committedTilts: household.tacticalTilts,
                                           canPersist: canPersist, onCommit: commit, onDiscard: discard)
