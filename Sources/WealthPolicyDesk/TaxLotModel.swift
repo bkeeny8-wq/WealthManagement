@@ -50,10 +50,22 @@ public extension Position {
     /// losses (to harvest) → long-term lowest-gain → short-term last (defer ordinary-rate
     /// gains). No lots → the whole slice is long-term (unknown vintage).
     func realizedGainSplit(sellUsd: Usd, asOf: IsoDate) -> (shortTerm: Usd, longTerm: Usd) {
+        let r = afterSelling(sellUsd: sellUsd, asOf: asOf)
+        return (r.shortTerm, r.longTerm)
+    }
+
+    /// Sell `sellUsd` choosing lots tax-first, and return the SPECIFIC lots' realized
+    /// short/long-term gain together with the position after exactly those lots are
+    /// removed (basis and lots kept consistent) — so a committed sale seasons the right
+    /// lots. No lots → pro-rata shrink, long-term (unknown vintage).
+    func afterSelling(sellUsd: Usd, asOf: IsoDate) -> (shortTerm: Usd, longTerm: Usd, position: Position) {
         let sell = min(max(0, sellUsd), marketValueUsd)
         guard !lots.isEmpty else {
             let frac = marketValueUsd > 0 ? sell / marketValueUsd : 0
-            return (0, unrealizedGainUsd * frac)
+            var p = self
+            p.marketValueUsd = marketValueUsd - sell
+            p.costBasisUsd = costBasisUsd * (1 - frac)
+            return (0, unrealizedGainUsd * frac, p)
         }
         func rank(_ l: TaxLot) -> (Int, Double) {
             if l.unrealizedGainUsd < 0 { return (0, l.unrealizedGainUsd) }              // losses first, most-negative first
@@ -63,16 +75,25 @@ public extension Position {
         let ordered = lots.sorted { a, b in
             let (ra, rb) = (rank(a), rank(b)); return ra.0 != rb.0 ? ra.0 < rb.0 : ra.1 < rb.1
         }
-        var remaining = sell, st: Usd = 0, lt: Usd = 0
+        var remaining = sell, st: Usd = 0, lt: Usd = 0, newLots: [TaxLot] = []
         for lot in ordered {
-            if remaining <= 0 { break }
+            guard remaining > 0.005 else { newLots.append(lot); continue }
             let take = min(remaining, lot.marketValueUsd)
             let frac = lot.marketValueUsd > 0 ? take / lot.marketValueUsd : 0
             let g = lot.unrealizedGainUsd * frac
             if lot.isLongTerm(asOf: asOf) { lt += g } else { st += g }
             remaining -= take
+            let leftMV = lot.marketValueUsd - take
+            if leftMV > 0.01 {                                                          // keep the un-sold remainder of a partially-sold lot
+                newLots.append(TaxLot(id: lot.id, marketValueUsd: leftMV,
+                                      costBasisUsd: lot.costBasisUsd * (1 - frac), acquisitionDate: lot.acquisitionDate))
+            }
         }
-        return (st, lt)
+        var p = self
+        p.lots = newLots
+        p.marketValueUsd = newLots.reduce(0) { $0 + $1.marketValueUsd }
+        p.costBasisUsd = newLots.reduce(0) { $0 + $1.costBasisUsd }
+        return (st, lt, p)
     }
 }
 

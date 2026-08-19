@@ -69,6 +69,7 @@ public struct RebalancePlan: Sendable {
     public var budgetBinds: Bool
     public var fundingGapUsd: Usd         // underweight buys the sells couldn't fund
     public var excessCashUsd: Usd         // sell proceeds beyond what buys absorbed
+    public var washSaleDisallowedUsd: Usd // harvested loss disallowed by a same-security re-buy
     public var heldOutUsd: Usd            // value excluded from selling (disposition/locked)
     public var warnings: [String]
     public var asOf: IsoDate
@@ -172,11 +173,23 @@ public extension Engine {
                 rationale: buyRationale(sleeve, ticker: ticker)))
         }
 
-        let estTax = capitalGainsTaxAggregate(h, shortTerm: totalST, longTerm: totalLT, asOf: asOf)
+        // Wash sale: a harvested LOSS whose security the plan also BUYS (within the 31-day
+        // window) has its loss DISALLOWED. Add those losses back before taxing. A TLH
+        // partner is a different, not-substantially-identical fund, so it never trips this.
+        let boughtTickers = Set(trades.filter { $0.side == .buy }.map { $0.ticker })
+        let washSells = trades.filter { $0.side == .sell && $0.realizedGainUsd < 0 && boughtTickers.contains($0.ticker) }
+        let disallowedST = washSells.reduce(0) { $0 + min(0, $1.shortTermGainUsd) }
+        let disallowedLT = washSells.reduce(0) { $0 + min(0, $1.longTermGainUsd) }
+        let washSaleDisallowed = -(disallowedST + disallowedLT)
+        let estTax = capitalGainsTaxAggregate(h, shortTerm: totalST - disallowedST, longTerm: totalLT - disallowedLT, asOf: asOf)
         let fundingGap = max(0, desiredBuys - totalSells)
         let excessCash = max(0, totalSells - totalBuys)
 
         var warnings: [String] = []
+        if !washSells.isEmpty {
+            let tickers = Set(washSells.map { $0.ticker }).sorted().joined(separator: ", ")
+            warnings.append("Wash sale: the plan harvests a loss on \(tickers) while also buying it within \(reb.washSaleWindowDays) days — the \(Fmt.usdShort(washSaleDisallowed)) loss is DISALLOWED (added back to the taxable gain). Replace it with a not-substantially-identical fund (a TLH partner) instead.")
+        }
         if budgetBinds {
             warnings.append("Selling stopped at the \(Fmt.usdShort(budgetCap)) net realized-gain budget. The rest of the rebalance is deferred — carry it to next tax year, or fund it from losses or new cash.")
         }
@@ -199,8 +212,8 @@ public extension Engine {
             realizedShortTermUsd: totalST, realizedLongTermUsd: totalLT, estTaxUsd: estTax,
             correctionFractionBps: reb.correctionFractionBps,
             gainBudgetUsd: hasBudget ? budgetCap : 0, budgetBinds: budgetBinds,
-            fundingGapUsd: fundingGap, excessCashUsd: excessCash, heldOutUsd: heldOutUsd,
-            warnings: warnings, asOf: asOf)
+            fundingGapUsd: fundingGap, excessCashUsd: excessCash, washSaleDisallowedUsd: washSaleDisallowed,
+            heldOutUsd: heldOutUsd, warnings: warnings, asOf: asOf)
     }
 
     // MARK: - helpers

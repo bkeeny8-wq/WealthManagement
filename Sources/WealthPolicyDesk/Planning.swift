@@ -95,29 +95,26 @@ public extension Household {
         let sold = h.positions[i]
         let sell = min(want, sold.marketValueUsd)
         guard sell > 0 else { return h }
-        let frac = sold.marketValueUsd > 0 ? sell / sold.marketValueUsd : 0
         let newMV = sold.marketValueUsd - sell
         let removed = newMV <= 1                                  // no ≤$1 dust lot left behind
         let proceeds = removed ? sold.marketValueUsd : sell       // what actually leaves the sold lot
 
+        // Sell the SPECIFIC lots (tax-first order), realizing their short/long-term gain
+        // and leaving the seasoned lots behind — so lot vintage stays accurate move over move.
+        let (stSold, ltSold, shrunk) = sold.afterSelling(sellUsd: proceeds, asOf: Engine.planningAsOf)
+
         // A taxable sale realizes tax, paid in cash from the proceeds — so only the
         // remainder is reinvested and the portfolio genuinely shrinks by the tax.
         // In a sheltered account the tax is $0, so the full proceeds rotate.
-        let tax = Engine.realizedGainTaxOn(self, sold, sellUsd: proceeds).taxUsd
+        let tax = h.treatment(of: sold) == .taxable ? Engine.capitalGainsTaxAggregate(self, shortTerm: stSold, longTerm: ltSold) : 0
         let reinvest = max(0, proceeds - tax)
 
-        // 1) Reduce (or remove) the sold lot, shrinking basis — and its tax lots —
-        //    proportionally (an approximate pro-rata sale that keeps the aggregate
-        //    consistent with the per-lot detail).
+        // 1) Reduce (or remove) the sold position — the shrunk copy already has the sold
+        //    lots removed and basis/lots kept consistent.
         if removed {
             h.positions.remove(at: i)
         } else {
-            h.positions[i].marketValueUsd = newMV
-            h.positions[i].costBasisUsd = sold.costBasisUsd * (1 - frac)
-            h.positions[i].lots = sold.lots.map {
-                TaxLot(id: $0.id, marketValueUsd: $0.marketValueUsd * (1 - frac),
-                       costBasisUsd: $0.costBasisUsd * (1 - frac), acquisitionDate: $0.acquisitionDate)
-            }
+            h.positions[i] = shrunk
         }
 
         // 2) Grow an existing bought lot, or create one, in the same account. A freshly
