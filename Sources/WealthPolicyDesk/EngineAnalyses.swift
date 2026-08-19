@@ -539,6 +539,12 @@ extension Engine {
         out.append(contentsOf: validateTilts(Seed.tiltPolicy, asOf: asOf))
         out.append(contentsOf: validateTacticalTilts(h.tacticalTilts))
 
+        // --- Look-through concentration (country×sector) ---
+        for b in exposureMatrix(h).breaches {
+            out.append(Finding(ruleId: "exposure_\(b.id)", module: .policy, severity: b.severity,
+                               key: b.id, title: "Concentration: \(b.label)", detail: b.detail))
+        }
+
         // Sort: hard first, then by dollars at stake (bigger first), then module.
         return out.sorted {
             let aHard = $0.severity == .hard ? 0 : 1, bHard = $1.severity == .hard ? 0 : 1

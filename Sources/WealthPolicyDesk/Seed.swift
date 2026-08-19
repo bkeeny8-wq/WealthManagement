@@ -250,7 +250,7 @@ public enum Seed {
     ]
 
     public static let matrixConstraints: [MatrixConstraint] = [
-        .init(id: "cell_concentration", severity: .hard, scope: .cell, limitBps: 800, description: "No country×sector cell above 8% of equity — the joint-exposure catch a per-axis view misses."),
+        .init(id: "cell_concentration", severity: .soft, scope: .cell, limitBps: 800, description: "Flags any country×sector cell above 8% of equity — the joint-exposure a per-axis view misses. SOFT by design: a cap-weighted US index alone puts ~18% in US·Technology, so a large cell is worth noticing, not a mandatory correction. The hard guardrails are the sector-marginal (38%) and single-country (7%) caps."),
         .init(id: "sector_lookthrough", severity: .hard, scope: .sectorMargin, limitBps: 3800, description: "Sector look-through inclusive of country-fund contribution."),
         .init(id: "single_country", severity: .hard, scope: .geoMargin, limitBps: 700, description: "Single-country exposure inclusive of core."),
         .init(id: "em_ceiling", severity: .soft, scope: .geoMargin, limitBps: 1500, description: "Emerging markets core + overlay."),

@@ -107,7 +107,9 @@ struct RosterView: View {
     private func row(_ rec: ClientRecord) -> some View {
         let intake = rec.intake
         let tier = IntakeModel.tier(forInvestable: intake.totalInvestableUsd)
-        let hard = Engine.evaluate(intake.buildHousehold()).findings.filter { $0.severity == .hard }.count
+        // Evaluate the plan of record (committed moves + tilts applied) so the badge
+        // matches what opening the desk shows — not the raw pre-move intake.
+        let hard = Engine.evaluate(rec.household()).findings.filter { $0.severity == .hard }.count
         return Button { onOpen(rec.id) } label: {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
