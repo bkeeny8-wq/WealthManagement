@@ -89,7 +89,7 @@ struct TaxTab: View {
                     LedgerRow("AMT due — cash, no proceeds", Fmt.usd(a.amtOwedUsd), color: a.amtOwedUsd > 0 ? Theme.debt : Theme.asset, bold: true)
                     if a.amtOwedUsd > 0 { LedgerRow("Effective AMT rate", Fmt.pctBps(a.effectiveAmtRateBps), color: Theme.debt) }
                     LedgerRow("AMT-free crossover this year", Fmt.usd(a.crossoverBargainUsd), color: Theme.asset, bold: true)
-                    Note("Tentative minimum tax \(Fmt.usdShort(a.tentativeMinTaxUsd)) vs regular tax \(Fmt.usdShort(a.regularTaxUsd)) on AMTI \(Fmt.usdShort(a.amtiUsd)). AMT parameters are dated 2026 estimates subject to the TCJA sunset — verify.", color: Theme.muted)
+                    Note("Tentative minimum tax \(Fmt.usdShort(a.tentativeMinTaxUsd)) vs regular tax \(Fmt.usdShort(a.regularTaxUsd)) on AMTI \(Fmt.usdShort(a.amtiUsd)) (the standard deduction added back). AMT parameters are dated 2026 estimates under OBBBA — verify.", color: Theme.muted)
                 }
                 if let q = qsbs {
                     if isoAmt != nil { Divider().overlay(Theme.rule).padding(.vertical, 2) }
