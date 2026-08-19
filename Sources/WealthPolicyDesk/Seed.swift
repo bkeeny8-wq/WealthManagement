@@ -445,10 +445,10 @@ public enum Seed {
             ExternalAsset(id: "ext_pension", label: "Robert defined-benefit pension", kind: .pension, valueUsd: 240_000, offsetsClaimId: "g_spending", offsetsFromYear: 4, displacesSleeveId: nil, liquidityClass: .selfLiquidating),
         ]
         let accounts = [
-            Account(id: "acct_taxable", label: "Joint brokerage", treatment: .taxable),
-            Account(id: "acct_ira", label: "Robert rollover IRA", treatment: .taxDeferred),
-            Account(id: "acct_401k", label: "Susan 401(k)", treatment: .taxDeferred),
-            Account(id: "acct_roth", label: "Roth IRA", treatment: .taxFree),
+            Account(id: "acct_taxable", label: "Joint brokerage", treatment: .taxable, ownership: .init(kind: .jointWROS)),
+            Account(id: "acct_ira", label: "Robert rollover IRA", treatment: .taxDeferred, ownership: .init(kind: .individual, ownerPersonId: "p_robert")),
+            Account(id: "acct_401k", label: "Susan 401(k)", treatment: .taxDeferred, ownership: .init(kind: .individual, ownerPersonId: "p_susan")),
+            Account(id: "acct_roth", label: "Roth IRA", treatment: .taxFree, ownership: .init(kind: .individual, ownerPersonId: "p_robert")),
         ]
         let positions = [
             // Taxable — the low-basis, held-to-step-up core.

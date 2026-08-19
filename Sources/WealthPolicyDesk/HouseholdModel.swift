@@ -245,8 +245,10 @@ public struct Account: Identifiable, Sendable, Hashable {
     public var id: String
     public var label: String
     public var treatment: AccountTaxTreatment
-    public init(id: String, label: String, treatment: AccountTaxTreatment) {
-        self.id = id; self.label = label; self.treatment = treatment
+    /// Who owns it — titling drives the basis step-up at death. Defaults to individual.
+    public var ownership: AccountOwnership = .individual
+    public init(id: String, label: String, treatment: AccountTaxTreatment, ownership: AccountOwnership = .individual) {
+        self.id = id; self.label = label; self.treatment = treatment; self.ownership = ownership
     }
 }
 

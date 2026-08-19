@@ -697,18 +697,27 @@ public extension IntakeModel {
                 realizedGain += hp.plan == .unwindImmediate ? gain : gain / Double(max(1, hp.unwindYears))
             }
         }
-        func addAccount(_ id: String, _ label: String, _ treatment: AccountTaxTreatment, _ balance: Usd) {
+        func addAccount(_ id: String, _ label: String, _ treatment: AccountTaxTreatment, _ balance: Usd, _ ownership: AccountOwnership) {
             let itemized = itemizedByTreatment[treatment] ?? 0
             guard balance > 0 || itemized > 0 else { return }
-            if !accounts.contains(where: { $0.id == id }) { accounts.append(Account(id: id, label: label, treatment: treatment)) }
+            if !accounts.contains(where: { $0.id == id }) { accounts.append(Account(id: id, label: label, treatment: treatment, ownership: ownership)) }
             let remainder = max(0, balance - itemized)   // synthesize only what the client didn't itemize
             if remainder > 0 {
                 positions.append(contentsOf: Self.synthesizePositions(accountId: id, treatment: treatment, balance: remainder, gainPct: taxableUnrealizedGainPct, equityPct: currentEquityPct))
             }
         }
-        addAccount("acct_taxable", "Taxable brokerage", .taxable, taxableUsd)
-        addAccount("acct_trad", "Traditional (IRA/401k)", .taxDeferred, traditionalUsd)
-        addAccount("acct_roth", "Roth", .taxFree, rothUsd)
+        // Titling defaults: a taxable account is joint for a couple — community property
+        // in the nine CP states (full double step-up) — else individual; retirement
+        // accounts are always individually owned by the primary.
+        let cpStates: Set<String> = ["CA", "TX", "WA", "AZ", "NV", "NM", "ID", "LA", "WI"]
+        let hasSpouse = people.contains { $0.role == .spouse }
+        let taxableOwnership: AccountOwnership = hasSpouse
+            ? .init(kind: cpStates.contains(state.uppercased()) ? .communityProperty : .jointWROS)
+            : .init(kind: .individual, ownerPersonId: "p_0")
+        let individualPrimary = AccountOwnership(kind: .individual, ownerPersonId: "p_0")
+        addAccount("acct_taxable", "Taxable brokerage", .taxable, taxableUsd, taxableOwnership)
+        addAccount("acct_trad", "Traditional (IRA/401k)", .taxDeferred, traditionalUsd, individualPrimary)
+        addAccount("acct_roth", "Roth", .taxFree, rothUsd, individualPrimary)
 
         // Liabilities.
         var liabilities: [Liability] = []

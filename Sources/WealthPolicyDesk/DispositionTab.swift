@@ -5,6 +5,7 @@ import SwiftUI
 
 struct DispositionTab: View {
     let eval: Evaluation
+    private var titling: TitlingStepUp { Engine.titlingStepUp(eval.household) }
 
     var body: some View {
         Card("Disposition inverts location", help: Teach.help("disposition")) {
@@ -14,6 +15,8 @@ struct DispositionTab: View {
                 LedgerRow("Above exemption?", first.aboveExemption ? "Yes" : "No", color: first.aboveExemption ? Theme.debt : Theme.asset)
             }
         }
+
+        titlingCard
 
         Card("Per-lot terminal disposition") {
             ForEach(eval.dispositions) { d in
@@ -64,6 +67,52 @@ struct DispositionTab: View {
                      : (e.bequestSource == .ira ? "IRA routed to charity — the tax-efficient bequest." : "No charitable bequest set."),
                      icon: "arrow.triangle.branch", color: e.bequestSource == .taxable ? Theme.debt : Theme.asset)
             }
+        }
+    }
+
+    @ViewBuilder private var titlingCard: some View {
+        let t = titling
+        if !t.accounts.isEmpty {
+            Card("Titling & step-up") {
+                Note("How each taxable account is TITLED drives the basis step-up at death — the biggest lever a taxable account has. Community property steps up the full gain on the first death; joint tenancy only the decedent's half; a separately owned account waits for its own owner's death.")
+                ForEach(t.accounts) { a in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 7) {
+                            Text(a.label).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(Theme.ink)
+                            Text(a.kind.label).font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                                .padding(.horizontal, 6).padding(.vertical, 2).background(kindColor(a.kind), in: Capsule())
+                            Spacer()
+                            Text("gain \(Fmt.usdShort(a.embeddedGainUsd))").font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                        }
+                        HStack(alignment: .top) {
+                            Text("\(a.ownerLabel) · \(a.kind.stepUpNote)").font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            if a.taxSavedUsd > 0 {
+                                Text("step-up saves \(Fmt.usdShort(a.taxSavedUsd))").font(.system(size: 11.5, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.asset).fixedSize()
+                            }
+                        }
+                    }
+                    .padding(.vertical, 6)
+                    .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+                }
+                if t.isCouple {
+                    LedgerRow("First-death step-up saves", Fmt.usd(t.totalTaxSavedUsd), color: Theme.asset, bold: true)
+                    let cpDelta = t.communityPropertyTaxSavedUsd - t.totalTaxSavedUsd
+                    if cpDelta > 100 {
+                        Note("Titled community property, the same book would step up the FULL gain on the first death — saving \(Fmt.usdShort(t.communityPropertyTaxSavedUsd)) instead of \(Fmt.usdShort(t.totalTaxSavedUsd)), about \(Fmt.usdShort(cpDelta)) more. Available to couples in a community-property state, or via a community-property agreement/trust.", icon: "lightbulb", color: Theme.amber)
+                    }
+                }
+            }
+        }
+    }
+
+    private func kindColor(_ k: OwnershipKind) -> Color {
+        switch k {
+        case .communityProperty: return Theme.asset
+        case .jointWROS: return Theme.accent
+        case .individual: return Theme.ink.opacity(0.5)
+        case .revocableTrust: return Theme.accent.opacity(0.7)
+        case .entity: return Theme.debt.opacity(0.7)
         }
     }
 
