@@ -7,11 +7,18 @@
 //  what filling those years with conversions saves over a lifetime.
 
 import SwiftUI
+import Charts
 
 struct DecumulationTab: View {
     let eval: Evaluation
     private var strat: RothStrategy { eval.decumulation }
     private var plan: DecumulationPlan { strat.plan }
+    private var glide: WealthGlide { Engine.wealthGlide(eval) }
+
+    private struct GlideBand: Identifiable {
+        let age: Int; let kind: String; let usd: Usd
+        var id: String { "\(kind)-\(age)" }
+    }
 
     var body: some View {
         if plan.years.isEmpty {
@@ -31,6 +38,8 @@ struct DecumulationTab: View {
                 StatTile("Lifetime IRMAA", Fmt.usdShort(plan.lifetimeIrmaaUsd),
                          sub: "Medicare surcharges", color: plan.lifetimeIrmaaUsd > 0 ? Theme.amber : Theme.asset),
             ])
+
+            if glide.points.count > 1 { glideCard }
 
             Card(strat.lifetimeTaxSavedUsd > 0 ? "Year by year — with conversions" : "Year by year") {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -75,6 +84,57 @@ struct DecumulationTab: View {
             Card("Lifetime tax — baseline path", help: Teach.help("requiredReturn")) {
                 HeadlineFigure(Fmt.usd(plan.lifetimeFederalTaxUsd), caption: "Projected lifetime federal income tax (real $)", color: Theme.ink)
                 Note("No Roth conversion beats the baseline draw order here — the bracket is roughly flat across retirement, so there's little to arbitrage. The pre-RMD years below still show where the room is.")
+            }
+        }
+    }
+
+    private var glideCard: some View {
+        let g = glide
+        let bands: [GlideBand] = g.points.flatMap { p in
+            [GlideBand(age: p.age, kind: "Financial capital", usd: p.financialUsd),
+             GlideBand(age: p.age, kind: "Human capital", usd: p.humanCapitalUsd)]
+        }
+        let atRetirement = g.points.first { $0.age >= g.retirementAge }
+        return Card("Lifetime wealth glide") {
+            Note("Where the money is over a life, in today's real dollars. Human capital — the value of earnings still ahead — converts into the portfolio as you save, reaching zero at retirement; the portfolio grows through accumulation, peaks near retirement, then draws down to fund spending. The financial line is the plan's own required-return path — whether real returns can DELIVER it is the Resilience and Shortfall question.")
+            Chart {
+                ForEach(bands) { b in
+                    AreaMark(x: .value("Age", b.age), y: .value("Value", b.usd))
+                        .foregroundStyle(by: .value("Band", b.kind))
+                        .interpolationMethod(.monotone)
+                }
+                RuleMark(x: .value("Retires", g.retirementAge))
+                    .foregroundStyle(Theme.ink.opacity(0.35)).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .annotation(position: .top, alignment: .center) {
+                        Text("retires \(g.retirementAge)").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.muted)
+                    }
+                if g.legacyFloorUsd > 0 {
+                    RuleMark(y: .value("Floor", g.legacyFloorUsd))
+                        .foregroundStyle(Theme.debt.opacity(0.55)).lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                        .annotation(position: .bottom, alignment: .trailing) {
+                            Text("legacy floor").font(.system(size: 9)).foregroundStyle(Theme.debt)
+                        }
+                }
+            }
+            .chartForegroundStyleScale(["Financial capital": Theme.accent, "Human capital": Theme.amber.opacity(0.8)])
+            .chartLegend(position: .top, alignment: .leading, spacing: 10)
+            .chartXScale(domain: (g.points.first?.age ?? 0)...(g.points.last?.age ?? 100))
+            .chartXAxisLabel("Age", alignment: .center)
+            .chartYAxis { AxisMarks(values: .automatic(desiredCount: 5)) { v in
+                AxisGridLine(); AxisTick()
+                AxisValueLabel { if let y = v.as(Double.self) { Text(Fmt.usdShort(y)) } }
+            } }
+            .frame(height: 260)
+
+            if let ret = atRetirement {
+                LedgerRow("Portfolio at retirement — age \(g.retirementAge)", Fmt.usd(ret.financialUsd), color: Theme.ink, bold: true)
+            }
+            LedgerRow("Peak total wealth", "\(Fmt.usd(g.peakTotalUsd)) · age \(g.peakTotalAge)", color: Theme.asset)
+            LedgerRow(g.depletionAge != nil ? "Portfolio depletes" : "Portfolio lasts",
+                      g.depletionAge.map { "age \($0) — before the horizon ends" } ?? "through the plan horizon",
+                      color: g.depletionAge != nil ? Theme.debt : Theme.asset)
+            if !g.hasHumanCapital {
+                Note("No future earnings on file — the human-capital band is empty, so this is a pure drawdown.", color: Theme.muted)
             }
         }
     }
