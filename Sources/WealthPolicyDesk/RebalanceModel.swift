@@ -174,21 +174,30 @@ public extension Engine {
         }
 
         // Wash sale: a harvested LOSS whose security the plan also BUYS (within the 31-day
-        // window) has its loss DISALLOWED. Add those losses back before taxing. A TLH
-        // partner is a different, not-substantially-identical fund, so it never trips this.
-        let boughtTickers = Set(trades.filter { $0.side == .buy }.map { $0.ticker })
-        let washSells = trades.filter { $0.side == .sell && $0.realizedGainUsd < 0 && boughtTickers.contains($0.ticker) }
-        let disallowedST = washSells.reduce(0) { $0 + min(0, $1.shortTermGainUsd) }
-        let disallowedLT = washSells.reduce(0) { $0 + min(0, $1.longTermGainUsd) }
+        // window) has that loss DISALLOWED — but only in proportion to the replacement
+        // bought (§1091), and detected on the loss COMPONENT of a trade, so a loss lot
+        // inside a net-gain sell still counts. Disallowed losses are added back before
+        // taxing. A TLH partner is a different, not-substantially-identical fund, so it
+        // never trips this.
+        var boughtByTicker: [String: Usd] = [:]
+        for t in trades where t.side == .buy { boughtByTicker[t.ticker, default: 0] += t.amountUsd }
+        let washSells = trades.filter { $0.side == .sell && (boughtByTicker[$0.ticker] ?? 0) > 0
+            && min(0, $0.shortTermGainUsd) + min(0, $0.longTermGainUsd) < 0 }
+        var disallowedST: Usd = 0, disallowedLT: Usd = 0
+        for s in washSells {
+            let frac = s.amountUsd > 0 ? min(1, (boughtByTicker[s.ticker] ?? 0) / s.amountUsd) : 0
+            disallowedST += min(0, s.shortTermGainUsd) * frac
+            disallowedLT += min(0, s.longTermGainUsd) * frac
+        }
         let washSaleDisallowed = -(disallowedST + disallowedLT)
         let estTax = capitalGainsTaxAggregate(h, shortTerm: totalST - disallowedST, longTerm: totalLT - disallowedLT, asOf: asOf)
         let fundingGap = max(0, desiredBuys - totalSells)
         let excessCash = max(0, totalSells - totalBuys)
 
         var warnings: [String] = []
-        if !washSells.isEmpty {
+        if washSaleDisallowed > 1 {
             let tickers = Set(washSells.map { $0.ticker }).sorted().joined(separator: ", ")
-            warnings.append("Wash sale: the plan harvests a loss on \(tickers) while also buying it within \(reb.washSaleWindowDays) days — the \(Fmt.usdShort(washSaleDisallowed)) loss is DISALLOWED (added back to the taxable gain). Replace it with a not-substantially-identical fund (a TLH partner) instead.")
+            warnings.append("Wash sale: the plan harvests a loss on \(tickers) while also buying it within \(reb.washSaleWindowDays) days — \(Fmt.usdShort(washSaleDisallowed)) of the loss is DISALLOWED (in proportion to the replacement, added back to the taxable gain). Replace it with a not-substantially-identical fund (a TLH partner) instead.")
         }
         if budgetBinds {
             warnings.append("Selling stopped at the \(Fmt.usdShort(budgetCap)) net realized-gain budget. The rest of the rebalance is deferred — carry it to next tax year, or fund it from losses or new cash.")
