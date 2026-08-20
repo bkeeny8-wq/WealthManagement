@@ -65,6 +65,7 @@ struct DeskView: View {
     var onEditIntake: () -> Void
     var onLoadSample: () -> Void
     var onClose: () -> Void
+    var onEcon: () -> Void = {}
     @State private var section: DeskTab? = .balanceSheet
     /// Moves staged on the desk but not yet committed. The whole desk previews
     /// the household with these applied; Commit clears them onto the record.
@@ -127,7 +128,9 @@ struct DeskView: View {
             Section("Plan") {
                 Button { onClose() } label: { Label("Book of business", systemImage: "rectangle.stack") }
                     .foregroundStyle(Theme.ink)
-                Button { onEditIntake() } label: { Label("Edit my answers", systemImage: "pencil") }
+                Button { onEcon() } label: { Label("Econ backdrop", systemImage: "globe.americas") }
+                    .foregroundStyle(Theme.ink)
+                Button { onEditIntake() } label: { Label("Edit client profile", systemImage: "pencil") }
                     .foregroundStyle(Theme.ink)
                 Button { onLoadSample() } label: { Label("Load sample", systemImage: "person.2") }
                     .foregroundStyle(Theme.ink)
@@ -169,7 +172,8 @@ struct DeskView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button { onEditIntake() } label: { Label("Edit my answers", systemImage: "pencil") }
+                    Button { onEditIntake() } label: { Label("Edit client profile", systemImage: "pencil") }
+                    Button { onEcon() } label: { Label("Econ backdrop", systemImage: "globe.americas") }
                     Button { onLoadSample() } label: { Label("Load sample (Harrisons)", systemImage: "person.2") }
                     if let json = exportJSON {
                         ShareLink(item: json, preview: SharePreview("Client record (JSON)")) { Label("Export record (JSON)", systemImage: "square.and.arrow.up") }

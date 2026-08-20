@@ -41,11 +41,12 @@ public struct RootView: View {
 
     public var body: some View {
         Group {
-            if showEcon {
-                EconView(onClose: { showEcon = false })
-            } else if household != nil {
+            if household != nil {
                 DeskView(
-                    household: Binding($household)!,
+                    // A safe non-optional binding: the desk only shows while `household`
+                    // is non-nil, but presenting a cover/sheet can trigger a transient
+                    // re-layout where a force-unwrapped optional binding would trap.
+                    household: Binding(get: { household ?? Seed.sampleHousehold }, set: { household = $0 }),
                     clientHeader: intake != nil ? practice.header : nil,
                     exportJSON: exportJSON, exportCSV: exportCSV,
                     committedStatuses: activeCommittedStatuses,
@@ -54,7 +55,8 @@ public struct RootView: View {
                     onCommitTilts: commitTilts,
                     onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
                     onLoadSample: openSample,
-                    onClose: closeToBook
+                    onClose: closeToBook,
+                    onEcon: { showEcon = true }
                 )
             } else {
                 RosterView(
@@ -71,6 +73,9 @@ public struct RootView: View {
             }
         }
         .onAppear { if !loaded { book = BookStore.load(); loaded = true } }
+        .fullScreenCover(isPresented: $showEcon) {
+            EconView(onClose: { showEcon = false })
+        }
         .sheet(isPresented: $showWizard) {
             IntakeWizard(intake: wizardSeed, practice: wizardPractice) { builtIntake, builtPractice in
                 saveFromWizard(builtIntake, builtPractice); showWizard = false

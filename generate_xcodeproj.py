@@ -108,6 +108,7 @@ framework_files = [
     "BalanceSheetTab.swift",
     "RequiredReturnTab.swift",
     "PlanSummaryTab.swift",
+    "PlanSummaryPDF.swift",
     "ResilienceTab.swift",
     "AllocationTab.swift",
     "RiskScaleTab.swift",

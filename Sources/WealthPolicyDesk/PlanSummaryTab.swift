@@ -5,13 +5,15 @@
 //  whole analysis into plain language a client reads and takes away. Everything else in
 //  the app is the analyst's workbench; this is the one page the client sees: where they
 //  stand, what the plan must do, how much risk, the policy allocation, the guardrails,
-//  the next steps, and the assumptions behind it all.
+//  the next steps, and the assumptions behind it all. The same card views also paginate
+//  into a shareable PDF (see `printBlocks` + PlanSummaryPDF).
 
 import SwiftUI
 
 struct PlanSummaryTab: View {
     let eval: Evaluation
     var clientHeader: ClientProfileHeader? = nil
+    @State private var share: SharePayload? = nil
 
     private var bs: BalanceSheetView { eval.balanceSheet }
     private var rr: RequiredReturn { eval.requiredReturn }
@@ -44,7 +46,25 @@ struct PlanSummaryTab: View {
 
     var body: some View {
         masthead
+        whereYouStandCard
+        mustAchieveCard
+        riskCard
+        allocationCard
+        guardrailsCard
+        nextStepsCard
+        disclosuresCard
+        exportBar
+    }
 
+    // The document blocks, in order — shared by the screen and the PDF export.
+    var printBlocks: [AnyView] {
+        [AnyView(masthead), AnyView(whereYouStandCard), AnyView(mustAchieveCard), AnyView(riskCard),
+         AnyView(allocationCard), AnyView(guardrailsCard), AnyView(nextStepsCard), AnyView(disclosuresCard)]
+    }
+
+    // MARK: - Cards
+
+    private var whereYouStandCard: some View {
         Card("Where you stand") {
             HeadlineFigure(bs.afterTaxNetWorthUsd < 0 ? Fmt.usdSigned(bs.afterTaxNetWorthUsd) : Fmt.usd(bs.afterTaxNetWorthUsd),
                            caption: "Estimated after-tax net worth — what the household would keep after embedded tax", color: Theme.ink)
@@ -57,7 +77,9 @@ struct PlanSummaryTab: View {
                 Note("Net fixed income is negative — the household runs NET SHORT duration (its debt outweighs its bonds), the opposite of a defensive cushion.", icon: "exclamationmark.triangle", color: Theme.debt)
             }
         }
+    }
 
+    private var mustAchieveCard: some View {
         Card("What your plan must achieve") {
             HeadlineFigure(Fmt.pctBps(rr.requiredRealReturnBps), caption: "the real, after-tax return your goals require", color: Theme.accent)
             LedgerRow("Funded ratio", Fmt.pctBps(bs.fundedRatioBps), color: isFunded ? Theme.asset : Theme.amber, bold: true)
@@ -66,7 +88,9 @@ struct PlanSummaryTab: View {
                  ? "Your resources cover your goals — the required return is the return that keeps it that way."
                  : "Your resources fund \(Fmt.pctBps(bs.fundedRatioBps)) of your goals. Closing the gap is a matter of return, savings, or flexing a goal — the required return is the return that would fund the rest.")
         }
+    }
 
+    private var riskCard: some View {
         Card("How much risk the plan takes") {
             if let risk = eval.riskProfile {
                 StatGrid([
@@ -81,7 +105,9 @@ struct PlanSummaryTab: View {
                 Note("Risk tolerance isn't on file yet — answer the risk questions to see the equity ceiling and the chance of missing the goal.", icon: "questionmark.circle")
             }
         }
+    }
 
+    private var allocationCard: some View {
         Card("Your policy allocation") {
             StackBar(allocationBuckets.map { StackSegment($0.label, Double($0.bps), $0.color) })
             ForEach(allocationBuckets, id: \.label) { r in
@@ -89,7 +115,9 @@ struct PlanSummaryTab: View {
             }
             Note("This is the target the plan steers to — DERIVED from your goals, funded status, and risk, not a fixed 60/40. Alternatives are sized by function (convexity, defined-outcome, illiquidity premium) and may narrow to what's available at your account tier. Change a goal and the target moves; your current mix is compared against it on the Allocation tab.")
         }
+    }
 
+    private var guardrailsCard: some View {
         Card("Guardrails on your plan") {
             HStack(spacing: 8) {
                 StatTile("Must resolve", "\(hardFindings.count)", sub: "hard limits", color: hardFindings.isEmpty ? Theme.asset : Theme.debt)
@@ -101,7 +129,9 @@ struct PlanSummaryTab: View {
                 Note("No constraints tripped — the plan sits inside every limit.", icon: "checkmark.seal", color: Theme.asset)
             }
         }
+    }
 
+    private var nextStepsCard: some View {
         Card("What the analysis flags next") {
             ForEach(Array(nextSteps.enumerated()), id: \.offset) { i, step in
                 HStack(alignment: .top, spacing: 9) {
@@ -113,7 +143,9 @@ struct PlanSummaryTab: View {
             }
             Note("These are analytical observations drawn from your own inputs — not personalized investment advice or a recommendation to buy or sell any security.", icon: "info.circle")
         }
+    }
 
+    private var disclosuresCard: some View {
         Card("Assumptions & disclosures") {
             LedgerRow("Prepared as of", eval.asOf, color: Theme.muted)
             LedgerRow("Tax year / law", "2026 · OBBBA (P.L. 119-21)", color: Theme.muted)
@@ -131,6 +163,26 @@ struct PlanSummaryTab: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.bottom, 2)
+    }
+
+    // MARK: - Export (screen-only chrome, never part of printBlocks)
+
+    private var exportBar: some View {
+        Button {
+            let name = clientHeader?.title ?? eval.household.name
+            if let url = PlanSummaryPDF.render(blocks: printBlocks, fileName: PlanSummaryPDF.fileName(for: name)) {
+                share = SharePayload(url: url)
+            }
+        } label: {
+            Label("Export as PDF", systemImage: "square.and.arrow.up")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(Theme.accent, in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.white)
+        }
+        .padding(.top, 6)
+        .sheet(item: $share) { payload in ShareSheet(items: [payload.url]) }
     }
 
     // The two or three concrete moves, drawn from the analysis.
