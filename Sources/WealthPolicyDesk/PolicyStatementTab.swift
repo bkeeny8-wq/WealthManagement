@@ -121,7 +121,25 @@ struct PolicyStatementTab: View {
         section("3", "Investment objective — return") {
             p("The portfolio is required to earn a real, after-tax return of approximately \(Fmt.pctBps(rr.requiredRealReturnBps)) per year\(rr.legacyFloorUsd > 0 ? " while preserving a legacy floor of \(Fmt.usd(rr.legacyFloorUsd)) in today's dollars" : ""). Because the plan already funds the taxes its own withdrawals generate, this after-tax figure — not the \(Fmt.pctBps(rr.requiredRealReturnPreTaxBps)) pre-tax equivalent — is the binding hurdle.")
             p(fundedText)
-            if editable, let b = draftOverrides { legacyFloorEditor(b) }
+            if editable, let b = draftOverrides {
+                savingsRetireEditor(b)
+                legacyFloorEditor(b)
+            }
+        }
+    }
+
+    private func savingsRetireEditor(_ o: Binding<HouseholdOverrides>) -> some View {
+        let savings = h.annualSavingsUsd
+        let retAge = primary?.expectedRetirementAge ?? 65
+        return editorRow("Savings & retirement", now: "\(Fmt.usdShort(savings))/yr · retire \(retAge)") {
+            HStack(spacing: 16) {
+                miniStepper("Annual savings", Fmt.usdShort(savings),
+                            minus: { o.wrappedValue.annualSavingsUsd = max(0, savings - 10_000) },
+                            plus:  { o.wrappedValue.annualSavingsUsd = savings + 10_000 })
+                miniStepper("Retire at age", "\(retAge)",
+                            minus: { o.wrappedValue.retirementAge = max(age + 1, retAge - 1) },
+                            plus:  { o.wrappedValue.retirementAge = min(longevity - 1, retAge + 1) })
+            }
         }
     }
 
@@ -462,9 +480,9 @@ struct PolicyStatementTab: View {
     private func miniStepper(_ label: String, _ value: String, minus: @escaping () -> Void, plus: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             Text(label.uppercased()).font(.system(size: 9, weight: .heavy)).tracking(0.5).foregroundStyle(Theme.muted)
-            Button(action: minus) { Image(systemName: "minus.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.accent) }.buttonStyle(.plain)
+            stepButton("minus", minus)
             Text(value).font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink).frame(minWidth: 42, alignment: .center)
-            Button(action: plus) { Image(systemName: "plus.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.accent) }.buttonStyle(.plain)
+            stepButton("plus", plus)
         }
     }
 
@@ -482,9 +500,11 @@ struct PolicyStatementTab: View {
         .overlay(Capsule().stroke(Theme.accent.opacity(0.2)))
     }
 
+    // A circular ± control with a generous (32pt) hit area.
     private func stepButton(_ icon: String, _ tap: @escaping () -> Void) -> some View {
         Button(action: tap) {
-            Image(systemName: icon + ".circle.fill").font(.system(size: 22)).foregroundStyle(Theme.accent)
+            Image(systemName: icon + ".circle.fill").font(.system(size: 21)).foregroundStyle(Theme.accent)
+                .frame(width: 32, height: 32).contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
 

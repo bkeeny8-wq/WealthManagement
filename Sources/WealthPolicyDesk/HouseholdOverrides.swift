@@ -43,15 +43,19 @@ public struct GoalTiming: Codable, Sendable, Hashable {
 public struct HouseholdOverrides: Codable, Sendable, Hashable {
     public var legacyFloorUsd: Usd? = nil
     public var toleranceMaxDrawdownBps: Bps? = nil
+    public var annualSavingsUsd: Usd? = nil             // real savings per year (funds goals directly)
+    public var retirementAge: Int? = nil               // the primary's retirement age (shifts spend + human capital)
     public var addedGoals: [GoalEdit] = []              // goals beyond retirement to fund
     public var goalAmountOverrides: [String: Usd] = [:] // goalId → per-outflow amount (retirement or any goal)
     public var goalTimingOverrides: [String: GoalTiming] = [:]  // goalId → start year & duration
     public var removedGoalIds: [String] = []            // goal ids to drop (added or standard)
 
     public init(legacyFloorUsd: Usd? = nil, toleranceMaxDrawdownBps: Bps? = nil,
+                annualSavingsUsd: Usd? = nil, retirementAge: Int? = nil,
                 addedGoals: [GoalEdit] = [], goalAmountOverrides: [String: Usd] = [:],
                 goalTimingOverrides: [String: GoalTiming] = [:], removedGoalIds: [String] = []) {
         self.legacyFloorUsd = legacyFloorUsd; self.toleranceMaxDrawdownBps = toleranceMaxDrawdownBps
+        self.annualSavingsUsd = annualSavingsUsd; self.retirementAge = retirementAge
         self.addedGoals = addedGoals; self.goalAmountOverrides = goalAmountOverrides
         self.goalTimingOverrides = goalTimingOverrides; self.removedGoalIds = removedGoalIds
     }
@@ -61,6 +65,8 @@ public struct HouseholdOverrides: Codable, Sendable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         legacyFloorUsd = (try? c.decodeIfPresent(Usd.self, forKey: .legacyFloorUsd)) ?? nil
         toleranceMaxDrawdownBps = (try? c.decodeIfPresent(Bps.self, forKey: .toleranceMaxDrawdownBps)) ?? nil
+        annualSavingsUsd = (try? c.decodeIfPresent(Usd.self, forKey: .annualSavingsUsd)) ?? nil
+        retirementAge = (try? c.decodeIfPresent(Int.self, forKey: .retirementAge)) ?? nil
         addedGoals = ((try? c.decodeIfPresent([GoalEdit].self, forKey: .addedGoals)) ?? nil) ?? []
         goalAmountOverrides = ((try? c.decodeIfPresent([String: Usd].self, forKey: .goalAmountOverrides)) ?? nil) ?? [:]
         goalTimingOverrides = ((try? c.decodeIfPresent([String: GoalTiming].self, forKey: .goalTimingOverrides)) ?? nil) ?? [:]
@@ -68,11 +74,12 @@ public struct HouseholdOverrides: Codable, Sendable, Hashable {
     }
 
     public var isEmpty: Bool {
-        legacyFloorUsd == nil && toleranceMaxDrawdownBps == nil
+        legacyFloorUsd == nil && toleranceMaxDrawdownBps == nil && annualSavingsUsd == nil && retirementAge == nil
             && addedGoals.isEmpty && goalAmountOverrides.isEmpty && goalTimingOverrides.isEmpty && removedGoalIds.isEmpty
     }
     public var count: Int {
         (legacyFloorUsd == nil ? 0 : 1) + (toleranceMaxDrawdownBps == nil ? 0 : 1)
+            + (annualSavingsUsd == nil ? 0 : 1) + (retirementAge == nil ? 0 : 1)
             + addedGoals.count + goalAmountOverrides.count + goalTimingOverrides.count + removedGoalIds.count
     }
 
@@ -80,6 +87,8 @@ public struct HouseholdOverrides: Codable, Sendable, Hashable {
     public mutating func merge(_ o: HouseholdOverrides) {
         if let v = o.legacyFloorUsd { legacyFloorUsd = v }
         if let v = o.toleranceMaxDrawdownBps { toleranceMaxDrawdownBps = v }
+        if let v = o.annualSavingsUsd { annualSavingsUsd = v }
+        if let v = o.retirementAge { retirementAge = v }
         addedGoals.append(contentsOf: o.addedGoals)
         for (k, v) in o.goalAmountOverrides { goalAmountOverrides[k] = v }
         for (k, v) in o.goalTimingOverrides { goalTimingOverrides[k] = v }
@@ -94,6 +103,26 @@ public extension Household {
         var h = self
         if let v = o.legacyFloorUsd { h.legacyFloorUsd = v }
         if let v = o.toleranceMaxDrawdownBps { h.statedToleranceMaxDrawdownBps = v }
+        if let v = o.annualSavingsUsd { h.annualSavingsUsd = v }   // feeds the corpus recursion directly
+        // Retirement age: the primary retires at a new age → shift the spending schedule,
+        // recompute working years (human capital), and update the person. saveYears and
+        // decumulation read expectedRetirementAge directly, so they follow automatically.
+        if let newAge = o.retirementAge, let p = h.primary {
+            let pid = p.id
+            let primaryAge = Engine.age(birthDate: p.birthDate, asOf: Engine.planningAsOf)
+            h.people = h.people.map { var np = $0; if np.id == pid { np.expectedRetirementAge = newAge }; return np }
+            h.humanCapital = h.humanCapital.map { var nhc = $0; if nhc.personId == pid { nhc.yearsRemaining = max(0, newAge - primaryAge) }; return nhc }
+            h.goals = h.goals.map { g in
+                guard g.id == "g_spending" else { return g }
+                let end = g.horizonYears ?? (g.outflows.map { $0.year }.max() ?? 1)
+                let start = max(1, newAge - primaryAge)
+                guard start <= end else { return g }
+                let amt = g.outflows.first?.amountUsd ?? 0
+                var ng = g
+                ng.outflows = (start...end).map { Outflow(year: $0, amountUsd: amt, inflationLinked: true) }
+                return ng
+            }
+        }
         // Added goals first (so a later amount override can target them too).
         for ge in o.addedGoals where ge.annualUsd > 0 {
             let start = max(1, ge.startYear), yrs = max(1, ge.years)
