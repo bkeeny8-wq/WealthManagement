@@ -391,7 +391,7 @@ struct IntakeWizard: View {
                 if intake.adults.count > 1 {
                     FieldLabel("Taxable account titling") {
                         ChoiceChips([(OwnershipKind.jointWROS, "Joint"), (.communityProperty, "Community prop."), (.individual, "Individual"), (.revocableTrust, "Trust")],
-                                    selection: intake.taxableTitling ?? .jointWROS) { intake.taxableTitling = $0 }
+                                    selection: intake.taxableTitling ?? intake.autoTaxableTitling) { intake.taxableTitling = $0 }
                     }
                     Note("Titling drives the basis step-up at death (community property steps up the full gain on the first death; joint tenancy only half). Auto-set by your state — pick to override.")
                 }

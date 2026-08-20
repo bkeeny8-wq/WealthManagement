@@ -322,6 +322,14 @@ public struct IntakeModel: Codable, Hashable {
     /// Titling of the taxable account. nil = auto-derive (community property in CP states
     /// for a couple, else joint; individual for a single filer). Drives the death step-up.
     public var taxableTitling: OwnershipKind? = nil
+    /// The state/filing-derived titling used when the client hasn't chosen one — the same
+    /// value the picker should show as its default so the chip never contradicts reality.
+    public var autoTaxableTitling: OwnershipKind {
+        guard adults.count > 1 else { return .individual }
+        let cp: Set<String> = ["CA", "CALIFORNIA", "TX", "TEXAS", "WA", "WASHINGTON", "AZ", "ARIZONA",
+                               "NV", "NEVADA", "NM", "NEW MEXICO", "ID", "IDAHO", "LA", "LOUISIANA", "WI", "WISCONSIN"]
+        return cp.contains(state.uppercased().trimmingCharacters(in: .whitespaces)) ? .communityProperty : .jointWROS
+    }
     public var taxableUnrealizedGainPct: Double = 0.35   // 0..1
     /// Roughly how the money is invested TODAY (equity share, 0..1). The as-is
     /// portfolio is synthesized from THIS, not the policy target, so the allocation
@@ -432,6 +440,7 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .taxableUsd)) ?? nil { taxableUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .traditionalUsd)) ?? nil { traditionalUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .rothUsd)) ?? nil { rothUsd = v }
+        if let v = (try? c.decodeIfPresent(OwnershipKind.self, forKey: .taxableTitling)) ?? nil { taxableTitling = v }
         if let v = (try? c.decodeIfPresent(Double.self, forKey: .taxableUnrealizedGainPct)) ?? nil { taxableUnrealizedGainPct = v }
         if let v = (try? c.decodeIfPresent(Double.self, forKey: .currentEquityPct)) ?? nil { currentEquityPct = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .homeValueUsd)) ?? nil { homeValueUsd = v }
@@ -716,18 +725,10 @@ public extension IntakeModel {
                 positions.append(contentsOf: Self.synthesizePositions(accountId: id, treatment: treatment, balance: remainder, gainPct: taxableUnrealizedGainPct, equityPct: currentEquityPct))
             }
         }
-        // Titling defaults: a taxable account is joint for a couple — community property
-        // in the nine CP states (full double step-up) — else individual; retirement
-        // accounts are always individually owned by the primary.
-        // The nine community-property states by code AND full name — the state field is
-        // free text, so "California" must resolve the same as "CA".
-        let cpStates: Set<String> = ["CA", "CALIFORNIA", "TX", "TEXAS", "WA", "WASHINGTON",
-                                     "AZ", "ARIZONA", "NV", "NEVADA", "NM", "NEW MEXICO",
-                                     "ID", "IDAHO", "LA", "LOUISIANA", "WI", "WISCONSIN"]
-        let stateKey = state.uppercased().trimmingCharacters(in: .whitespaces)
-        let hasSpouse = people.contains { $0.role == .spouse }
-        let autoTitling: OwnershipKind = hasSpouse ? (cpStates.contains(stateKey) ? .communityProperty : .jointWROS) : .individual
-        let titling = taxableTitling ?? autoTitling                // the client's explicit choice wins
+        // Titling: the client's explicit choice wins, else the state/filing default
+        // (community property in the nine CP states for a couple, else joint; individual
+        // for a single filer). Retirement accounts are always individually owned.
+        let titling = taxableTitling ?? autoTaxableTitling
         let taxableOwnership = AccountOwnership(kind: titling, ownerPersonId: titling == .individual ? "p_0" : nil)
         let individualPrimary = AccountOwnership(kind: .individual, ownerPersonId: "p_0")
         addAccount("acct_taxable", "Taxable brokerage", .taxable, taxableUsd, taxableOwnership)
