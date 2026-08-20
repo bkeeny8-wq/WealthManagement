@@ -14,6 +14,7 @@
 import SwiftUI
 
 public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
+    case policyStatement = "Policy Statement"
     case summary = "Plan Summary"
     case balanceSheet = "Balance Sheet"
     case requiredReturn = "Required Return"
@@ -33,6 +34,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
     public var id: String { rawValue }
     var icon: String {
         switch self {
+        case .policyStatement: return "doc.text"
         case .summary: return "doc.richtext"
         case .balanceSheet: return "scalemass"
         case .requiredReturn: return "target"
@@ -66,7 +68,7 @@ struct DeskView: View {
     var onLoadSample: () -> Void
     var onClose: () -> Void
     var onEcon: () -> Void = {}
-    @State private var section: DeskTab? = .balanceSheet
+    @State private var section: DeskTab? = .policyStatement
     /// Moves staged on the desk but not yet committed. The whole desk previews
     /// the household with these applied; Commit clears them onto the record.
     @State private var staged: [PlannedAction] = []
@@ -192,6 +194,7 @@ struct DeskView: View {
 
     @ViewBuilder private func tabContent(_ tab: DeskTab, _ e: Evaluation) -> some View {
         switch tab {
+        case .policyStatement: PolicyStatementTab(eval: e, clientHeader: clientHeader)
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)

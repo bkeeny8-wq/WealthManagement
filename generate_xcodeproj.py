@@ -107,6 +107,7 @@ framework_files = [
     "EconView.swift",
     "BalanceSheetTab.swift",
     "RequiredReturnTab.swift",
+    "PolicyStatementTab.swift",
     "PlanSummaryTab.swift",
     "PlanSummaryPDF.swift",
     "ResilienceTab.swift",
