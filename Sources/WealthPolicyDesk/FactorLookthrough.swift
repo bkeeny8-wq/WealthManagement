@@ -116,7 +116,7 @@ public struct FactorTiltView: Sendable {
 public extension Engine {
 
     /// The net factor tilt the equity book implies, weighted by share of equity.
-    static func factorExposure(_ h: Household, asOf: IsoDate = "2026-08-15") -> FactorTiltView {
+    static func factorExposure(_ h: Household, asOf: IsoDate = Engine.planningAsOf) -> FactorTiltView {
         var equityUsd: Usd = 0
         var usdLoad: [FactorAxis: Usd] = [:]        // Σ marketValue × loading
         for p in h.positions where isEquity(p) {

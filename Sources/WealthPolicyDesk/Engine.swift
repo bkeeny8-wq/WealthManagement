@@ -499,7 +499,9 @@ public enum Engine {
         let assetDollarDur = h.positions.filter { isFixedIncome($0) }.reduce(0.0) { $0 + $1.marketValueUsd * assetDuration(for: $1) }
         let debtDollarDur = h.liabilities.filter { $0.isFixedIncomeOffset }.reduce(0.0) { $0 + $1.balanceUsd * $1.durationYears }
         let netFIabs = abs(netFI) < 1 ? 1 : abs(netFI)
-        let netDuration = (assetDollarDur - debtDollarDur) / netFIabs
+        // Near-zero net FI (offsetting FI assets and debt) makes the ratio explode; cap it
+        // to a realistic fixed-income duration band rather than report a nonsense magnitude.
+        let netDuration = max(-30.0, min(30.0, (assetDollarDur - debtDollarDur) / netFIabs))
 
         // Total balance-sheet equity.
         let equityPositions = h.positions.filter { isEquity($0) }.reduce(0) { $0 + $1.marketValueUsd }

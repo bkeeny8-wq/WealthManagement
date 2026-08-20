@@ -139,7 +139,7 @@ public extension Engine {
     /// Aggregate the indicator board by DIFFUSION: the importance-weighted balance
     /// of early-vs-late leans → cycle score → inning; recession odds accrue only
     /// from indicators actually in a recession band; confidence reflects agreement.
-    static func macroRegime(_ indicators: [MacroIndicator], asOf: IsoDate = "2026-08-15", source: String = "FRED · US Treasury · market data (verify)") -> MacroRegime {
+    static func macroRegime(_ indicators: [MacroIndicator], asOf: IsoDate = Engine.planningAsOf, source: String = "FRED · US Treasury · market data (verify)") -> MacroRegime {
         let leanVal: [SignalLean: Double] = [.early: -1, .neutral: 0, .late: 1, .recession: 2]
         var wl = 0.0, ws = 0.0, odds = 5
         var early = 0, neutral = 0, late = 0, rec = 0

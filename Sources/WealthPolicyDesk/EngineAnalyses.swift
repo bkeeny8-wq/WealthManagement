@@ -118,8 +118,11 @@ extension Engine {
         let exemption = tax.estate.lifetimeExemptionUsd * Double(persons)
         let grossEstate = h.portfolioValueUsd
             + h.externalAssets.filter { $0.kind == .homeEquity || $0.kind == .pension || $0.kind == .business }.reduce(0) { $0 + $1.valueUsd }
-        let magi = estimatedMagi(h, asOf: h.people.first?.birthDate ?? "2026-01-01")
-        let ltcg = marginalLtcgRateBps(taxableIncome: magi, filing: h.filingStatus, tax: tax)
+        let magi = estimatedMagi(h, asOf: Engine.planningAsOf)
+        // Include NIIT once MAGI clears the threshold, matching the embedded-tax /
+        // titling convention (a bare marginal LTCG rate understated the disposition tax).
+        let niit = magi > (tax.niitThreshold[h.filingStatus] ?? 250_000) ? tax.niitRateBps : 0
+        let ltcg = marginalLtcgRateBps(taxableIncome: magi, filing: h.filingStatus, tax: tax) + niit
         // Only taxable appreciated lots carry a basis-vs-estate decision.
         return h.positions
             .filter { h.treatment(of: $0) == .taxable && $0.unrealizedGainUsd > 0 }

@@ -88,7 +88,7 @@ public struct ExposureView: Sendable {
 public extension Engine {
 
     /// Decompose the household's equity into country×sector cells (bps of equity).
-    static func exposureMatrix(_ h: Household, asOf: IsoDate = "2026-08-15") -> ExposureView {
+    static func exposureMatrix(_ h: Household, asOf: IsoDate = Engine.planningAsOf) -> ExposureView {
         var cellUsd: [String: (geo: String, sector: Sector, usd: Usd)] = [:]
         func add(_ geo: String, _ sector: Sector, _ usd: Usd) {
             guard usd > 0 else { return }
