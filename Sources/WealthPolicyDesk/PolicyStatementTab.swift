@@ -326,55 +326,78 @@ struct PolicyStatementTab: View {
                 ForEach(spendingGoals, id: \.id) { g in goalRow(g, editable: editable) }
             }
             if editable, let b = draftOverrides {
-                retirementEditor(b)
                 addGoalBar(b)
             }
-            Note("These are the spending goals the required return must fund, in today's dollars. Adding, resizing, or deferring a goal moves the required return and funded ratio above — flexibility is often a cheaper lever than more risk.")
+            Note("These are the spending goals the required return must fund, in today's dollars. Resize a goal with the ± steppers, add one beyond retirement, or drop one — each move re-derives the required return and funded ratio above. Flexibility is often a cheaper lever than more risk.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
     }
 
     private func goalRow(_ g: Goal, editable: Bool) -> some View {
-        let annual = g.outflows.first?.amountUsd ?? g.nominalTodayUsd
+        let current = g.outflows.first?.amountUsd ?? g.nominalTodayUsd
         let firstY = g.outflows.map { $0.year }.min() ?? 0
         let lastY = g.outflows.map { $0.year }.max() ?? 0
         let oneTime = g.outflows.count <= 1
         let timing = oneTime ? "at age \(age + firstY)" : "ages \(age + firstY)–\(age + lastY)"
-        let amount = oneTime ? "\(Fmt.usd(annual)) · \(timing)" : "\(Fmt.usd(annual))/yr · \(timing)"
-        return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(g.label).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.ink)
-                Text(amount).font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                Spacer(minLength: 8)
+                if editable, g.id != "g_spending", let b = draftOverrides {
+                    Button { removeGoal(g, b) } label: {
+                        Image(systemName: "minus.circle.fill").font(.system(size: 16)).foregroundStyle(Theme.debt.opacity(0.85))
+                    }.buttonStyle(.plain)
+                }
             }
-            Spacer(minLength: 8)
-            if editable, g.id != "g_spending", let b = draftOverrides {
-                Button { removeGoal(g, b) } label: {
-                    Image(systemName: "minus.circle.fill").font(.system(size: 16)).foregroundStyle(Theme.debt.opacity(0.85))
-                }.buttonStyle(.plain)
+            if editable, let b = draftOverrides {
+                HStack(spacing: 10) {
+                    goalStepper(g, current, b)
+                    Text("\(oneTime ? "" : "per year · ")\(timing)").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                }
+            } else {
+                Text(oneTime ? "\(Fmt.usd(current)) · \(timing)" : "\(Fmt.usd(current))/yr · \(timing)")
+                    .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
             }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule.opacity(0.5)), alignment: .bottom)
     }
 
     private func removeGoal(_ g: Goal, _ o: Binding<HouseholdOverrides>) {
         if let idx = o.wrappedValue.addedGoals.firstIndex(where: { $0.goalId == g.id }) {
             o.wrappedValue.addedGoals.remove(at: idx)                 // a not-yet-committed add: just drop it
+            o.wrappedValue.goalAmountOverrides[g.id] = nil            // and any amount edit on it
         } else if !o.wrappedValue.removedGoalIds.contains(g.id) {
             o.wrappedValue.removedGoalIds.append(g.id)                // a standard/committed goal: mark removed
         }
     }
 
-    private func retirementEditor(_ o: Binding<HouseholdOverrides>) -> some View {
-        let current = spendingGoals.first { $0.id == "g_spending" }?.outflows.first?.amountUsd ?? 0
-        return editorRow("Retirement spending — annual", now: Fmt.usdShort(current)) {
-            HStack(spacing: 6) {
-                ForEach([Usd(80_000), 120_000, 160_000, 200_000, 250_000], id: \.self) { v in
-                    chip(Fmt.usdShort(v), selected: current == v) { o.wrappedValue.retirementSpendingUsd = v }
-                }
-            }
+    // A ± stepper on each goal's amount → a per-id amount override (retirement or any goal).
+    private func goalStepper(_ g: Goal, _ current: Usd, _ o: Binding<HouseholdOverrides>) -> some View {
+        let step = amountStep(current)
+        return HStack(spacing: 6) {
+            stepButton("minus") { o.wrappedValue.goalAmountOverrides[g.id] = max(step, current - step) }
+            Text(Fmt.usd(current)).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink)
+                .frame(minWidth: 96, alignment: .center)
+            stepButton("plus") { o.wrappedValue.goalAmountOverrides[g.id] = current + step }
         }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Theme.accent.opacity(0.06), in: Capsule())
+        .overlay(Capsule().stroke(Theme.accent.opacity(0.2)))
+    }
+
+    private func stepButton(_ icon: String, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            Image(systemName: icon + ".circle.fill").font(.system(size: 22)).foregroundStyle(Theme.accent)
+        }.buttonStyle(.plain)
+    }
+
+    private func amountStep(_ a: Usd) -> Usd {
+        if a >= 250_000 { return 50_000 }
+        if a >= 100_000 { return 25_000 }
+        if a >= 40_000 { return 10_000 }
+        return 5_000
     }
 
     private func addGoalBar(_ o: Binding<HouseholdOverrides>) -> some View {
