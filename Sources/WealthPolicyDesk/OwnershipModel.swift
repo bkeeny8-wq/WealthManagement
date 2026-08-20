@@ -13,7 +13,7 @@
 
 import Foundation
 
-public enum OwnershipKind: String, CaseIterable, Sendable, Hashable {
+public enum OwnershipKind: String, Codable, CaseIterable, Sendable, Hashable {
     case individual
     case jointWROS = "joint_wros"
     case communityProperty = "community_property"

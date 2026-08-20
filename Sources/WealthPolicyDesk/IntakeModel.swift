@@ -165,6 +165,9 @@ public struct IntakeHeldPosition: Codable, Hashable, Identifiable {
     public var plan: HeldPositionTreatment = .keepAsCore
     public var unwindYears: Int = 3
     public var isConcentrated: Bool = false
+    /// When set, the lot's acquisition date drives its holding period (short vs long term).
+    /// Optional so records saved before this field decode cleanly. Empty/nil = unknown vintage.
+    public var acquisitionDate: IsoDate? = nil
     public init() {}
     public var unrealizedGainUsd: Usd { marketValueUsd - costBasisUsd }
 }
@@ -316,6 +319,9 @@ public struct IntakeModel: Codable, Hashable {
     public var taxableUsd: Usd = 200_000
     public var traditionalUsd: Usd = 300_000
     public var rothUsd: Usd = 50_000
+    /// Titling of the taxable account. nil = auto-derive (community property in CP states
+    /// for a couple, else joint; individual for a single filer). Drives the death step-up.
+    public var taxableTitling: OwnershipKind? = nil
     public var taxableUnrealizedGainPct: Double = 0.35   // 0..1
     /// Roughly how the money is invested TODAY (equity share, 0..1). The as-is
     /// portfolio is synthesized from THIS, not the policy target, so the allocation
@@ -688,9 +694,13 @@ public extension IntakeModel {
         for (i, hp) in heldAwayPositions.enumerated() where hp.marketValueUsd > 0 {
             let acct = acctId(hp.treatment)
             let (disp, hold, draws) = Self.heldDisposition(plan: hp.plan, treatment: hp.treatment)
+            // A dated lot makes the holding period (short vs long term) real for this holding.
+            let lots: [TaxLot] = (hp.acquisitionDate?.isEmpty == false)
+                ? [TaxLot(id: "\(acct)_held_\(i)_lot", marketValueUsd: hp.marketValueUsd, costBasisUsd: hp.costBasisUsd, acquisitionDate: hp.acquisitionDate!)]
+                : []
             positions.append(Position(id: "\(acct)_held_\(i)_\(hp.ticker)", accountId: acct, ticker: hp.ticker.isEmpty ? "HELD\(i)" : hp.ticker,
                                       sleeveId: nil, marketValueUsd: hp.marketValueUsd, costBasisUsd: hp.costBasisUsd,
-                                      layer: .strategic, disposition: disp, holdToStepUp: hold, isConcentrated: hp.isConcentrated))
+                                      layer: .strategic, disposition: disp, holdToStepUp: hold, isConcentrated: hp.isConcentrated, lots: lots))
             itemizedByTreatment[hp.treatment, default: 0] += hp.marketValueUsd
             if draws && hp.treatment == .taxable {
                 let gain = max(0, hp.unrealizedGainUsd)
@@ -716,9 +726,9 @@ public extension IntakeModel {
                                      "ID", "IDAHO", "LA", "LOUISIANA", "WI", "WISCONSIN"]
         let stateKey = state.uppercased().trimmingCharacters(in: .whitespaces)
         let hasSpouse = people.contains { $0.role == .spouse }
-        let taxableOwnership: AccountOwnership = hasSpouse
-            ? .init(kind: cpStates.contains(stateKey) ? .communityProperty : .jointWROS)
-            : .init(kind: .individual, ownerPersonId: "p_0")
+        let autoTitling: OwnershipKind = hasSpouse ? (cpStates.contains(stateKey) ? .communityProperty : .jointWROS) : .individual
+        let titling = taxableTitling ?? autoTitling                // the client's explicit choice wins
+        let taxableOwnership = AccountOwnership(kind: titling, ownerPersonId: titling == .individual ? "p_0" : nil)
         let individualPrimary = AccountOwnership(kind: .individual, ownerPersonId: "p_0")
         addAccount("acct_taxable", "Taxable brokerage", .taxable, taxableUsd, taxableOwnership)
         addAccount("acct_trad", "Traditional (IRA/401k)", .taxDeferred, traditionalUsd, individualPrimary)

@@ -388,6 +388,13 @@ struct IntakeWizard: View {
                 MoneyField(label: "Taxable brokerage", value: $intake.taxableUsd)
                 MoneyField(label: "Traditional (IRA / 401k)", value: $intake.traditionalUsd)
                 MoneyField(label: "Roth", value: $intake.rothUsd)
+                if intake.adults.count > 1 {
+                    FieldLabel("Taxable account titling") {
+                        ChoiceChips([(OwnershipKind.jointWROS, "Joint"), (.communityProperty, "Community prop."), (.individual, "Individual"), (.revocableTrust, "Trust")],
+                                    selection: intake.taxableTitling ?? .jointWROS) { intake.taxableTitling = $0 }
+                    }
+                    Note("Titling drives the basis step-up at death (community property steps up the full gain on the first death; joint tenancy only half). Auto-set by your state — pick to override.")
+                }
                 Note("We'll shape a portfolio across these accounts from your current mix below. (Entering exact holdings can come later.)")
             }
             Card("How it's invested today") {
@@ -838,6 +845,9 @@ struct HeldPositionForm: View {
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
             MoneyField(label: "Market value", value: $position.marketValueUsd)
             MoneyField(label: "Cost basis", value: $position.costBasisUsd)
+            FormText(label: "Acquired (YYYY-MM-DD, optional)", value: Binding(
+                get: { position.acquisitionDate ?? "" },
+                set: { position.acquisitionDate = $0.isEmpty ? nil : $0 }))
             FieldLabel("Account") { ChoiceChips(AccountTaxTreatment.allCases.map { ($0, $0.short) }, selection: position.treatment) { position.treatment = $0 } }
             FieldLabel("Plan") { ChoiceChips(HeldPositionTreatment.allCases.map { ($0, $0.label) }, selection: position.plan) { position.plan = $0 } }
             if position.plan == .unwindScheduled {
