@@ -142,16 +142,37 @@ struct PolicyStatementTab: View {
     private func savingsRetireEditor(_ o: Binding<HouseholdOverrides>) -> some View {
         let savings = h.annualSavingsUsd
         let retAge = primary?.expectedRetirementAge ?? 65
-        return editorRow("Savings & retirement", now: "\(Fmt.usdShort(savings))/yr · retire \(retAge)") {
-            HStack(spacing: 16) {
-                miniStepper("Annual savings", Fmt.usdShort(savings),
-                            minus: { o.wrappedValue.annualSavingsUsd = max(0, savings - 10_000) },
-                            plus:  { o.wrappedValue.annualSavingsUsd = savings + 10_000 })
-                miniStepper("Retire at age", "\(retAge)",
-                            minus: { o.wrappedValue.retirementAge = max(age + 1, retAge - 1) },
-                            plus:  { o.wrappedValue.retirementAge = min(longevity - 1, retAge + 1) })
+        return editorRow("Savings & retirement", now: retireSummary) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 16) {
+                    miniStepper("Annual savings", Fmt.usdShort(savings),
+                                minus: { o.wrappedValue.annualSavingsUsd = max(0, savings - 10_000) },
+                                plus:  { o.wrappedValue.annualSavingsUsd = savings + 10_000 })
+                    miniStepper(isCouple ? "\(firstName(primary)) retires" : "Retire at age", "\(retAge)",
+                                minus: { o.wrappedValue.retirementAge = max(age + 1, retAge - 1) },
+                                plus:  { o.wrappedValue.retirementAge = min(longevity - 1, retAge + 1) })
+                }
+                if isCouple, let sp = spouse {
+                    let spAge = Engine.age(birthDate: sp.birthDate, asOf: eval.asOf)
+                    let spRet = sp.expectedRetirementAge
+                    miniStepper("\(firstName(sp)) retires", "\(spRet)",
+                                minus: { o.wrappedValue.spouseRetirementAge = max(spAge + 1, spRet - 1) },
+                                plus:  { o.wrappedValue.spouseRetirementAge = min(sp.longevityPercentileTarget - 1, spRet + 1) })
+                }
             }
         }
+    }
+
+    private var retireSummary: String {
+        let s = "\(Fmt.usdShort(h.annualSavingsUsd))/yr"
+        let p = primary?.expectedRetirementAge ?? 65
+        if isCouple, let sp = spouse { return "\(s) · retire \(p) / \(sp.expectedRetirementAge)" }
+        return "\(s) · retire \(p)"
+    }
+
+    private func firstName(_ p: Person?) -> String {
+        guard let label = p?.label, !label.isEmpty else { return "Retire" }
+        return String(label.split(separator: " ").first ?? Substring(label))
     }
 
     private var fundedText: String {
