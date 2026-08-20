@@ -67,6 +67,7 @@ struct PolicyStatementTab: View {
         purposeSection
         governanceSection
         returnObjectiveSection(editable: draftOverrides != nil)
+        goalsSection(editable: draftOverrides != nil)
         riskObjectiveSection(editable: draftOverrides != nil)
         constraintsSection
         allocationSection
@@ -78,7 +79,7 @@ struct PolicyStatementTab: View {
 
     var printBlocks: [AnyView] {
         [AnyView(letterhead), AnyView(purposeSection), AnyView(governanceSection),
-         AnyView(returnObjectiveSection(editable: false)), AnyView(riskObjectiveSection(editable: false)), AnyView(constraintsSection),
+         AnyView(returnObjectiveSection(editable: false)), AnyView(goalsSection(editable: false)), AnyView(riskObjectiveSection(editable: false)), AnyView(constraintsSection),
          AnyView(allocationSection), AnyView(rebalancingSection), AnyView(reviewSection), AnyView(disclosuresSection)]
     }
 
@@ -310,6 +311,85 @@ struct PolicyStatementTab: View {
                     chip(Fmt.pctBps(v), selected: h.statedToleranceMaxDrawdownBps == v) { o.wrappedValue.toleranceMaxDrawdownBps = v }
                 }
             }
+        }
+    }
+
+    // MARK: - Goals (view + edit)
+
+    private var spendingGoals: [Goal] { eval.household.goals.filter { $0.kind == .spending } }
+
+    private func goalsSection(editable: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("The goals your plan must fund")
+                .font(.system(.title3, design: .serif).weight(.semibold)).foregroundStyle(Theme.ink)
+            VStack(spacing: 0) {
+                ForEach(spendingGoals, id: \.id) { g in goalRow(g, editable: editable) }
+            }
+            if editable, let b = draftOverrides {
+                retirementEditor(b)
+                addGoalBar(b)
+            }
+            Note("These are the spending goals the required return must fund, in today's dollars. Adding, resizing, or deferring a goal moves the required return and funded ratio above — flexibility is often a cheaper lever than more risk.")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+    }
+
+    private func goalRow(_ g: Goal, editable: Bool) -> some View {
+        let annual = g.outflows.first?.amountUsd ?? g.nominalTodayUsd
+        let firstY = g.outflows.map { $0.year }.min() ?? 0
+        let lastY = g.outflows.map { $0.year }.max() ?? 0
+        let oneTime = g.outflows.count <= 1
+        let timing = oneTime ? "at age \(age + firstY)" : "ages \(age + firstY)–\(age + lastY)"
+        let amount = oneTime ? "\(Fmt.usd(annual)) · \(timing)" : "\(Fmt.usd(annual))/yr · \(timing)"
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(g.label).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text(amount).font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+            }
+            Spacer(minLength: 8)
+            if editable, g.id != "g_spending", let b = draftOverrides {
+                Button { removeGoal(g, b) } label: {
+                    Image(systemName: "minus.circle.fill").font(.system(size: 16)).foregroundStyle(Theme.debt.opacity(0.85))
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 5)
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule.opacity(0.5)), alignment: .bottom)
+    }
+
+    private func removeGoal(_ g: Goal, _ o: Binding<HouseholdOverrides>) {
+        if let idx = o.wrappedValue.addedGoals.firstIndex(where: { $0.goalId == g.id }) {
+            o.wrappedValue.addedGoals.remove(at: idx)                 // a not-yet-committed add: just drop it
+        } else if !o.wrappedValue.removedGoalIds.contains(g.id) {
+            o.wrappedValue.removedGoalIds.append(g.id)                // a standard/committed goal: mark removed
+        }
+    }
+
+    private func retirementEditor(_ o: Binding<HouseholdOverrides>) -> some View {
+        let current = spendingGoals.first { $0.id == "g_spending" }?.outflows.first?.amountUsd ?? 0
+        return editorRow("Retirement spending — annual", now: Fmt.usdShort(current)) {
+            HStack(spacing: 6) {
+                ForEach([Usd(80_000), 120_000, 160_000, 200_000, 250_000], id: \.self) { v in
+                    chip(Fmt.usdShort(v), selected: current == v) { o.wrappedValue.retirementSpendingUsd = v }
+                }
+            }
+        }
+    }
+
+    private func addGoalBar(_ o: Binding<HouseholdOverrides>) -> some View {
+        editorRow("Add a goal beyond retirement", now: "\(o.wrappedValue.addedGoals.count) added") {
+            HStack(spacing: 6) {
+                addChip("+ Education", "Education", 40_000, 1, 4, o)
+                addChip("+ Home", "Home purchase", 500_000, 3, 1, o)
+                addChip("+ Travel", "Travel", 25_000, 1, 10, o)
+            }
+        }
+    }
+
+    private func addChip(_ label: String, _ goalLabel: String, _ annual: Usd, _ start: Int, _ years: Int, _ o: Binding<HouseholdOverrides>) -> some View {
+        chip(label, selected: false) {
+            o.wrappedValue.addedGoals.append(GoalEdit(id: UUID().uuidString, label: goalLabel, annualUsd: annual, startYear: start, years: years))
         }
     }
 
