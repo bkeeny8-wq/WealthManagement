@@ -108,6 +108,7 @@ framework_files = [
     "BalanceSheetTab.swift",
     "RequiredReturnTab.swift",
     "HouseholdOverrides.swift",
+    "IPSReview.swift",
     "PolicyStatementTab.swift",
     "PlanSummaryTab.swift",
     "PlanSummaryPDF.swift",

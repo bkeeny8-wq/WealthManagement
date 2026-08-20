@@ -58,7 +58,9 @@ public struct RootView: View {
                     onClose: closeToBook,
                     onEcon: { showEcon = true },
                     onCommitOverrides: commitOverrides,
-                    onResetOverrides: resetOverrides
+                    onResetOverrides: resetOverrides,
+                    reviews: activeReviews,
+                    onSaveReview: saveReview
                 )
             } else {
                 RosterView(
@@ -182,6 +184,25 @@ public struct RootView: View {
         } else {
             household = Seed.sampleHousehold
         }
+    }
+
+    /// Commit any staged driver edits and snapshot the resulting plan as a dated review.
+    private func saveReview(_ staged: HouseholdOverrides) {
+        guard let id = activeId, let i = book.firstIndex(where: { $0.id == id }) else {
+            if let h = household { household = h.withDriverOverrides(staged) }   // sample: apply, no review saved
+            return
+        }
+        book[i].driverOverrides.merge(staged)
+        let hh = book[i].household()
+        book[i].reviews.append(IPSReview.from(Engine.evaluate(hh), overrides: book[i].driverOverrides, at: Date()))
+        book[i].touch()
+        BookStore.save(book)
+        household = hh
+    }
+
+    private var activeReviews: [IPSReview] {
+        guard let id = activeId else { return [] }
+        return book.first(where: { $0.id == id })?.reviews ?? []
     }
 
     private var activeCommittedActions: [PlannedAction] {

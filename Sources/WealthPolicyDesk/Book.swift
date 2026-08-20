@@ -27,9 +27,11 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     /// Foundational assumptions the advisor edited straight from the Policy Statement,
     /// layered on top of the intake-derived household (the standardized answer is kept).
     public var driverOverrides: HouseholdOverrides = HouseholdOverrides()
+    /// Dated IPS snapshots — the year-over-year review history.
+    public var reviews: [IPSReview] = []
 
-    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = [], tilts: [TacticalTiltAction] = [], driverOverrides: HouseholdOverrides = HouseholdOverrides()) {
-        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions; self.tilts = tilts; self.driverOverrides = driverOverrides
+    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = [], tilts: [TacticalTiltAction] = [], driverOverrides: HouseholdOverrides = HouseholdOverrides(), reviews: [IPSReview] = []) {
+        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions; self.tilts = tilts; self.driverOverrides = driverOverrides; self.reviews = reviews
     }
 
     /// Forward-compatible decode: a missing/renamed field never drops the record.
@@ -43,6 +45,7 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
         actions = ((try? c.decodeIfPresent([PlannedAction].self, forKey: .actions)) ?? nil) ?? []
         tilts = ((try? c.decodeIfPresent([TacticalTiltAction].self, forKey: .tilts)) ?? nil) ?? []
         driverOverrides = ((try? c.decodeIfPresent(HouseholdOverrides.self, forKey: .driverOverrides)) ?? nil) ?? HouseholdOverrides()
+        reviews = ((try? c.decodeIfPresent([IPSReview].self, forKey: .reviews)) ?? nil) ?? []
         if intake.adults.isEmpty { intake.adults = [IntakeAdult()] }   // invariant: ≥1 adult
     }
 

@@ -17,6 +17,9 @@ struct PolicyStatementTab: View {
     /// When present, the return/risk drivers become inline-editable and edits stage a
     /// live re-derive of the whole plan (nil = read-only, e.g. the PDF export).
     var draftOverrides: Binding<HouseholdOverrides>? = nil
+    /// The client's year-over-year review history, and the action that snapshots a new one.
+    var reviews: [IPSReview] = []
+    var saveReview: (() -> Void)? = nil
     @State private var share: SharePayload? = nil
 
     // MARK: derived reads
@@ -64,6 +67,7 @@ struct PolicyStatementTab: View {
 
     var body: some View {
         letterhead
+        if let save = saveReview { reviewBar(save) }   // screen-only review action
         purposeSection
         governanceSection
         returnObjectiveSection(editable: draftOverrides != nil)
@@ -73,14 +77,18 @@ struct PolicyStatementTab: View {
         allocationSection
         rebalancingSection
         reviewSection
+        if !reviews.isEmpty { reviewHistorySection }
         disclosuresSection
         exportBar
     }
 
     var printBlocks: [AnyView] {
-        [AnyView(letterhead), AnyView(purposeSection), AnyView(governanceSection),
-         AnyView(returnObjectiveSection(editable: false)), AnyView(goalsSection(editable: false)), AnyView(riskObjectiveSection(editable: false)), AnyView(constraintsSection),
-         AnyView(allocationSection), AnyView(rebalancingSection), AnyView(reviewSection), AnyView(disclosuresSection)]
+        var b: [AnyView] = [AnyView(letterhead), AnyView(purposeSection), AnyView(governanceSection),
+             AnyView(returnObjectiveSection(editable: false)), AnyView(goalsSection(editable: false)), AnyView(riskObjectiveSection(editable: false)), AnyView(constraintsSection),
+             AnyView(allocationSection), AnyView(rebalancingSection), AnyView(reviewSection)]
+        if !reviews.isEmpty { b.append(AnyView(reviewHistorySection)) }
+        b.append(AnyView(disclosuresSection))
+        return b
     }
 
     // MARK: - Sections
@@ -235,6 +243,63 @@ struct PolicyStatementTab: View {
             p("Prepared as of \(eval.asOf) using a safe real rate of \(Fmt.pctBps(rr.safeRealRateBps)) and 2026 tax law under OBBBA (P.L. 119-21). Every figure rests on editable, effective-dated assumptions that must be verified before any client use.")
             p("This is a teaching and analysis document. It is not personalized investment, legal, or tax advice, nor a recommendation to buy or sell any security. Forward-looking figures — expected returns and shortfall probabilities — come from a labelled capital-market model and are estimates, not forecasts or guarantees of future results.")
         }
+    }
+
+    // MARK: - Annual review
+
+    /// Screen-only banner: last-reviewed status + the action that snapshots a new review.
+    private func reviewBar(_ save: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar.badge.checkmark").font(.system(size: 20)).foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                if let last = reviews.max(by: { $0.createdAt < $1.createdAt }) {
+                    Text("LAST REVIEWED").font(.system(size: 9, weight: .heavy)).tracking(0.6).foregroundStyle(Theme.muted)
+                    HStack(spacing: 6) {
+                        Text(last.createdAt, style: .date).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink)
+                        Text("· \(reviews.count) on file").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                } else {
+                    Text("NOT YET REVIEWED").font(.system(size: 9, weight: .heavy)).tracking(0.6).foregroundStyle(Theme.muted)
+                    Text("Walk the statement, adjust what's changed, then save this year's review.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            Button(action: save) {
+                Label("Save as review", systemImage: "tray.and.arrow.down")
+                    .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8).background(Theme.accent, in: Capsule())
+            }.buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.25)))
+    }
+
+    private var reviewHistorySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Review history").font(.system(.title3, design: .serif).weight(.semibold)).foregroundStyle(Theme.ink)
+            ForEach(reviews.sorted { $0.createdAt > $1.createdAt }) { r in reviewRow(r) }
+            Note("Each entry is a dated snapshot of the plan, taken when the statement was walked and confirmed. Comparing them shows how the objectives and funded status have moved year to year.")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+    }
+
+    private func reviewRow(_ r: IPSReview) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text(r.createdAt, style: .date).font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.ink)
+                Spacer(minLength: 8)
+                if r.overrides.count > 0 {
+                    Text("\(r.overrides.count) edit\(r.overrides.count == 1 ? "" : "s") in effect").font(.system(size: 10.5)).foregroundStyle(Theme.muted)
+                }
+            }
+            Text("Required \(Fmt.pctBps(r.requiredRealReturnBps)) · Funded \(Fmt.pctBps(r.fundedRatioBps)) · Equity ceiling \(Fmt.pctBps(r.equityCeilingBps)) · \(r.goalCount) goal\(r.goalCount == 1 ? "" : "s") · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
+                .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 5)
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule.opacity(0.5)), alignment: .bottom)
     }
 
     // MARK: - Export (screen-only, not part of printBlocks)

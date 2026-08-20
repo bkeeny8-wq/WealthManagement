@@ -70,6 +70,8 @@ struct DeskView: View {
     var onEcon: () -> Void = {}
     var onCommitOverrides: (HouseholdOverrides) -> Void = { _ in }
     var onResetOverrides: () -> Void = {}
+    var reviews: [IPSReview] = []
+    var onSaveReview: (HouseholdOverrides) -> Void = { _ in }
     @State private var section: DeskTab? = .policyStatement
     /// Moves staged on the desk but not yet committed. The whole desk previews
     /// the household with these applied; Commit clears them onto the record.
@@ -200,7 +202,9 @@ struct DeskView: View {
 
     @ViewBuilder private func tabContent(_ tab: DeskTab, _ e: Evaluation) -> some View {
         switch tab {
-        case .policyStatement: PolicyStatementTab(eval: e, clientHeader: clientHeader, draftOverrides: $draftOverrides)
+        case .policyStatement: PolicyStatementTab(eval: e, clientHeader: clientHeader, draftOverrides: $draftOverrides,
+                                                  reviews: reviews,
+                                                  saveReview: { onSaveReview(draftOverrides); draftOverrides = HouseholdOverrides() })
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)
