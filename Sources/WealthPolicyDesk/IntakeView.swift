@@ -62,6 +62,9 @@ public struct RootView: View {
                     reviews: activeReviews,
                     onSaveReview: saveReview
                 )
+                // Client-scoped identity: switching client (or to the sample) rebuilds the desk
+                // fresh so its @State (staged edits, review note/checkboxes) never leaks across.
+                .id(activeId)
             } else {
                 RosterView(
                     book: book,

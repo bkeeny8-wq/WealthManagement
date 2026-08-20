@@ -21,6 +21,8 @@ struct PolicyStatementTab: View {
     /// (given the advisor's note and the section keys confirmed "still applicable").
     var reviews: [IPSReview] = []
     var saveReview: ((String, [String]) -> Void)? = nil
+    /// Reviews persist only for a real client record; false on the sample (no record to save to).
+    var canPersist: Bool = true
     @State private var share: SharePayload? = nil
     @State private var reviewNote = ""
     @State private var confirmed: Set<String> = []
@@ -76,7 +78,7 @@ struct PolicyStatementTab: View {
 
     var body: some View {
         letterhead
-        if saveReview != nil { reviewBar; reviewPanel }   // screen-only review workflow
+        if saveReview != nil && canPersist { reviewBar; reviewPanel }   // screen-only; real client only
         purposeSection
         governanceSection
         returnObjectiveSection(editable: draftOverrides != nil)
@@ -372,9 +374,10 @@ struct PolicyStatementTab: View {
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule.opacity(0.5)), alignment: .bottom)
     }
 
-    /// A "(▲ 0.3%)" delta suffix vs the prior review; empty when unchanged or no prior.
+    /// A "(▲ 0.3%)" delta suffix vs the prior review; empty when the change is invisible at
+    /// the displayed 0.1% precision (so we never print an arrow beside a "0.0%" magnitude).
     private func delta(_ now: Bps, _ prior: Bps?) -> String {
-        guard let prior, prior != now else { return "" }
+        guard let prior, Fmt.pctBps(now) != Fmt.pctBps(prior) else { return "" }
         return " (\(now > prior ? "▲" : "▼") \(Fmt.pctBps(abs(now - prior))))"
     }
 
