@@ -258,7 +258,7 @@ struct WelcomeView: View {
                 Spacer()
                 VStack(spacing: 8) {
                     Text("Wealth Policy").font(.system(size: 44, weight: .bold, design: .serif)).foregroundStyle(Theme.ink)
-                    Text("A total-balance-sheet view of your plan — required return, net fixed income, tax and legacy — built from an opinionated advisory policy.")
+                    Text("Answer a short intake and it drafts a full Investment Policy Statement — your objectives, constraints, and strategic allocation — which you can then walk, edit live, export, and review year over year.")
                         .font(.system(size: 16)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                         .frame(maxWidth: 520).fixedSize(horizontal: false, vertical: true)
                 }
@@ -314,7 +314,7 @@ struct IntakeWizard: View {
             case .estate: return "Estate & giving"
             case .personality: return "You & risk"
             case .relationship: return "Relationship"
-            case .review: return "Review"
+            case .review: return "Your policy statement"
             }
         }
     }
@@ -354,7 +354,8 @@ struct IntakeWizard: View {
             Spacer()
             if step == .review {
                 Button { onComplete(intake, practice) } label: {
-                    Text("Build my plan").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                    Label("Create my policy statement", systemImage: "doc.richtext")
+                        .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
                         .padding(.horizontal, 20).padding(.vertical, 12)
                         .background(Theme.asset, in: Capsule())
                 }.buttonStyle(.plain)
@@ -736,7 +737,7 @@ struct IntakeWizard: View {
         let h = intake.buildHousehold()
         let e = Engine.evaluate(h)
         return VStack(spacing: 14) {
-            Card("Your plan at a glance") {
+            Card("The figures your statement will anchor on") {
                 LedgerRow("Investable assets", Fmt.usd(intake.totalInvestableUsd), color: Theme.asset)
                 LedgerRow("After-tax net worth", Fmt.usd(e.balanceSheet.afterTaxNetWorthUsd), color: Theme.ink, bold: true)
                 LedgerRow("Required real return", Fmt.pctBps(e.requiredReturn.requiredRealReturnBps), color: Theme.ink)
@@ -744,7 +745,18 @@ struct IntakeWizard: View {
                 LedgerRow("Funded ratio", Fmt.pctBps(e.balanceSheet.fundedRatioBps), color: e.balanceSheet.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber)
                 LedgerRow("Legacy floor", intake.legacyFloorUsd > 0 || intake.legacyPriority != .none ? Fmt.usd(h.legacyFloorUsd) : "$0", color: Theme.ink)
             }
-            Note("Build the plan to open the full desk. You can change any lever afterward, or edit these answers anytime.", icon: "checkmark.circle", color: Theme.asset)
+            Card("Your Investment Policy Statement will set out") {
+                ForEach(["Objectives — the real, after-tax return your goals require and the risk the plan may take",
+                         "Constraints — liquidity, time horizon, taxes, legal, and unique circumstances",
+                         "The strategic asset allocation derived from them",
+                         "The rebalancing and review policy"], id: \.self) { line in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(Theme.asset).padding(.top, 1)
+                        Text(line).font(.system(size: 13)).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            Note("Creating it opens the statement on the desk. From there you can walk it, adjust any driver live, export it as a PDF, and save annual reviews — nothing here is locked.", icon: "doc.richtext", color: Theme.accent)
         }
     }
 
