@@ -56,7 +56,9 @@ public struct RootView: View {
                     onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
                     onLoadSample: openSample,
                     onClose: closeToBook,
-                    onEcon: { showEcon = true }
+                    onEcon: { showEcon = true },
+                    onCommitOverrides: commitOverrides,
+                    onResetOverrides: resetOverrides
                 )
             } else {
                 RosterView(
@@ -152,6 +154,33 @@ public struct RootView: View {
             var h = household ?? Seed.sampleHousehold
             h.tacticalTilts.append(contentsOf: committed)
             household = h
+        }
+    }
+
+    /// Persist foundational-assumption edits (legacy floor, risk tolerance) made from the
+    /// Policy Statement onto the open client's plan of record (or, for the sample, in memory).
+    private func commitOverrides(_ o: HouseholdOverrides) {
+        guard !o.isEmpty else { return }
+        if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
+            book[i].driverOverrides.merge(o)
+            book[i].touch()
+            BookStore.save(book)
+            household = book[i].household()
+        } else if let h = household {
+            household = h.withDriverOverrides(o)
+        }
+    }
+
+    /// Clear all foundational-assumption edits, returning to the standardized,
+    /// intake-derived plan (or, for the sample, the seed household).
+    private func resetOverrides() {
+        if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
+            book[i].driverOverrides = HouseholdOverrides()
+            book[i].touch()
+            BookStore.save(book)
+            household = book[i].household()
+        } else {
+            household = Seed.sampleHousehold
         }
     }
 

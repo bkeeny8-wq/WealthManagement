@@ -68,18 +68,22 @@ struct DeskView: View {
     var onLoadSample: () -> Void
     var onClose: () -> Void
     var onEcon: () -> Void = {}
+    var onCommitOverrides: (HouseholdOverrides) -> Void = { _ in }
+    var onResetOverrides: () -> Void = {}
     @State private var section: DeskTab? = .policyStatement
     /// Moves staged on the desk but not yet committed. The whole desk previews
     /// the household with these applied; Commit clears them onto the record.
     @State private var staged: [PlannedAction] = []
     @State private var stagedTilts: [TacticalTiltAction] = []
+    /// Foundational-assumption edits made from the Policy Statement, not yet committed.
+    @State private var draftOverrides = HouseholdOverrides()
 
     /// The household everything on the desk is evaluated against — the record
-    /// plus any staged (uncommitted) moves and tactical tilts.
+    /// plus any staged (uncommitted) moves, tactical tilts, and policy edits.
     private var previewHousehold: Household {
         var h = household.applying(staged)
         h.tacticalTilts = household.tacticalTilts + stagedTilts
-        return h
+        return h.withDriverOverrides(draftOverrides)
     }
     private var eval: Evaluation { Engine.evaluate(previewHousehold) }
 
@@ -95,12 +99,13 @@ struct DeskView: View {
     }
 
     private func commit() {
-        guard !staged.isEmpty || !stagedTilts.isEmpty else { return }
+        guard !staged.isEmpty || !stagedTilts.isEmpty || !draftOverrides.isEmpty else { return }
         if !staged.isEmpty { onCommit(staged.map { var a = $0; a.status = .committed; return a }) }
         if !stagedTilts.isEmpty { onCommitTilts(stagedTilts.map { var t = $0; t.status = .committed; return t }) }
-        staged = []; stagedTilts = []
+        if !draftOverrides.isEmpty { onCommitOverrides(draftOverrides) }
+        staged = []; stagedTilts = []; draftOverrides = HouseholdOverrides()
     }
-    private func discard() { staged = []; stagedTilts = [] }
+    private func discard() { staged = []; stagedTilts = []; draftOverrides = HouseholdOverrides() }
 
     // MARK: sidebar
 
@@ -169,13 +174,14 @@ struct DeskView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Theme.paper)
-        .safeAreaInset(edge: .top) { if !staged.isEmpty || !stagedTilts.isEmpty { stagingBanner } }
+        .safeAreaInset(edge: .top) { if !staged.isEmpty || !stagedTilts.isEmpty || !draftOverrides.isEmpty { stagingBanner } }
         .navigationTitle(tab.rawValue)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button { onEditIntake() } label: { Label("Edit client profile", systemImage: "pencil") }
                     Button { onEcon() } label: { Label("Econ backdrop", systemImage: "globe.americas") }
+                    Button { draftOverrides = HouseholdOverrides(); onResetOverrides() } label: { Label("Reset policy edits to standard", systemImage: "arrow.uturn.backward") }
                     Button { onLoadSample() } label: { Label("Load sample (Harrisons)", systemImage: "person.2") }
                     if let json = exportJSON {
                         ShareLink(item: json, preview: SharePreview("Client record (JSON)")) { Label("Export record (JSON)", systemImage: "square.and.arrow.up") }
@@ -194,7 +200,7 @@ struct DeskView: View {
 
     @ViewBuilder private func tabContent(_ tab: DeskTab, _ e: Evaluation) -> some View {
         switch tab {
-        case .policyStatement: PolicyStatementTab(eval: e, clientHeader: clientHeader)
+        case .policyStatement: PolicyStatementTab(eval: e, clientHeader: clientHeader, draftOverrides: $draftOverrides)
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)
@@ -240,6 +246,7 @@ struct DeskView: View {
         var parts: [String] = []
         if !staged.isEmpty { parts.append("\(staged.count) move\(staged.count == 1 ? "" : "s")") }
         if !stagedTilts.isEmpty { parts.append("\(stagedTilts.count) tilt\(stagedTilts.count == 1 ? "" : "s")") }
+        if !draftOverrides.isEmpty { parts.append("\(draftOverrides.count) policy edit\(draftOverrides.count == 1 ? "" : "s")") }
         return "Previewing " + parts.joined(separator: " + ") + " staged"
     }
 

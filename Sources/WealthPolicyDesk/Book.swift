@@ -24,9 +24,12 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     /// The plan of record's committed tactical tilts (sentiment-sourced sleeve
     /// deviations). Staged (uncommitted) tilts never land here.
     public var tilts: [TacticalTiltAction] = []
+    /// Foundational assumptions the advisor edited straight from the Policy Statement,
+    /// layered on top of the intake-derived household (the standardized answer is kept).
+    public var driverOverrides: HouseholdOverrides = HouseholdOverrides()
 
-    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = [], tilts: [TacticalTiltAction] = []) {
-        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions; self.tilts = tilts
+    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = [], tilts: [TacticalTiltAction] = [], driverOverrides: HouseholdOverrides = HouseholdOverrides()) {
+        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions; self.tilts = tilts; self.driverOverrides = driverOverrides
     }
 
     /// Forward-compatible decode: a missing/renamed field never drops the record.
@@ -39,6 +42,7 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
         archived = ((try? c.decodeIfPresent(Bool.self, forKey: .archived)) ?? nil) ?? false
         actions = ((try? c.decodeIfPresent([PlannedAction].self, forKey: .actions)) ?? nil) ?? []
         tilts = ((try? c.decodeIfPresent([TacticalTiltAction].self, forKey: .tilts)) ?? nil) ?? []
+        driverOverrides = ((try? c.decodeIfPresent(HouseholdOverrides.self, forKey: .driverOverrides)) ?? nil) ?? HouseholdOverrides()
         if intake.adults.isEmpty { intake.adults = [IntakeAdult()] }   // invariant: ≥1 adult
     }
 
@@ -55,7 +59,7 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     public func household() -> Household {
         var h = intake.buildHousehold().applying(committedActions)
         h.tacticalTilts = committedTilts
-        return h
+        return h.withDriverOverrides(driverOverrides)
     }
 
     /// Per-move replay status against the freshly synthesized household — flags a

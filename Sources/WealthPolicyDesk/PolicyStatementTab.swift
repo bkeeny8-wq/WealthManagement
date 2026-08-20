@@ -14,6 +14,9 @@ import SwiftUI
 struct PolicyStatementTab: View {
     let eval: Evaluation
     var clientHeader: ClientProfileHeader? = nil
+    /// When present, the return/risk drivers become inline-editable and edits stage a
+    /// live re-derive of the whole plan (nil = read-only, e.g. the PDF export).
+    var draftOverrides: Binding<HouseholdOverrides>? = nil
     @State private var share: SharePayload? = nil
 
     // MARK: derived reads
@@ -63,8 +66,8 @@ struct PolicyStatementTab: View {
         letterhead
         purposeSection
         governanceSection
-        returnObjectiveSection
-        riskObjectiveSection
+        returnObjectiveSection(editable: draftOverrides != nil)
+        riskObjectiveSection(editable: draftOverrides != nil)
         constraintsSection
         allocationSection
         rebalancingSection
@@ -75,7 +78,7 @@ struct PolicyStatementTab: View {
 
     var printBlocks: [AnyView] {
         [AnyView(letterhead), AnyView(purposeSection), AnyView(governanceSection),
-         AnyView(returnObjectiveSection), AnyView(riskObjectiveSection), AnyView(constraintsSection),
+         AnyView(returnObjectiveSection(editable: false)), AnyView(riskObjectiveSection(editable: false)), AnyView(constraintsSection),
          AnyView(allocationSection), AnyView(rebalancingSection), AnyView(reviewSection), AnyView(disclosuresSection)]
     }
 
@@ -105,10 +108,11 @@ struct PolicyStatementTab: View {
         }
     }
 
-    private var returnObjectiveSection: some View {
+    private func returnObjectiveSection(editable: Bool) -> some View {
         section("3", "Investment objective — return") {
             p("The portfolio is required to earn a real, after-tax return of approximately \(Fmt.pctBps(rr.requiredRealReturnBps)) per year\(rr.legacyFloorUsd > 0 ? " while preserving a legacy floor of \(Fmt.usd(rr.legacyFloorUsd)) in today's dollars" : ""). Because the plan already funds the taxes its own withdrawals generate, this after-tax figure — not the \(Fmt.pctBps(rr.requiredRealReturnPreTaxBps)) pre-tax equivalent — is the binding hurdle.")
             p(fundedText)
+            if editable, let b = draftOverrides { legacyFloorEditor(b) }
         }
     }
 
@@ -125,7 +129,7 @@ struct PolicyStatementTab: View {
             : base + " Closing the gap is a matter of savings or return, not risk the plan cannot bear."
     }
 
-    private var riskObjectiveSection: some View {
+    private func riskObjectiveSection(editable: Bool) -> some View {
         section("4", "Investment objective — risk") {
             if let r = eval.riskProfile {
                 p("Risk tolerance is the lower of the household's ABILITY and WILLINGNESS to bear risk. Ability (capacity), reflecting the funded ratio, time horizon, and human capital, supports up to \(Fmt.pctBps(r.capacityEquityBps)) in equities. Willingness, from a stated maximum tolerable one-year drawdown of about \(Fmt.pctBps(h.statedToleranceMaxDrawdownBps)), supports up to \(Fmt.pctBps(r.toleranceImpliedEquityBps)). Prudence binds the portfolio to the lower of the two — an equity ceiling of \(Fmt.pctBps(r.bindingEquityBps)).")
@@ -133,6 +137,7 @@ struct PolicyStatementTab: View {
             } else {
                 p("A formal risk tolerance is not yet on file. Completing the household's risk assessment — its maximum tolerable drawdown and its behavioural response to loss — is required before the equity ceiling and shortfall probability that anchor this policy can be set.")
             }
+            if editable, let b = draftOverrides { toleranceEditor(b) }
         }
     }
 
@@ -284,5 +289,53 @@ struct PolicyStatementTab: View {
         case 2: return "\(items[0]) and \(items[1])"
         default: return items.dropLast().joined(separator: ", ") + ", and " + (items.last ?? "")
         }
+    }
+
+    // MARK: - Inline driver editors (screen-only; never part of printBlocks)
+
+    private func legacyFloorEditor(_ o: Binding<HouseholdOverrides>) -> some View {
+        editorRow("Legacy floor — capital to preserve", now: h.legacyFloorUsd == 0 ? "None" : Fmt.usdShort(h.legacyFloorUsd)) {
+            HStack(spacing: 6) {
+                ForEach([Usd(0), 500_000, 1_000_000, 2_000_000, 5_000_000], id: \.self) { v in
+                    chip(v == 0 ? "None" : Fmt.usdShort(v), selected: h.legacyFloorUsd == v) { o.wrappedValue.legacyFloorUsd = v }
+                }
+            }
+        }
+    }
+
+    private func toleranceEditor(_ o: Binding<HouseholdOverrides>) -> some View {
+        editorRow("Max tolerable one-year drawdown", now: Fmt.pctBps(h.statedToleranceMaxDrawdownBps)) {
+            HStack(spacing: 6) {
+                ForEach([Bps(1000), 2000, 3000, 4000], id: \.self) { v in
+                    chip(Fmt.pctBps(v), selected: h.statedToleranceMaxDrawdownBps == v) { o.wrappedValue.toleranceMaxDrawdownBps = v }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func editorRow<Chips: View>(_ label: String, now: String, @ViewBuilder _ chips: () -> Chips) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "slider.horizontal.3").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.accent)
+                Text(label.uppercased()).font(.system(size: 10, weight: .heavy)).tracking(0.8).foregroundStyle(Theme.accent)
+                Text("· now \(now)").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.muted)
+            }
+            chips()
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accent.opacity(0.25)))
+        .padding(.top, 2)
+    }
+
+    private func chip(_ label: String, selected: Bool, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            Text(label).font(.system(size: 12.5, weight: .semibold))
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(selected ? Theme.accent : Theme.card, in: Capsule())
+                .foregroundStyle(selected ? Color.white : Theme.ink)
+                .overlay(Capsule().stroke(selected ? Color.clear : Theme.rule))
+        }.buttonStyle(.plain)
     }
 }
