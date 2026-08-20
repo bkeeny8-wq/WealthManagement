@@ -33,17 +33,27 @@ public struct GoalEdit: Codable, Sendable, Hashable, Identifiable {
     public var goalId: String { "ov_\(id)" }
 }
 
+/// When a goal starts and how long it runs, edited from the Policy Statement.
+public struct GoalTiming: Codable, Sendable, Hashable {
+    public var startYear: Int    // years from now (≥1)
+    public var years: Int        // duration (≥1)
+    public init(startYear: Int, years: Int) { self.startYear = max(1, startYear); self.years = max(1, years) }
+}
+
 public struct HouseholdOverrides: Codable, Sendable, Hashable {
     public var legacyFloorUsd: Usd? = nil
     public var toleranceMaxDrawdownBps: Bps? = nil
     public var addedGoals: [GoalEdit] = []              // goals beyond retirement to fund
     public var goalAmountOverrides: [String: Usd] = [:] // goalId → per-outflow amount (retirement or any goal)
+    public var goalTimingOverrides: [String: GoalTiming] = [:]  // goalId → start year & duration
     public var removedGoalIds: [String] = []            // goal ids to drop (added or standard)
 
     public init(legacyFloorUsd: Usd? = nil, toleranceMaxDrawdownBps: Bps? = nil,
-                addedGoals: [GoalEdit] = [], goalAmountOverrides: [String: Usd] = [:], removedGoalIds: [String] = []) {
+                addedGoals: [GoalEdit] = [], goalAmountOverrides: [String: Usd] = [:],
+                goalTimingOverrides: [String: GoalTiming] = [:], removedGoalIds: [String] = []) {
         self.legacyFloorUsd = legacyFloorUsd; self.toleranceMaxDrawdownBps = toleranceMaxDrawdownBps
-        self.addedGoals = addedGoals; self.goalAmountOverrides = goalAmountOverrides; self.removedGoalIds = removedGoalIds
+        self.addedGoals = addedGoals; self.goalAmountOverrides = goalAmountOverrides
+        self.goalTimingOverrides = goalTimingOverrides; self.removedGoalIds = removedGoalIds
     }
 
     /// Forward/backward-compatible decode: a missing field never drops the record.
@@ -53,16 +63,17 @@ public struct HouseholdOverrides: Codable, Sendable, Hashable {
         toleranceMaxDrawdownBps = (try? c.decodeIfPresent(Bps.self, forKey: .toleranceMaxDrawdownBps)) ?? nil
         addedGoals = ((try? c.decodeIfPresent([GoalEdit].self, forKey: .addedGoals)) ?? nil) ?? []
         goalAmountOverrides = ((try? c.decodeIfPresent([String: Usd].self, forKey: .goalAmountOverrides)) ?? nil) ?? [:]
+        goalTimingOverrides = ((try? c.decodeIfPresent([String: GoalTiming].self, forKey: .goalTimingOverrides)) ?? nil) ?? [:]
         removedGoalIds = ((try? c.decodeIfPresent([String].self, forKey: .removedGoalIds)) ?? nil) ?? []
     }
 
     public var isEmpty: Bool {
         legacyFloorUsd == nil && toleranceMaxDrawdownBps == nil
-            && addedGoals.isEmpty && goalAmountOverrides.isEmpty && removedGoalIds.isEmpty
+            && addedGoals.isEmpty && goalAmountOverrides.isEmpty && goalTimingOverrides.isEmpty && removedGoalIds.isEmpty
     }
     public var count: Int {
         (legacyFloorUsd == nil ? 0 : 1) + (toleranceMaxDrawdownBps == nil ? 0 : 1)
-            + addedGoals.count + goalAmountOverrides.count + removedGoalIds.count
+            + addedGoals.count + goalAmountOverrides.count + goalTimingOverrides.count + removedGoalIds.count
     }
 
     /// Fold another set of overrides in — scalars: non-nil wins; collections append; dicts: key wins.
@@ -71,6 +82,7 @@ public struct HouseholdOverrides: Codable, Sendable, Hashable {
         if let v = o.toleranceMaxDrawdownBps { toleranceMaxDrawdownBps = v }
         addedGoals.append(contentsOf: o.addedGoals)
         for (k, v) in o.goalAmountOverrides { goalAmountOverrides[k] = v }
+        for (k, v) in o.goalTimingOverrides { goalTimingOverrides[k] = v }
         removedGoalIds.append(contentsOf: o.removedGoalIds)
     }
 }
@@ -98,6 +110,19 @@ public extension Household {
                 guard let amt = o.goalAmountOverrides[g.id] else { return g }
                 var ng = g
                 ng.outflows = g.outflows.map { var of = $0; of.amountUsd = amt; return of }
+                return ng
+            }
+        }
+        // Per-goal timing overrides: lay the goal's amount over the new start/duration.
+        if !o.goalTimingOverrides.isEmpty {
+            h.goals = h.goals.map { g in
+                guard let t = o.goalTimingOverrides[g.id] else { return g }
+                let amt = g.outflows.first?.amountUsd ?? g.nominalTodayUsd
+                let linked = g.outflows.first?.inflationLinked ?? true
+                let start = max(1, t.startYear), yrs = max(1, t.years)
+                var ng = g
+                ng.outflows = (0..<yrs).map { Outflow(year: start + $0, amountUsd: amt, inflationLinked: linked) }
+                ng.horizonYears = start + yrs - 1
                 return ng
             }
         }

@@ -340,11 +340,12 @@ struct PolicyStatementTab: View {
         let lastY = g.outflows.map { $0.year }.max() ?? 0
         let oneTime = g.outflows.count <= 1
         let timing = oneTime ? "at age \(age + firstY)" : "ages \(age + firstY)–\(age + lastY)"
-        return VStack(alignment: .leading, spacing: 5) {
+        let canTime = g.id != "g_spending"     // retirement timing is set by retirement age, not here
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(g.label).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.ink)
                 Spacer(minLength: 8)
-                if editable, g.id != "g_spending", let b = draftOverrides {
+                if editable, canTime, let b = draftOverrides {
                     Button { removeGoal(g, b) } label: {
                         Image(systemName: "minus.circle.fill").font(.system(size: 16)).foregroundStyle(Theme.debt.opacity(0.85))
                     }.buttonStyle(.plain)
@@ -353,8 +354,9 @@ struct PolicyStatementTab: View {
             if editable, let b = draftOverrides {
                 HStack(spacing: 10) {
                     goalStepper(g, current, b)
-                    Text("\(oneTime ? "" : "per year · ")\(timing)").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                    if !canTime { Text("per year · \(timing)").font(.system(size: 11.5)).foregroundStyle(Theme.muted) }
                 }
+                if canTime { timingEditor(g, b) }
             } else {
                 Text(oneTime ? "\(Fmt.usd(current)) · \(timing)" : "\(Fmt.usd(current))/yr · \(timing)")
                     .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
@@ -367,9 +369,37 @@ struct PolicyStatementTab: View {
     private func removeGoal(_ g: Goal, _ o: Binding<HouseholdOverrides>) {
         if let idx = o.wrappedValue.addedGoals.firstIndex(where: { $0.goalId == g.id }) {
             o.wrappedValue.addedGoals.remove(at: idx)                 // a not-yet-committed add: just drop it
-            o.wrappedValue.goalAmountOverrides[g.id] = nil            // and any amount edit on it
+            o.wrappedValue.goalAmountOverrides[g.id] = nil            // and any amount / timing edit on it
+            o.wrappedValue.goalTimingOverrides[g.id] = nil
         } else if !o.wrappedValue.removedGoalIds.contains(g.id) {
             o.wrappedValue.removedGoalIds.append(g.id)                // a standard/committed goal: mark removed
+        }
+    }
+
+    // Start-age and duration steppers → a per-id timing override (reshapes the goal's outflows).
+    private func timingEditor(_ g: Goal, _ o: Binding<HouseholdOverrides>) -> some View {
+        let startY = g.outflows.map { $0.year }.min() ?? 1
+        let yrs = max(1, g.outflows.count)
+        return HStack(spacing: 16) {
+            miniStepper("Starts age", "\(age + startY)",
+                        minus: { setTiming(g, max(1, startY - 1), yrs, o) },
+                        plus:  { setTiming(g, startY + 1, yrs, o) })
+            miniStepper("For", "\(yrs) yr",
+                        minus: { setTiming(g, startY, max(1, yrs - 1), o) },
+                        plus:  { setTiming(g, startY, yrs + 1, o) })
+        }
+    }
+
+    private func setTiming(_ g: Goal, _ startYear: Int, _ years: Int, _ o: Binding<HouseholdOverrides>) {
+        o.wrappedValue.goalTimingOverrides[g.id] = GoalTiming(startYear: startYear, years: years)
+    }
+
+    private func miniStepper(_ label: String, _ value: String, minus: @escaping () -> Void, plus: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text(label.uppercased()).font(.system(size: 9, weight: .heavy)).tracking(0.5).foregroundStyle(Theme.muted)
+            Button(action: minus) { Image(systemName: "minus.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.accent) }.buttonStyle(.plain)
+            Text(value).font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink).frame(minWidth: 42, alignment: .center)
+            Button(action: plus) { Image(systemName: "plus.circle.fill").font(.system(size: 18)).foregroundStyle(Theme.accent) }.buttonStyle(.plain)
         }
     }
 
