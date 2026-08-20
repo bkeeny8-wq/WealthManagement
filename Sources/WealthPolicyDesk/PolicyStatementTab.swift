@@ -17,10 +17,19 @@ struct PolicyStatementTab: View {
     /// When present, the return/risk drivers become inline-editable and edits stage a
     /// live re-derive of the whole plan (nil = read-only, e.g. the PDF export).
     var draftOverrides: Binding<HouseholdOverrides>? = nil
-    /// The client's year-over-year review history, and the action that snapshots a new one.
+    /// The client's year-over-year review history, and the action that snapshots a new one
+    /// (given the advisor's note and the section keys confirmed "still applicable").
     var reviews: [IPSReview] = []
-    var saveReview: (() -> Void)? = nil
+    var saveReview: ((String, [String]) -> Void)? = nil
     @State private var share: SharePayload? = nil
+    @State private var reviewNote = ""
+    @State private var confirmed: Set<String> = []
+
+    /// The IPS sections the advisor walks and confirms during a review.
+    private let reviewSections: [(key: String, label: String)] = [
+        ("return", "Return objective"), ("goals", "Goals"), ("risk", "Risk objective"),
+        ("constraints", "Constraints"), ("allocation", "Allocation"), ("rebalancing", "Rebalancing"),
+    ]
 
     // MARK: derived reads
     private var h: Household { eval.household }
@@ -67,7 +76,7 @@ struct PolicyStatementTab: View {
 
     var body: some View {
         letterhead
-        if let save = saveReview { reviewBar(save) }   // screen-only review action
+        if saveReview != nil { reviewBar; reviewPanel }   // screen-only review workflow
         purposeSection
         governanceSection
         returnObjectiveSection(editable: draftOverrides != nil)
@@ -266,7 +275,7 @@ struct PolicyStatementTab: View {
     // MARK: - Annual review
 
     /// Screen-only banner: last-reviewed status + the action that snapshots a new review.
-    private func reviewBar(_ save: @escaping () -> Void) -> some View {
+    private var reviewBar: some View {
         HStack(spacing: 12) {
             Image(systemName: "calendar.badge.checkmark").font(.system(size: 20)).foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 2) {
@@ -278,12 +287,16 @@ struct PolicyStatementTab: View {
                     }
                 } else {
                     Text("NOT YET REVIEWED").font(.system(size: 9, weight: .heavy)).tracking(0.6).foregroundStyle(Theme.muted)
-                    Text("Walk the statement, adjust what's changed, then save this year's review.")
+                    Text("Walk the statement, confirm each section, and save this year's review.")
                         .font(.system(size: 11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 8)
-            Button(action: save) {
+            Button {
+                saveReview?(reviewNote.trimmingCharacters(in: .whitespacesAndNewlines),
+                            reviewSections.map { $0.key }.filter { confirmed.contains($0) })
+                reviewNote = ""; confirmed = []
+            } label: {
                 Label("Save as review", systemImage: "tray.and.arrow.down")
                     .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
                     .padding(.horizontal, 14).padding(.vertical, 8).background(Theme.accent, in: Capsule())
@@ -294,30 +307,75 @@ struct PolicyStatementTab: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.25)))
     }
 
+    /// The "break it apart" checklist + a note, filled in while walking the statement.
+    private var reviewPanel: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("THIS YEAR'S REVIEW — confirm each section still applies")
+                .font(.system(size: 10, weight: .heavy)).tracking(0.6).foregroundStyle(Theme.accent)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(reviewSections, id: \.key) { s in
+                    let on = confirmed.contains(s.key)
+                    Button {
+                        if on { confirmed.remove(s.key) } else { confirmed.insert(s.key) }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 13)).foregroundStyle(on ? Theme.accent : Theme.muted)
+                            Text(s.label).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.ink)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(on ? Theme.accent.opacity(0.12) : Theme.card, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(on ? Theme.accent.opacity(0.4) : Theme.rule))
+                    }.buttonStyle(.plain)
+                }
+            }
+            Text("\(confirmed.count) of \(reviewSections.count) confirmed").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.muted)
+            TextField("Notes for this review — what changed, what to watch…", text: $reviewNote, axis: .vertical)
+                .font(.system(size: 13)).lineLimit(1...4)
+                .padding(10).background(Theme.card, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.rule))
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.accent.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.15)))
+    }
+
     private var reviewHistorySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let sorted = reviews.sorted { $0.createdAt > $1.createdAt }
+        return VStack(alignment: .leading, spacing: 8) {
             Text("Review history").font(.system(.title3, design: .serif).weight(.semibold)).foregroundStyle(Theme.ink)
-            ForEach(reviews.sorted { $0.createdAt > $1.createdAt }) { r in reviewRow(r) }
-            Note("Each entry is a dated snapshot of the plan, taken when the statement was walked and confirmed. Comparing them shows how the objectives and funded status have moved year to year.")
+            ForEach(Array(sorted.enumerated()), id: \.element.id) { i, r in
+                reviewRow(r, prior: i + 1 < sorted.count ? sorted[i + 1] : nil)
+            }
+            Note("Each entry is a dated snapshot taken when the statement was walked and confirmed. The arrows show the change since the prior review.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
     }
 
-    private func reviewRow(_ r: IPSReview) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    private func reviewRow(_ r: IPSReview, prior: IPSReview?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 Text(r.createdAt, style: .date).font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.ink)
                 Spacer(minLength: 8)
-                if r.overrides.count > 0 {
-                    Text("\(r.overrides.count) edit\(r.overrides.count == 1 ? "" : "s") in effect").font(.system(size: 10.5)).foregroundStyle(Theme.muted)
-                }
+                Text("\(r.confirmedSections.count)/\(reviewSections.count) confirmed").font(.system(size: 10.5)).foregroundStyle(Theme.muted)
             }
-            Text("Required \(Fmt.pctBps(r.requiredRealReturnBps)) · Funded \(Fmt.pctBps(r.fundedRatioBps)) · Equity ceiling \(Fmt.pctBps(r.equityCeilingBps)) · \(r.goalCount) goal\(r.goalCount == 1 ? "" : "s") · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
+            Text("Required \(Fmt.pctBps(r.requiredRealReturnBps))\(delta(r.requiredRealReturnBps, prior?.requiredRealReturnBps)) · Funded \(Fmt.pctBps(r.fundedRatioBps))\(delta(r.fundedRatioBps, prior?.fundedRatioBps)) · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            if !r.note.isEmpty {
+                Text("“\(r.note)”").font(.system(size: 12)).italic().foregroundStyle(Theme.ink.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule.opacity(0.5)), alignment: .bottom)
+    }
+
+    /// A "(▲ 0.3%)" delta suffix vs the prior review; empty when unchanged or no prior.
+    private func delta(_ now: Bps, _ prior: Bps?) -> String {
+        guard let prior, prior != now else { return "" }
+        return " (\(now > prior ? "▲" : "▼") \(Fmt.pctBps(abs(now - prior))))"
     }
 
     // MARK: - Export (screen-only, not part of printBlocks)

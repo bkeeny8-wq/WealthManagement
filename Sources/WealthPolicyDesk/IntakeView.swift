@@ -187,14 +187,15 @@ public struct RootView: View {
     }
 
     /// Commit any staged driver edits and snapshot the resulting plan as a dated review.
-    private func saveReview(_ staged: HouseholdOverrides) {
+    private func saveReview(_ staged: HouseholdOverrides, note: String, confirmed: [String]) {
         guard let id = activeId, let i = book.firstIndex(where: { $0.id == id }) else {
             if let h = household { household = h.withDriverOverrides(staged) }   // sample: apply, no review saved
             return
         }
         book[i].driverOverrides.merge(staged)
         let hh = book[i].household()
-        book[i].reviews.append(IPSReview.from(Engine.evaluate(hh), overrides: book[i].driverOverrides, at: Date()))
+        book[i].reviews.append(IPSReview.from(Engine.evaluate(hh), overrides: book[i].driverOverrides, at: Date(),
+                                              note: note, confirmedSections: confirmed))
         book[i].touch()
         BookStore.save(book)
         household = hh

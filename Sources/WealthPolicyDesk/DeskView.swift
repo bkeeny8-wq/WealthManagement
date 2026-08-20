@@ -71,7 +71,7 @@ struct DeskView: View {
     var onCommitOverrides: (HouseholdOverrides) -> Void = { _ in }
     var onResetOverrides: () -> Void = {}
     var reviews: [IPSReview] = []
-    var onSaveReview: (HouseholdOverrides) -> Void = { _ in }
+    var onSaveReview: (HouseholdOverrides, String, [String]) -> Void = { _, _, _ in }
     @State private var section: DeskTab? = .policyStatement
     /// Moves staged on the desk but not yet committed. The whole desk previews
     /// the household with these applied; Commit clears them onto the record.
@@ -204,7 +204,7 @@ struct DeskView: View {
         switch tab {
         case .policyStatement: PolicyStatementTab(eval: e, clientHeader: clientHeader, draftOverrides: $draftOverrides,
                                                   reviews: reviews,
-                                                  saveReview: { onSaveReview(draftOverrides); draftOverrides = HouseholdOverrides() })
+                                                  saveReview: { note, confirmed in onSaveReview(draftOverrides, note, confirmed); draftOverrides = HouseholdOverrides() })
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)
