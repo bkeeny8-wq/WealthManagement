@@ -14,6 +14,7 @@
 import SwiftUI
 
 public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
+    case summary = "Plan Summary"
     case balanceSheet = "Balance Sheet"
     case requiredReturn = "Required Return"
     case resilience = "Resilience"
@@ -32,6 +33,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
     public var id: String { rawValue }
     var icon: String {
         switch self {
+        case .summary: return "doc.richtext"
         case .balanceSheet: return "scalemass"
         case .requiredReturn: return "target"
         case .resilience: return "shield.lefthalf.filled"
@@ -186,6 +188,7 @@ struct DeskView: View {
 
     @ViewBuilder private func tabContent(_ tab: DeskTab, _ e: Evaluation) -> some View {
         switch tab {
+        case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)
         case .resilience:     ResilienceTab(eval: e)
