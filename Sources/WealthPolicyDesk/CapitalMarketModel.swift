@@ -97,7 +97,7 @@ public extension Engine {
     /// Build the capital-market expectations from the observable macro board plus a
     /// small labeled dial set, regime-adjusted by the inning.
     static func capitalMarketExpectations(_ indicators: [MacroIndicator], regime: MacroRegime,
-                                          asOf: IsoDate = Engine.planningAsOf,
+                                          asOf: IsoDate = Seed.macroDataAsOf,
                                           source: String = "FRED · Shiller · market data (verify)") -> CapitalMarketSet {
         func obs(_ name: String, _ fallback: Double) -> Double { indicators.first { $0.name == name }?.value ?? fallback }
         let capeUS   = obs("Shiller CAPE", 42.4)

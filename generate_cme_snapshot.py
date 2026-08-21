@@ -41,6 +41,7 @@ MAP = {
     "Continuing claims": ("CCSA", "div1000"),
     "Payrolls 3mo avg": ("PAYEMS", "payroll3mo"),
     "Avg weekly hours": ("AWHAETP", "level"),
+    "Temp-help employment": ("TEMPHELPS", "yoy"),
     "JOLTS quits rate": ("JTSQUR", "level"),
     "Building permits": ("PERMIT", "level"),
     "Housing starts": ("HOUST", "level"),
@@ -149,21 +150,31 @@ def fmt(val, kind, sid):
     return s if s not in ("", "-0") else "0"
 
 
+def set_source(txt, name, new_source):
+    """Rewrite the `source:` label of one indicator row — the script is the source of
+    truth for provenance, so a row can never wear a stale/wrong series id. A row that
+    fails to fetch is marked "estimate" (authored), never left claiming a live series."""
+    pat = re.compile(r'(MacroIndicator\("' + re.escape(name) + r'",[^\n]*?source: ")([^"]*)(")')
+    return pat.sub(lambda m: m.group(1) + new_source + m.group(3), txt, count=1)
+
+
 def main():
     dry = "--dry-run" in sys.argv
     txt = open(SWIFT).read()
     updated, kept, failed = [], [], []
     latest_dates = []
 
+    series_dates = {}
     for name, (sid, kind) in MAP.items():
         try:
             rows = fetch_series(sid)
             val = transform(rows, kind, sid)
             if val is None:
                 failed.append((name, sid, "no data / transform failed"))
+                txt = set_source(txt, name, "estimate")   # honest: not refreshed this run
                 continue
             if rows:
-                latest_dates.append(rows[-1][0])
+                latest_dates.append(rows[-1][0]); series_dates[name] = rows[-1][0]
             new = fmt(val, kind, sid)
             pat = re.compile(r'(MacroIndicator\("' + re.escape(name) + r'",\s*\.\w+,\s*)(-?[\d.]+)')
             m = pat.search(txt)
@@ -176,8 +187,10 @@ def main():
                 updated.append((name, sid, old, new))
             else:
                 kept.append((name, sid, old))
+            txt = set_source(txt, name, sid)              # provenance = the series it came from
         except Exception as e:
             failed.append((name, sid, str(e)[:60]))
+            txt = set_source(txt, name, "estimate")
 
     cape = fetch_cape()
     if cape:
@@ -190,21 +203,36 @@ def main():
                 updated.append(("Shiller CAPE", "multpl.com", old, new))
             else:
                 kept.append(("Shiller CAPE", "multpl.com", old))
+            txt = set_source(txt, "Shiller CAPE", "multpl")
+    else:
+        failed.append(("Shiller CAPE", "multpl.com", "fetch failed"))
+        txt = set_source(txt, "Shiller CAPE", "estimate")
 
     asof = max(latest_dates).isoformat() if latest_dates else datetime.date.today().isoformat()
-    # refresh the header snapshot note
+    # write the data-as-of constant the app surfaces, and the header note
+    txt = re.sub(r'(static let macroDataAsOf: IsoDate = ")[0-9-]+(")',
+                 lambda m: m.group(1) + asof + m.group(2), txt)
     txt = re.sub(r"/// The current macro indicator board \([^\n]*\)\.?",
                  f'/// The current macro indicator board (FRED/Shiller refresh {asof}; ISM/LEI/proxy rows still "verify").',
                  txt)
+    # staleness: refreshed series whose latest observation lags the board by > 45 days
+    maxd = max(latest_dates) if latest_dates else None
+    stale = sorted(((n, d) for n, d in series_dates.items() if maxd and (maxd - d).days > 45),
+                   key=lambda x: x[1])
 
+    refreshed = len(updated) + len(kept)
     print(f"\nRefreshed {len(updated)}, unchanged {len(kept)}, could-not-fetch {len(failed)}. "
-          f"Latest FRED observation: {asof}\n")
+          f"{refreshed} of {len(MAP) + 1} machine-refreshed. Board data-as-of: {asof}\n")
     for name, sid, old, new in updated:
         print(f"  ~ {name:28} [{sid:14}] {old:>9} -> {new}")
     if failed:
-        print("\n  Could not refresh (kept authored value):")
+        print("\n  Could not refresh (marked estimate / kept authored value):")
         for name, sid, why in failed:
             print(f"  ! {name:28} [{sid:14}] {why}")
+    if stale:
+        print("\n  Stale — latest observation > 45d behind the board (verify before trusting):")
+        for n, d in stale:
+            print(f"  · {n:28} last obs {d.isoformat()}")
 
     if dry:
         print("\n(dry run — no file written)")

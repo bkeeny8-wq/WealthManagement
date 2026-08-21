@@ -117,6 +117,16 @@ public struct MacroIndicator: Identifiable, Sendable, Hashable {
         }
         return "\(v) — \(band.label)"
     }
+    /// Provenance: a value machine-refreshed from a public series (source is a data id,
+    /// e.g. a FRED series or multpl) vs authored and pending verification (source ==
+    /// "estimate"). `generate_cme_snapshot.py` is the source of truth and keeps `source`
+    /// honest — a row it cannot pull is left "estimate", never a stale series id.
+    public var isMachineRefreshed: Bool { source != "estimate" && !source.isEmpty }
+    /// A compact provenance tag for the board ("FRED", "multpl", or "est.").
+    public var provenanceTag: String {
+        if !isMachineRefreshed { return "est." }
+        return source.contains("multpl") || source.lowercased().contains("shiller") ? "multpl" : "FRED"
+    }
 }
 
 public struct MacroRegime: Sendable, Hashable {
@@ -133,13 +143,16 @@ public struct MacroRegime: Sendable, Hashable {
     public var headline: String
     public var asOf: IsoDate
     public var source: String
+    /// How many of the board's rows carry a machine-refreshed value (the rest are
+    /// authored estimates awaiting verification).
+    public var machineRefreshedCount: Int { indicators.filter { $0.isMachineRefreshed }.count }
 }
 
 public extension Engine {
     /// Aggregate the indicator board by DIFFUSION: the importance-weighted balance
     /// of early-vs-late leans → cycle score → inning; recession odds accrue only
     /// from indicators actually in a recession band; confidence reflects agreement.
-    static func macroRegime(_ indicators: [MacroIndicator], asOf: IsoDate = Engine.planningAsOf, source: String = "FRED · US Treasury · market data (verify)") -> MacroRegime {
+    static func macroRegime(_ indicators: [MacroIndicator], asOf: IsoDate = Seed.macroDataAsOf, source: String = "FRED · US Treasury · market data (verify)") -> MacroRegime {
         let leanVal: [SignalLean: Double] = [.early: -1, .neutral: 0, .late: 1, .recession: 2]
         var wl = 0.0, ws = 0.0, odds = 5
         var early = 0, neutral = 0, late = 0, rec = 0

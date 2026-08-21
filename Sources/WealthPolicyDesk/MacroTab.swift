@@ -39,7 +39,7 @@ struct MacroTab: View {
             }
             cycleBar(r).padding(.top, 4)
             Note(r.headline)
-            Note("As of \(r.asOf) · \(r.source). A regime read, not a trade — it conditions the capital-market expectations and which sectors a tilt favors, never the strategic target.", icon: "info.circle", color: Theme.muted)
+            Note("Data as of \(r.asOf) · \(r.machineRefreshedCount) of \(r.indicators.count) machine-refreshed from \(r.source), the rest authored estimates to verify (tagged est.). A regime read, not a trade — it conditions the capital-market expectations and which sectors a tilt favors, never the strategic target.", icon: "info.circle", color: Theme.muted)
         }
 
         Card("Econ data — \(r.indicators.count) indicators") {
@@ -190,6 +190,10 @@ struct MacroTab: View {
                 Text(s.name).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.ink)
                 Spacer()
                 Text(s.reading).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)
+                if !s.isMachineRefreshed {
+                    Text("est.").font(.system(size: 8, weight: .heavy)).foregroundStyle(Theme.amber)
+                        .padding(.horizontal, 4).padding(.vertical, 1.5).background(Theme.amber.opacity(0.13), in: Capsule())
+                }
                 Text(s.lean.label.uppercased()).font(.system(size: 8.5, weight: .heavy)).foregroundStyle(.white)
                     .padding(.horizontal, 5).padding(.vertical, 2).background(leanColor(s.lean), in: Capsule())
             }
