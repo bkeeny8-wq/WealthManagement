@@ -283,8 +283,21 @@ public enum Engine {
         let A = h.portfolioValueUsd
         let saveYears = householdSaveYears(h, asOf: asOf)
         let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
+        // A primary already at/past retirement is drawing down THIS year, and the
+        // decumulation feeder keys that current-year tax at t=0. Fund year 0 too, so it
+        // isn't silently dropped. An accumulator has no year-0 outflow, so the frame is
+        // unchanged for them (and savings are never added at t=0 — see below).
+        let primaryRetiredNow = h.primary.map { age(birthDate: $0.birthDate, asOf: asOf) >= $0.expectedRetirementAge } ?? false
+        let startT = primaryRetiredNow ? 0 : 1
 
         // Real cashflows by year, net of external income, plus the decumulation tax.
+        // KNOWN APPROXIMATION (couples with staggered retirement): `annualTaxUsd` is keyed
+        // to the primary's drawdown frame, while savings run to the LATER retirement
+        // (householdSaveYears). In an overlap year (primary retired, spouse still earning)
+        // both a savings inflow and a decumulation tax are booked; the tax slightly
+        // overstates the true withdrawal because it ignores the still-earning spouse's
+        // wages. Bounded to ≈ the tax on one household's overlap wages — small, and left as
+        // a deliberate simplification until decumulation models overlap-year wages.
         func netOutflow(_ t: Int, deferYears: Int, scaleDownBps: Bps) -> Usd {
             var out: Usd = annualTaxUsd[t] ?? 0
             for g in h.goals where g.kind == .spending || g.kind == .reserve {
@@ -296,9 +309,10 @@ public enum Engine {
                     out += o.amountUsd * scale * esc
                 }
             }
-            // External income offsets.
+            // External income offsets. Savings occur in working years 1…saveYears — never
+            // year 0 (today's draw), so a retired household never books a phantom saving.
             var inflow: Usd = 0
-            if t <= saveYears { inflow += h.annualSavingsUsd }
+            if t >= 1 && t <= saveYears { inflow += h.annualSavingsUsd }
             inflow += socialSecurityAnnual(h, year: t, asOf: asOf)
             inflow += pensionAnnual(h, year: t)
             inflow += homeEquityOffset(h, year: t)
@@ -307,7 +321,10 @@ public enum Engine {
 
         // Corpus recursion terminal balance at rate r.
         func terminal(_ r: Double, deferYears: Int, scaleDownBps: Bps) -> Usd {
+            // A retiree's current-year draw comes straight off the top — no growth year
+            // precedes today's spending — so subtract year 0 before compounding begins.
             var b = A
+            if startT == 0 { b -= netOutflow(0, deferYears: deferYears, scaleDownBps: scaleDownBps) }
             // Extend the horizon by the deferral so shifted outflows are still
             // funded at their later years rather than silently dropped.
             for t in 1...(horizon + deferYears) {
@@ -336,11 +353,17 @@ public enum Engine {
         let rSpendDown = solve(deferYears: 0, scaleDownBps: 0, floor: 0)
         let deferMax = h.goals.filter { $0.kind == .spending }.map { $0.flexibility.deferrableYears }.max() ?? 0
         let scaleMax = h.goals.filter { $0.kind == .spending }.map { $0.flexibility.scalableDownBps }.max() ?? 0
+        // KNOWN APPROXIMATION: the flexibility solve shifts spending later (deferYears) but
+        // reuses `annualTaxUsd` from the NON-deferred decumulation, so spending pushed past
+        // the original horizon carries no withdrawal tax — the flex number is slightly
+        // optimistic. It is a secondary, advisory figure ("flexibility would ease the
+        // requirement to X"); re-projecting the decumulation tax under the deferred schedule
+        // is left as future work.
         let rFlex = solve(deferYears: deferMax, scaleDownBps: scaleMax, floor: legacyFloor)
 
         // PVs at the safe real rate for the funded ratio and the resource split.
         var liabilityPv: Usd = 0, externalPv: Usd = 0, savingsPv: Usd = 0
-        for t in 1...horizon {
+        for t in startT...horizon {
             let disc = pow(1 + safeRealRate, Double(t))
             var grossOut: Usd = 0
             for g in h.goals where g.kind == .spending || g.kind == .reserve {
@@ -352,7 +375,7 @@ public enum Engine {
             }
             liabilityPv += (grossOut + (annualTaxUsd[t] ?? 0)) / disc
             externalPv += (socialSecurityAnnual(h, year: t, asOf: asOf) + pensionAnnual(h, year: t) + homeEquityOffset(h, year: t)) / disc
-            if t <= saveYears { savingsPv += h.annualSavingsUsd / disc }
+            if t >= 1 && t <= saveYears { savingsPv += h.annualSavingsUsd / disc }
         }
         // The legacy floor is itself a liability the resources must cover, in PV.
         let floorPv = legacyFloor / pow(1 + safeRealRate, Double(horizon))
