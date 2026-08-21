@@ -23,6 +23,9 @@ struct PolicyStatementTab: View {
     var saveReview: ((String, [String]) -> Void)? = nil
     /// Reviews persist only for a real client record; false on the sample (no record to save to).
     var canPersist: Bool = true
+    /// True while uncommitted trades/tilts are staged on another tab — a review captures the
+    /// PLAN OF RECORD, so saving is blocked until those are committed or discarded.
+    var hasStagedMoves: Bool = false
     @State private var share: SharePayload? = nil
     @State private var reviewNote = ""
     @State private var confirmed: Set<String> = []
@@ -315,15 +318,25 @@ struct PolicyStatementTab: View {
                 }
             }
             Spacer(minLength: 8)
-            Button {
-                saveReview?(reviewNote.trimmingCharacters(in: .whitespacesAndNewlines),
-                            reviewSections.map { $0.key }.filter { confirmed.contains($0) })
-                reviewNote = ""; confirmed = []
-            } label: {
-                Label("Save as review", systemImage: "tray.and.arrow.down")
-                    .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
-                    .padding(.horizontal, 14).padding(.vertical, 8).background(Theme.accent, in: Capsule())
-            }.buttonStyle(.plain)
+            if hasStagedMoves {
+                VStack(alignment: .trailing, spacing: 3) {
+                    Label("Save as review", systemImage: "tray.and.arrow.down")
+                        .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Theme.rule.opacity(0.3), in: Capsule())
+                    Text("Commit or discard staged moves first").font(.system(size: 9.5)).foregroundStyle(Theme.muted)
+                }
+            } else {
+                Button {
+                    saveReview?(reviewNote.trimmingCharacters(in: .whitespacesAndNewlines),
+                                reviewSections.map { $0.key }.filter { confirmed.contains($0) })
+                    reviewNote = ""; confirmed = []
+                } label: {
+                    Label("Save as review", systemImage: "tray.and.arrow.down")
+                        .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 8).background(Theme.accent, in: Capsule())
+                }.buttonStyle(.plain)
+            }
         }
         .padding(12)
         .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))

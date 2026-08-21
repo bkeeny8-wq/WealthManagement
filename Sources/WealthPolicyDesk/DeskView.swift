@@ -205,7 +205,8 @@ struct DeskView: View {
         case .policyStatement: PolicyStatementTab(eval: e, clientHeader: clientHeader, draftOverrides: $draftOverrides,
                                                   reviews: reviews,
                                                   saveReview: { note, confirmed in onSaveReview(draftOverrides, note, confirmed); draftOverrides = HouseholdOverrides() },
-                                                  canPersist: canPersist)
+                                                  canPersist: canPersist,
+                                                  hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty)
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)
