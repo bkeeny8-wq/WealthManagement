@@ -157,7 +157,11 @@ public enum Engine {
 
     // MARK: top-level entry point
 
-    public static func evaluate(_ h: Household, asOf: IsoDate = "2026-08-11") -> Evaluation {
+    public static func evaluate(_ input: Household, asOf: IsoDate = "2026-08-11") -> Evaluation {
+        // For a couple, step retirement spending down to the survivor share after the first
+        // death. Applied once here so every downstream read (required return, funded ratio,
+        // decumulation, and the IPS display) sees one consistent schedule.
+        let h = input.withSurvivorSpending(asOf: asOf)
         let tax = Seed.tax2026
         let policy = Seed.policy(h.goals.first { $0.kind == .spending }?.policyId ?? "spending-glide")
         // Two-pass, after-tax required return: solve pre-tax, project the decumulation tax
@@ -257,6 +261,19 @@ public enum Engine {
         return bp.last?.rateBps ?? 1500
     }
 
+    // MARK: - Couples economics (savings window + survivor spending)
+
+    /// A survivor spends less than a couple — retirement spending steps down after the
+    /// first death to this share of the joint budget (a common planning assumption; VERIFY).
+    public static let survivorSpendingFactor: Double = 0.75
+
+    /// Years the household keeps saving — until the LATER of the two adults' retirements
+    /// (a couple keeps saving while EITHER still earns), not just the primary's.
+    public static func householdSaveYears(_ h: Household, asOf: IsoDate) -> Int {
+        let adults = h.people.filter { $0.role == .primary || $0.role == .spouse }
+        return adults.map { max(0, $0.expectedRetirementAge - age(birthDate: $0.birthDate, asOf: asOf)) }.max() ?? 0
+    }
+
     // MARK: - Required return (pure arithmetic, no CMAs)
 
     /// `annualTaxUsd` (plan-year t → projected federal tax + IRMAA) makes the recursion
@@ -264,7 +281,7 @@ public enum Engine {
     /// Empty ⇒ the pre-tax number.
     public static func requiredReturn(_ h: Household, asOf: IsoDate, annualTaxUsd: [Int: Usd] = [:]) -> RequiredReturn {
         let A = h.portfolioValueUsd
-        let saveYears = h.primary.map { max(0, $0.expectedRetirementAge - age(birthDate: $0.birthDate, asOf: asOf)) } ?? 0
+        let saveYears = householdSaveYears(h, asOf: asOf)
         let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
 
         // Real cashflows by year, net of external income, plus the decumulation tax.

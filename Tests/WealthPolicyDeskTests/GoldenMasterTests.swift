@@ -3,14 +3,16 @@ import XCTest
 
 /// Golden master over the whole `Engine.evaluate` pipeline on the sample household
 /// (the Harrisons). Any change that moves a headline figure fails here — update the
-/// expected values deliberately when a change is intended. Captured 2026-08-21.
+/// expected values deliberately when a change is intended. Captured 2026-08-21;
+/// required-return / funded figures re-captured after the couples-spending model
+/// (survivor drop + save-until-later-retirement).
 final class GoldenMasterTests: XCTestCase {
 
     func testHarrisonsHeadlineFigures() {
         let e = Engine.evaluate(Seed.sampleHousehold)
-        XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 492)
-        XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 435)
-        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 5923)
+        XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 456)
+        XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 398)
+        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6313)
         XCTAssertEqual(e.balanceSheet.afterTaxNetWorthUsd, 2_893_928, accuracy: 0.5)
         XCTAssertEqual(e.balanceSheet.grossNetWorthUsd, 3_105_000, accuracy: 0.5)
         XCTAssertEqual(e.netFixedIncomeUsd, -120_000, accuracy: 0.5)

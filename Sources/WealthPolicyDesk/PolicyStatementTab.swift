@@ -135,6 +135,7 @@ struct PolicyStatementTab: View {
         section("3", "Investment objective — return") {
             p("The portfolio is required to earn a real, after-tax return of approximately \(Fmt.pctBps(rr.requiredRealReturnBps)) per year\(rr.legacyFloorUsd > 0 ? " while preserving a legacy floor of \(Fmt.usd(rr.legacyFloorUsd)) in today's dollars" : ""). Because the plan already funds the taxes its own withdrawals generate, this after-tax figure — not the \(Fmt.pctBps(rr.requiredRealReturnPreTaxBps)) pre-tax equivalent — is the binding hurdle.")
             p(fundedText)
+            if isCouple { p(survivorAssumptionText) }
             if editable, let b = draftOverrides {
                 savingsRetireEditor(b)
                 legacyFloorEditor(b)
@@ -176,6 +177,20 @@ struct PolicyStatementTab: View {
     private func firstName(_ p: Person?) -> String {
         guard let label = p?.label, !label.isEmpty else { return "Retire" }
         return String(label.split(separator: " ").first ?? Substring(label))
+    }
+
+    /// A couples-only footnote making the survivor-spending assumption visible in the
+    /// document (it moves the required return, so it should not be silent). Marked as an
+    /// assumption to verify, consistent with the rest of the statement.
+    private var survivorAssumptionText: String {
+        let survivorPct = Int((Engine.survivorSpendingFactor * 100).rounded())
+        let dropPct = 100 - survivorPct
+        // The binding savings window is the LATER of the two retirements measured in time
+        // (a spouse who retires at a lower age can still be the later one), so quote the
+        // engine's own save-years rather than an age that could name the earlier retiree.
+        let saveYears = Engine.householdSaveYears(h, asOf: eval.asOf)
+        let yearWord = saveYears == 1 ? "year" : "years"
+        return "Because the household is a couple, the plan assumes it keeps saving until the later of the two retirements — about \(saveYears) more \(yearWord) — and that joint retirement spending steps down by about \(dropPct)% (to roughly \(survivorPct)% of its level) after the first death, reflecting a survivor's lower cost of living. This assumption lowers the required return and should be verified against the household's own circumstances."
     }
 
     private var fundedText: String {

@@ -447,3 +447,36 @@ public struct Household: Identifiable, Sendable, Hashable {
         positions(in: treatment).reduce(0) { $0 + $1.marketValueUsd }
     }
 }
+
+// MARK: - Couples: first-death year & survivor spending
+
+public extension Household {
+    /// The year (from now) of the FIRST death across the two adults — the earlier of each
+    /// adult's health-implied longevity minus their current age. `nil` for a single filer.
+    /// Drives survivor Social Security and survivor spending.
+    func firstDeathYearFromNow(asOf: IsoDate) -> Int? {
+        let adults = people.filter { $0.role == .primary || $0.role == .spouse }
+        guard adults.count > 1 else { return nil }
+        return adults.map { $0.longevityPercentileTarget - Engine.age(birthDate: $0.birthDate, asOf: asOf) }.min()
+    }
+
+    /// A copy with retirement spending (`g_spending`) stepped down to the survivor share
+    /// for every year on or after the first death. A no-op for a single filer or a
+    /// household without a retirement-spending goal. Idempotent-in-practice: the callers
+    /// only ever apply it to a joint (un-stepped) schedule.
+    func withSurvivorSpending(asOf: IsoDate) -> Household {
+        guard let firstDeath = firstDeathYearFromNow(asOf: asOf) else { return self }
+        var h = self
+        h.goals = goals.map { g in
+            guard g.id == "g_spending" else { return g }
+            var ng = g
+            ng.outflows = g.outflows.map { o in
+                o.year >= firstDeath
+                    ? Outflow(year: o.year, amountUsd: o.amountUsd * Engine.survivorSpendingFactor, inflationLinked: o.inflationLinked)
+                    : o
+            }
+            return ng
+        }
+        return h
+    }
+}

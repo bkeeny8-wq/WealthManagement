@@ -123,7 +123,7 @@ public extension Engine {
     /// The spending and the (tax − external income) components of net outflow, per plan
     /// year — split so the spending can be scaled independently for the safe-spend solve.
     static func outflowComponents(_ h: Household, asOf: IsoDate, annualTaxUsd: [Int: Usd]) -> (spend: [Usd], other: [Usd]) {
-        let saveYears = h.primary.map { max(0, $0.expectedRetirementAge - age(birthDate: $0.birthDate, asOf: asOf)) } ?? 0
+        let saveYears = Engine.householdSaveYears(h, asOf: asOf)
         let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
         var spend: [Usd] = [], other: [Usd] = []
         for t in 1...horizon {
