@@ -8,6 +8,13 @@ xcuserdata/
 build/
 DerivedData/
 
+# Swift Package Manager (engine test harness)
+.build/
+Package.resolved
+
+# Word temp / owner lockfiles
+~$*
+
 # Node (TypeScript policy layer)
 node_modules/
 
