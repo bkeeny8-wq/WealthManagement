@@ -122,11 +122,6 @@ public struct MacroIndicator: Identifiable, Sendable, Hashable {
     /// "estimate"). `generate_cme_snapshot.py` is the source of truth and keeps `source`
     /// honest — a row it cannot pull is left "estimate", never a stale series id.
     public var isMachineRefreshed: Bool { source != "estimate" && !source.isEmpty }
-    /// A compact provenance tag for the board ("FRED", "multpl", or "est.").
-    public var provenanceTag: String {
-        if !isMachineRefreshed { return "est." }
-        return source.contains("multpl") || source.lowercased().contains("shiller") ? "multpl" : "FRED"
-    }
 }
 
 public struct MacroRegime: Sendable, Hashable {

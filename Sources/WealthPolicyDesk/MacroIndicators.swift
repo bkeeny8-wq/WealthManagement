@@ -121,7 +121,7 @@ public extension Seed {
             descriptor: "Average hourly earnings growth year-over-year; wage pressure from labor-market tightness — firm wages above the ~3.3% pace consistent with 2% inflation are a classic late-cycle feature, soft wages signal slack.",
             bands: [MacroBand(2.5, .early, "labor slack"), MacroBand(3.5, .neutral, "normalizing"), MacroBand(4.5, .late, "firm/sticky"), MacroBand(999999, .late, "wage-price pressure")]),
         MacroIndicator("WTI crude YoY", .inflation, 31.13, .pct, importance: 1, oddsWeight: 4, timing: .leading, source: "DCOILWTICO",
-            descriptor: "WTI crude oil price versus a year ago; energy is a cyclical catalyst — spikes precede nearly every US recession while deep collapses flag demand destruction; currently range-bound with no shock.",
+            descriptor: "WTI crude oil price versus a year ago; energy is a cyclical catalyst — sharp spikes precede nearly every US recession, while deep collapses flag demand destruction.",
             bands: [MacroBand(-35, .recession, "demand destruction"), MacroBand(-10, .early, "disinflationary relief"), MacroBand(15, .neutral, "range-bound"), MacroBand(40, .late, "energy firming"), MacroBand(999999, .late, "oil shock")]),
         // --- Rates & policy ---
         MacroIndicator("10y-3m curve", .rates, 0.82, .pct, importance: 3, oddsWeight: 20, timing: .leading, source: "T10Y3M",

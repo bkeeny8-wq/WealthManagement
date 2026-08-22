@@ -171,8 +171,7 @@ def main():
             val = transform(rows, kind, sid)
             if val is None:
                 failed.append((name, sid, "no data / transform failed"))
-                txt = set_source(txt, name, "estimate")   # honest: not refreshed this run
-                continue
+                continue   # leave source + baked-in value intact; the staleness report flags it
             if rows:
                 latest_dates.append(rows[-1][0]); series_dates[name] = rows[-1][0]
             new = fmt(val, kind, sid)
@@ -189,8 +188,7 @@ def main():
                 kept.append((name, sid, old))
             txt = set_source(txt, name, sid)              # provenance = the series it came from
         except Exception as e:
-            failed.append((name, sid, str(e)[:60]))
-            txt = set_source(txt, name, "estimate")
+            failed.append((name, sid, str(e)[:60]))       # a transient failure leaves source/value as-is
 
     cape = fetch_cape()
     if cape:
@@ -205,8 +203,7 @@ def main():
                 kept.append(("Shiller CAPE", "multpl.com", old))
             txt = set_source(txt, "Shiller CAPE", "multpl")
     else:
-        failed.append(("Shiller CAPE", "multpl.com", "fetch failed"))
-        txt = set_source(txt, "Shiller CAPE", "estimate")
+        failed.append(("Shiller CAPE", "multpl.com", "fetch failed"))   # keep the baked-in value + source
 
     asof = max(latest_dates).isoformat() if latest_dates else datetime.date.today().isoformat()
     # write the data-as-of constant the app surfaces, and the header note
