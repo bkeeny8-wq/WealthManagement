@@ -118,7 +118,8 @@ public extension Engine {
         // tied to Engine.safeRealRate — the PV anchor — which left cash FROZEN while bonds
         // floated off the snapshot, an ~85bp internal contradiction inside one CME build.
         let cashTermDiscountBps = 85                                      // dial (verify)
-        let cashReal = max(0, real10 - cashTermDiscountBps)               // 235 − 85 → 150 today, but floats
+        let cashReal = real10 - cashTermDiscountBps                       // 235 − 85 → 150 today; floats, and may go
+                                                                          // negative in a repressed-rate regime (honest, not floored at 0)
 
         // Regime overlay: continuous and capped. cycleScore 50 (mid) → 0; 100 (late)
         // → trim; 0 (early) → lift. Kept small on purpose — CAPE already carries the

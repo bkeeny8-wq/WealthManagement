@@ -40,7 +40,7 @@ struct RequiredReturnTab: View {
             if rec.unpricedResidualBps > 25 {
                 Note("\(Fmt.pctBps(rec.unpricedResidualBps)) of current holdings aren't mapped to a sleeve (e.g. a concentrated stock) and are priced here as US-large equity.", icon: "questionmark.circle", color: Theme.muted)
             }
-            Note("Both figures are REAL and NET of fund fees + annual investment taxes (a \(Fmt.pctBps(rec.frictionDragBps)) friction dial), so \"expected\" — what the market is priced to deliver on this allocation (Econ → Capital market expectations) — is stated on the same basis as \"required,\" the rate the corpus must actually compound at after its own taxes. A gap the market isn't priced to close is closed by saving more, spending less, or deferring a goal (required with flexibility: \(Fmt.pctBps(rec.requiredFlexBps))) — not by reaching for risk the market isn't paying for.", icon: "scalemass")
+            Note("Both figures are REAL. \"Expected\" — what the market is priced to deliver on this allocation (Econ → Capital market expectations) — is stated NET of a \(Fmt.pctBps(rec.frictionDragBps)) fund-fee + annual-tax friction dial, so it sits on the same after-tax basis as \"required,\" the rate the corpus must actually compound at after funding its own withdrawal taxes. A gap the market isn't priced to close is closed by saving more, spending less, or deferring a goal (required with flexibility: \(Fmt.pctBps(rec.requiredFlexBps))) — not by reaching for risk the market isn't paying for.", icon: "scalemass")
         }
 
         Card("After-tax — the tax drag", help: Teach.help("requiredReturn")) {

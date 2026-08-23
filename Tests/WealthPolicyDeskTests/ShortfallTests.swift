@@ -89,6 +89,20 @@ final class ShortfallTests: XCTestCase {
         XCTAssertLessThan(rec.gapTargetBps, (rec.target.expectedRealBps - rec.requiredRealBps) + 1)
     }
 
+    /// All THREE expected-vs-required surfaces (reconciliation, shortfall, frontier) must
+    /// share one net-of-friction basis — the frontier target can't read 40bp higher than
+    /// the reconciliation, or the same plan could show "Reachable" here and "STRETCH" there.
+    func testFrontierSharesTheNetBasisWithTheReconciliation() {
+        let eval = Engine.evaluate(Seed.sampleHousehold)
+        let regime = Engine.macroRegime(Seed.macroIndicators)
+        let cme = Engine.capitalMarketExpectations(Seed.macroIndicators, regime: regime)
+        let rec = Engine.cmeReconciliation(eval, cme: cme)
+        let front = Engine.frontier(eval, cme: cme)
+        XCTAssertEqual(front.target.expRealBps, rec.netTargetBps,
+                       "frontier target expected must be net of friction, matching the reconciliation")
+        XCTAssertEqual(front.requiredRealBps, rec.requiredRealBps, "same required hurdle on both")
+    }
+
     /// Cash's CME now floats off the snapshot 10y real (minus a term discount) instead of
     /// the frozen 1.5% PV anchor, and sits below the 10y bond's locked-in real yield.
     func testCashCMEFloatsWithTheMarketRealRateBelowBonds() {

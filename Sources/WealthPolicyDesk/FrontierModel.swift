@@ -57,7 +57,10 @@ public extension Engine {
 
         func price(sleeves: [(id: String, label: String, bps: Bps)], alts: [(fn: AltFunction, bps: Bps)], kind: FrontierPoint.Kind) -> FrontierPoint {
             let vol = portfolioVolBps(sleeves: sleeves.map { (id: $0.id, bps: $0.bps) }, alts: alts)
-            let er = portfolioExpectation("", sleeves: sleeves, alts: alts, cme: cme).expectedRealBps
+            // NET of the same fund-fee + annual-tax friction the reconciliation and shortfall
+            // subtract, so every frontier point (curve, target, current, reachable) shares one
+            // after-tax basis with the required line it's compared against — no cross-tab gap.
+            let er = portfolioExpectation("", sleeves: sleeves, alts: alts, cme: cme).expectedRealBps - Engine.cmeFrictionDragBps
             let tot = sleeves.reduce(0) { $0 + max(0, $1.bps) } + alts.reduce(0) { $0 + max(0, $1.bps) }
             let gW = sleeves.filter { growthIds.contains($0.id) }.reduce(0) { $0 + max(0, $1.bps) }
             let eq = tot > 0 ? Int(Double(gW) / Double(tot) * 10000) : 0
