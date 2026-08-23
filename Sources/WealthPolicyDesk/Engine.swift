@@ -150,6 +150,13 @@ public enum Engine {
     static let safeRealRate = 0.015
     static let humanCapitalDiscount = 0.03
 
+    /// Portfolio friction the CME reconciliation nets off the GROSS expected real return
+    /// so it compares apples-to-apples with the AFTER-TAX required return: fund fees on
+    /// the liquid sleeves + the annual tax drag on dividends and rebalancing in taxable
+    /// accounts. A labeled dial to VERIFY. (The alt sleeves' CMEs are already stated net
+    /// of their own fees, so this is dominated by tax drag + liquid-fund expense ratios.)
+    static let cmeFrictionDragBps: Bps = 40
+
     // MARK: dates
 
     public static func year(_ iso: IsoDate) -> Int { Int(iso.prefix(4)) ?? 2026 }

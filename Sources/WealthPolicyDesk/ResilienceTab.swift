@@ -72,18 +72,17 @@ struct ResilienceTab: View {
 
     private var shortfallCard: some View {
         let s = shortfall
-        // Expected (CME) is GROSS of fund fees + annual investment taxes; required is
-        // after-tax — the firm-wide convention (Required Return / Frontier tabs), so a
-        // thin positive margin is "roughly funded", not a true cushion. Read direction:
-        // the true odds are, if anything, a touch higher than shown.
-        let frictionBps = 75
+        // Expected (CME) is now NET of a friction dial (fund fees + annual taxes) and
+        // required is after-tax, so the margin sits on one basis. A thin buffer remains
+        // only for CME forecast uncertainty — the expectation is a forecast, not a promise.
+        let bufferBps = 30
         let margin = s.marginBps
-        let marginColor: Color = margin < 0 ? Theme.debt : (margin < frictionBps ? Theme.amber : Theme.asset)
+        let marginColor: Color = margin < 0 ? Theme.debt : (margin < bufferBps ? Theme.amber : Theme.asset)
         let marginCopy: String = margin < 0
             ? "The market is priced below what this plan needs, so the median outcome is itself a shortfall — the gap closes through flexibility, not more risk."
-            : (margin < frictionBps
-                ? "The median outcome only just clears the bar — and expected is GROSS of fund fees and annual taxes, so read a thin positive margin as roughly funded, not a real cushion."
-                : "The median outcome clears the bar even net of the gross-expected caveat; the spread is what leaves any miss on the table.")
+            : (margin < bufferBps
+                ? "The median outcome only just clears the bar; the CME is itself a forecast, so read a thin margin as roughly funded rather than a firm cushion."
+                : "The median outcome clears the bar with room to spare; the spread is what leaves any miss on the table.")
         return Card("Shortfall probability — the odds the plan falls short") {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(Fmt.pctBps(s.shortfallProbBps, 0)).font(.system(size: 34, weight: .bold, design: .serif)).foregroundStyle(shortfallColor(s.band))
@@ -91,14 +90,15 @@ struct ResilienceTab: View {
                     .font(.system(size: 15)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             LedgerRow("Required real return — after-tax", Fmt.pctBps(s.requiredRealBps), color: Theme.ink)
-            LedgerRow("Expected — CME, target mix, gross", Fmt.pctBps(s.expectedRealBps), color: marginColor)
+            LedgerRow("Expected — CME, target mix, net of fees & tax", Fmt.pctBps(s.expectedRealBps), color: marginColor)
+            LedgerRow("  (friction netted off gross)", "−\(Fmt.pctBps(s.frictionDragBps))", color: Theme.muted)
             LedgerRow("Median margin", Fmt.bpsSigned(s.marginBps), color: marginColor, bold: true)
             LedgerRow("Portfolio σ — 1yr · annualized /\(s.horizonYears)y", "\(Fmt.pctBps(s.volBps)) · \(Fmt.pctBps(s.annualizedSigmaBps))", color: Theme.muted)
             if s.currentShortfallProbBps != s.shortfallProbBps {
                 LedgerRow("Current holdings, for contrast", Fmt.pctBps(s.currentShortfallProbBps, 0),
                           color: s.currentShortfallProbBps < s.shortfallProbBps ? Theme.asset : Theme.debt)
             }
-            Note("Risk as the odds of missing the goal, not just a bad year: P(realized real return < required) over the horizon, with the expected return from the capital-market model and σ from the risk model — an analytic normal estimate whose spread shrinks by √time. \(marginCopy) Expected is gross of fund fees and annual investment taxes while the required return is after-tax (the same basis the Required Return and Frontier tabs use) — so the true odds are, if anything, a touch higher than shown. A lower-equity target can RAISE this number even as it lowers drawdown — the capacity-vs-tolerance tension, made numeric. Uses the QUARANTINED forecast (the CME): it reconciles, it never sets the target.", icon: "dice")
+            Note("Risk as the odds of missing the goal, not just a bad year: P(realized real return < required) over the horizon, with the expected return from the capital-market model and σ from the risk model — an analytic normal estimate whose spread shrinks by √time. \(marginCopy) Expected is now NET of a fund-fee + annual-tax friction dial, so it's on the same after-tax basis as the required return. This is an i.i.d. model — sequence-of-returns risk is covered by the historical bad-order stresses above, its deliberate complement, not double-counted here. A lower-equity target can RAISE this number even as it lowers drawdown — the capacity-vs-tolerance tension, made numeric. Uses the QUARANTINED forecast (the CME): it reconciles, it never sets the target.", icon: "dice")
         }
     }
 

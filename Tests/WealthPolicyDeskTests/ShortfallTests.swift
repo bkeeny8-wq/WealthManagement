@@ -65,4 +65,39 @@ final class ShortfallTests: XCTestCase {
     func testShortfallIsDeterministic() {
         XCTAssertEqual(estimate().shortfallProbBps, estimate().shortfallProbBps)
     }
+
+    // MARK: - CME reconciliation honesty (friction netting + cash floats)
+
+    func testShortfallExpectedIsNetOfTheFrictionDial() {
+        let s = estimate()
+        XCTAssertEqual(s.frictionDragBps, Engine.cmeFrictionDragBps)
+        XCTAssertGreaterThan(s.frictionDragBps, 0, "fees + tax drag must be netted, not zero")
+    }
+
+    private func reconciliation() -> CMEReconciliation {
+        let regime = Engine.macroRegime(Seed.macroIndicators)
+        let cme = Engine.capitalMarketExpectations(Seed.macroIndicators, regime: regime)
+        return Engine.cmeReconciliation(Engine.evaluate(Seed.sampleHousehold), cme: cme)
+    }
+
+    func testReconciliationGapIsNetOfFrictionAndConsistent() {
+        let rec = reconciliation()
+        XCTAssertEqual(rec.frictionDragBps, Engine.cmeFrictionDragBps)
+        XCTAssertEqual(rec.netTargetBps, rec.target.expectedRealBps - rec.frictionDragBps)
+        XCTAssertEqual(rec.gapTargetBps, rec.netTargetBps - rec.requiredRealBps)
+        // Netting can only tighten the gap vs the old gross basis — never flatter it.
+        XCTAssertLessThan(rec.gapTargetBps, (rec.target.expectedRealBps - rec.requiredRealBps) + 1)
+    }
+
+    /// Cash's CME now floats off the snapshot 10y real (minus a term discount) instead of
+    /// the frozen 1.5% PV anchor, and sits below the 10y bond's locked-in real yield.
+    func testCashCMEFloatsWithTheMarketRealRateBelowBonds() {
+        let regime = Engine.macroRegime(Seed.macroIndicators)
+        let cme = Engine.capitalMarketExpectations(Seed.macroIndicators, regime: regime)
+        let real10 = Int((Seed.macroIndicators.first { $0.name == "10y real rate" }!.value * 100).rounded())
+        let cash = cme.realBps(sleeveId: "cash")!
+        XCTAssertEqual(cash, max(0, real10 - 85), "cash real = 10y real − term discount, not a frozen anchor")
+        XCTAssertLessThan(cash, cme.realBps(sleeveId: "fixed_income_liquid")!,
+                          "rolling cash sits below the 10y bond's locked-in real yield")
+    }
 }

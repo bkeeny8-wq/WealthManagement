@@ -33,12 +33,14 @@ struct RequiredReturnTab: View {
         Card("Expected vs required — is the market priced to fund this plan?") {
             let rec = recon
             LedgerRow("Required real (after-tax)", Fmt.pctBps(rec.requiredRealBps), color: Theme.ink, bold: true)
-            reconRow("Strategic target", rec.target.expectedRealBps, rec.gapTargetBps)
-            reconRow("Current holdings", rec.current.expectedRealBps, rec.gapCurrentBps)
+            reconRow("Strategic target (net)", rec.netTargetBps, rec.gapTargetBps)
+            reconRow("Current holdings (net)", rec.netCurrentBps, rec.gapCurrentBps)
+            LedgerRow("Gross expected (target) − fees & tax drag",
+                      "\(Fmt.pctBps(rec.target.expectedRealBps)) − \(Fmt.pctBps(rec.frictionDragBps))", color: Theme.muted)
             if rec.unpricedResidualBps > 25 {
                 Note("\(Fmt.pctBps(rec.unpricedResidualBps)) of current holdings aren't mapped to a sleeve (e.g. a concentrated stock) and are priced here as US-large equity.", icon: "questionmark.circle", color: Theme.muted)
             }
-            Note("Both figures are REAL. \"Expected\" is what the market is priced to deliver on this allocation (Econ → Capital market expectations), gross of fund fees and annual investment taxes. \"Required\" is the rate the corpus must actually compound at — it already funds the plan's own taxes. Because expected is gross of those frictions, read a small positive gap as roughly funded, not a true cushion. A gap the market isn't priced to close is closed by saving more, spending less, or deferring a goal (required with flexibility: \(Fmt.pctBps(rec.requiredFlexBps))) — not by reaching for risk the market isn't paying for.", icon: "scalemass")
+            Note("Both figures are REAL and NET of fund fees + annual investment taxes (a \(Fmt.pctBps(rec.frictionDragBps)) friction dial), so \"expected\" — what the market is priced to deliver on this allocation (Econ → Capital market expectations) — is stated on the same basis as \"required,\" the rate the corpus must actually compound at after its own taxes. A gap the market isn't priced to close is closed by saving more, spending less, or deferring a goal (required with flexibility: \(Fmt.pctBps(rec.requiredFlexBps))) — not by reaching for risk the market isn't paying for.", icon: "scalemass")
         }
 
         Card("After-tax — the tax drag", help: Teach.help("requiredReturn")) {

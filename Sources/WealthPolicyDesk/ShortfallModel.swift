@@ -20,11 +20,11 @@
 //  overlay. It reconciles; it NEVER feeds resolveTargets. The forecast-free strategic
 //  target is untouched.
 //
-//  BASIS: `required` is the after-tax real hurdle; `expected` (CME) is GROSS of fund
-//  fees + annual investment taxes — the same firm-wide convention the Required Return
-//  and Frontier tabs use. The mismatch biases the probability slightly DOWN (a thin
-//  positive margin is "roughly funded", not a true cushion); the card discloses it and
-//  never over-claims a cushion on a thin margin.
+//  BASIS: `required` is the after-tax real hurdle; `expected` (CME) is now NET of a
+//  labeled friction dial (fund fees + annual investment taxes, Engine.cmeFrictionDragBps),
+//  so the two sit on the same basis and the probability is honest rather than optimistic.
+//  Sequence risk is deliberately OUT of this i.i.d. model — the Resilience tab's
+//  path-dependent stresses are its complement, so the two are not double-counted.
 
 import Foundation
 
@@ -42,7 +42,8 @@ public enum ShortfallBand: String, Sendable, Hashable {
 
 public struct ShortfallEstimate: Sendable, Hashable {
     public var requiredRealBps: Bps
-    public var expectedRealBps: Bps          // target portfolio, from the CME
+    public var expectedRealBps: Bps          // target portfolio, from the CME — NET of friction
+    public var frictionDragBps: Bps = 0      // fund fees + annual tax drag netted off the gross CME
     public var volBps: Bps                   // target portfolio 1yr σ, from the risk model
     public var horizonYears: Int
     public var annualizedSigmaBps: Bps       // σ/√T — the spread of the average annualized return
@@ -74,8 +75,14 @@ public extension Engine {
             return (vol, mu)
         }
 
-        let (tVol, tMu) = priced(target: true)
-        let (cVol, cMu) = priced(target: false)
+        let friction = Engine.cmeFrictionDragBps
+        let (tVol, tMuGross) = priced(target: true)
+        let (cVol, cMuGross) = priced(target: false)
+        // Net the GROSS CME expected by portfolio friction (fund fees + annual tax drag) so
+        // it's on the same basis as the AFTER-TAX required — the probability is then honest,
+        // not optimistic. (Sequence risk stays deliberately out: this i.i.d. model is the
+        // probabilistic complement to the Resilience tab's path-dependent stresses.)
+        let tMu = tMuGross - friction, cMu = cMuGross - friction
         let required = eval.requiredReturn.requiredRealReturnBps
         let horizon = max(1, eval.household.goals.compactMap { $0.horizonYears }.max() ?? 30)
         let sqrtT = Double(horizon).squareRoot()
@@ -91,7 +98,7 @@ public extension Engine {
         let band: ShortfallBand = t.prob < 2000 ? .low : (t.prob < 4000 ? .moderate : (t.prob < 6000 ? .elevated : .high))
 
         return ShortfallEstimate(
-            requiredRealBps: required, expectedRealBps: tMu, volBps: tVol, horizonYears: horizon,
+            requiredRealBps: required, expectedRealBps: tMu, frictionDragBps: friction, volBps: tVol, horizonYears: horizon,
             annualizedSigmaBps: t.annSigma, marginBps: tMu - required, zScore: t.z,
             shortfallProbBps: t.prob, currentShortfallProbBps: c.prob, currentExpectedRealBps: cMu,
             band: band, asOf: eval.asOf)

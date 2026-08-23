@@ -100,7 +100,7 @@ struct PlanSummaryTab: View {
                 ])
                 LedgerRow("Chance of missing the goal", Fmt.pctBps(shortfall.shortfallProbBps, 0), color: shortfall.shortfallProbBps > 5000 ? Theme.debt : (shortfall.shortfallProbBps > 3000 ? Theme.amber : Theme.asset), bold: true)
                 Note("The plan CAPS equity at the lower of what you can afford and what you can stomach, then dials the actual target below that ceiling as funded status improves — so your growth allocation below can sit under this number.")
-                Note("The shortfall figure compares an after-tax required return against an expected return stated gross of fund fees and annual taxes, so it errs slightly optimistic — read a thin margin as roughly funded, not a cushion.", icon: "info.circle")
+                Note("The shortfall figure compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis; a thin margin reflects the forecast's own uncertainty, so read it as roughly funded, not a cushion.", icon: "info.circle")
             } else {
                 Note("Risk tolerance isn't on file yet — answer the risk questions to see the equity ceiling and the chance of missing the goal.", icon: "questionmark.circle")
             }

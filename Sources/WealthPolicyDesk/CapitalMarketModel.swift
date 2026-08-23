@@ -85,8 +85,14 @@ public struct CMEReconciliation: Sendable {
     /// Share of current holdings not mapped to a sleeve/alt (e.g. a concentrated
     /// stock) that was priced by default as US-large equity — disclosed, not dropped.
     public var unpricedResidualBps: Bps = 0
-    public var gapTargetBps: Bps { target.expectedRealBps - requiredRealBps }
-    public var gapCurrentBps: Bps { current.expectedRealBps - requiredRealBps }
+    /// Fund fees + annual tax drag netted off the gross expected so it compares
+    /// apples-to-apples with the after-tax required (Engine.cmeFrictionDragBps).
+    public var frictionDragBps: Bps = 0
+    /// Expected real NET of friction — the honest basis for the gap vs the after-tax required.
+    public var netTargetBps: Bps { target.expectedRealBps - frictionDragBps }
+    public var netCurrentBps: Bps { current.expectedRealBps - frictionDragBps }
+    public var gapTargetBps: Bps { netTargetBps - requiredRealBps }
+    public var gapCurrentBps: Bps { netCurrentBps - requiredRealBps }
     public static func verdict(_ gapBps: Bps) -> Verdict { gapBps >= 50 ? .cushion : (gapBps <= -50 ? .stretch : .funded) }
 }
 
@@ -105,7 +111,14 @@ public extension Engine {
         let hyOAS    = Int(obs("HY OAS", 271).rounded())                  // already bps
         let emSov    = Int(obs("EM sovereign spread", 335).rounded())     // already bps
         let inflBps  = Int((obs("10y breakeven", 2.3) * 100).rounded())
-        let cashReal = Int((Engine.safeRealRate * 10000).rounded())       // 1.5% → 150
+        // Cash's ~10yr expected real return FLOATS with the market real rate but sits below
+        // the 10y: rolling cash forgoes the term premium, and today's restrictive short
+        // real rate normalizes down over the horizon. So: the snapshot 10y real minus a
+        // labeled term-premium/normalization discount (a dial). Previously a fixed 1.5%
+        // tied to Engine.safeRealRate — the PV anchor — which left cash FROZEN while bonds
+        // floated off the snapshot, an ~85bp internal contradiction inside one CME build.
+        let cashTermDiscountBps = 85                                      // dial (verify)
+        let cashReal = max(0, real10 - cashTermDiscountBps)               // 235 − 85 → 150 today, but floats
 
         // Regime overlay: continuous and capped. cycleScore 50 (mid) → 0; 100 (late)
         // → trim; 0 (early) → lift. Kept small on purpose — CAPE already carries the
@@ -245,6 +258,7 @@ public extension Engine {
         return CMEReconciliation(requiredRealBps: eval.requiredReturn.requiredRealReturnBps,
                                  requiredFlexBps: eval.requiredReturn.requiredRealReturnWithFlexibilityBps,
                                  target: target, current: current, cme: cme,
-                                 unpricedResidualBps: residual > 25 ? residual : 0)
+                                 unpricedResidualBps: residual > 25 ? residual : 0,
+                                 frictionDragBps: Engine.cmeFrictionDragBps)
     }
 }
