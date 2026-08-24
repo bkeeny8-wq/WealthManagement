@@ -75,7 +75,7 @@ public extension Engine {
             return (vol, mu)
         }
 
-        let friction = Engine.cmeFrictionDragBps
+        let friction = Engine.cmeFrictionDragBps(eval.household)
         let (tVol, tMuGross) = priced(target: true)
         let (cVol, cMuGross) = priced(target: false)
         // Net the GROSS CME expected by portfolio friction (fund fees + annual tax drag) so

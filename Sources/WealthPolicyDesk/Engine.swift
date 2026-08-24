@@ -151,11 +151,21 @@ public enum Engine {
     static let humanCapitalDiscount = 0.03
 
     /// Portfolio friction the CME reconciliation nets off the GROSS expected real return
-    /// so it compares apples-to-apples with the AFTER-TAX required return: fund fees on
-    /// the liquid sleeves + the annual tax drag on dividends and rebalancing in taxable
-    /// accounts. A labeled dial to VERIFY. (The alt sleeves' CMEs are already stated net
-    /// of their own fees, so this is dominated by tax drag + liquid-fund expense ratios.)
-    static let cmeFrictionDragBps: Bps = 40
+    /// so it compares apples-to-apples with the AFTER-TAX required return. Fund fees hit
+    /// EVERY dollar; the annual investment-tax drag (dividends + rebalancing) hits only
+    /// TAXABLE accounts — so it is a flat fee term plus a tax-drag term scaled by the
+    /// taxable share of the book. An all-IRA retiree pays only the fee term; an all-taxable
+    /// book the full drag. Labeled dials to VERIFY. (The alt sleeves' CMEs are already net
+    /// of their own fees.) On the Harrisons (~57% taxable) this lands ≈41bp, near the old
+    /// flat 40; the point is it now MOVES with account location instead of over-charging
+    /// a sheltered book enough to flip the funded verdict.
+    static let fundFeeDragBps: Bps = 12          // blended liquid-fund expense ratios
+    static let taxableTaxDragBps: Bps = 50       // annual dividend + rebalancing tax if 100% taxable
+    static func cmeFrictionDragBps(_ h: Household) -> Bps {
+        let total = h.value(in: .taxable) + h.value(in: .taxDeferred) + h.value(in: .taxFree)
+        let taxableShare = total > 0 ? h.value(in: .taxable) / total : 0
+        return fundFeeDragBps + Int((Double(taxableTaxDragBps) * taxableShare).rounded())
+    }
 
     // MARK: dates
 

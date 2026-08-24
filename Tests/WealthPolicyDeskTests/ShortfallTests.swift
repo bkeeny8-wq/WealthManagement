@@ -68,9 +68,28 @@ final class ShortfallTests: XCTestCase {
 
     // MARK: - CME reconciliation honesty (friction netting + cash floats)
 
+    /// The friction is fund fees (flat) + tax drag scaled by the taxable share — an
+    /// all-sheltered book pays only fees, an all-taxable book the full drag. This is the
+    /// account-blindness the fresh audit flagged: a flat charge over-taxed sheltered books.
+    func testFrictionScalesWithTaxableShare() {
+        func book(all treatment: AccountTaxTreatment) -> Household {
+            var h = Seed.sampleHousehold
+            h.accounts = h.accounts.map { var a = $0; a.treatment = treatment; return a }
+            return h
+        }
+        let sheltered = Engine.cmeFrictionDragBps(book(all: .taxDeferred))
+        let taxable = Engine.cmeFrictionDragBps(book(all: .taxable))
+        XCTAssertEqual(sheltered, Engine.fundFeeDragBps, "all-sheltered ⇒ fund fees only, no tax drag")
+        XCTAssertEqual(taxable, Engine.fundFeeDragBps + Engine.taxableTaxDragBps, "all-taxable ⇒ the full drag")
+        XCTAssertGreaterThan(taxable, sheltered)
+        let sample = Engine.cmeFrictionDragBps(Seed.sampleHousehold)   // mixed book sits strictly between
+        XCTAssertGreaterThan(sample, sheltered)
+        XCTAssertLessThan(sample, taxable)
+    }
+
     func testShortfallExpectedIsNetOfTheFrictionDial() {
         let s = estimate()
-        XCTAssertEqual(s.frictionDragBps, Engine.cmeFrictionDragBps)
+        XCTAssertEqual(s.frictionDragBps, Engine.cmeFrictionDragBps(Seed.sampleHousehold))
         XCTAssertGreaterThan(s.frictionDragBps, 0, "fees + tax drag must be netted, not zero")
     }
 
@@ -82,7 +101,7 @@ final class ShortfallTests: XCTestCase {
 
     func testReconciliationGapIsNetOfFrictionAndConsistent() {
         let rec = reconciliation()
-        XCTAssertEqual(rec.frictionDragBps, Engine.cmeFrictionDragBps)
+        XCTAssertEqual(rec.frictionDragBps, Engine.cmeFrictionDragBps(Seed.sampleHousehold))
         XCTAssertEqual(rec.netTargetBps, rec.target.expectedRealBps - rec.frictionDragBps)
         XCTAssertEqual(rec.gapTargetBps, rec.netTargetBps - rec.requiredRealBps)
         // Netting can only tighten the gap vs the old gross basis — never flatter it.

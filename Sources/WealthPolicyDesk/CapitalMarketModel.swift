@@ -130,6 +130,13 @@ public extension Engine {
 
         // Grinold-Kroner equity: real = div + net buyback + real growth + ΔPE + regime.
         // ΔPE = partial (φ) annualized log-reversion of CAPE toward a fair-value dial.
+        //
+        // `fairCape` is a deliberately STATIC long-run anchor (a labeled dial), NOT linked
+        // to today's real rate — unlike `cashReal` above, which SHOULD float. Over the 10yr
+        // reversion horizon real rates plausibly normalize toward neutral, so the multiple
+        // equities revert TOWARD is the long-run/neutral-rate fair value; anchoring it to
+        // today's cyclically-elevated real rate would double-count rate normalization with
+        // the CAPE normalization this term already models. (Verify the anchors themselves.)
         func equity(_ id: String, _ label: String, div: Int, buyback: Int, growth: Int,
                     cape: Double, fairCape: Double, regime: Bool = true) -> AssetClassCME {
             let phi = 0.5, horizon = 10.0
@@ -260,6 +267,6 @@ public extension Engine {
                                  requiredFlexBps: eval.requiredReturn.requiredRealReturnWithFlexibilityBps,
                                  target: target, current: current, cme: cme,
                                  unpricedResidualBps: residual > 25 ? residual : 0,
-                                 frictionDragBps: Engine.cmeFrictionDragBps)
+                                 frictionDragBps: Engine.cmeFrictionDragBps(eval.household))
     }
 }
