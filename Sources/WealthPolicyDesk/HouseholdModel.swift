@@ -471,7 +471,11 @@ public extension Household {
             guard g.id == "g_spending" else { return g }
             var ng = g
             ng.outflows = g.outflows.map { o in
-                o.year >= firstDeath
+                // Survivor spending begins the year AFTER the first death, matching
+                // socialSecurityAnnual, which pays BOTH benefits through `t <= firstDeath`.
+                // (Was `>=`, which stepped spending down a year before SS did — a one-year
+                // transition inconsistency that biased the required return slightly optimistic.)
+                o.year > firstDeath
                     ? Outflow(year: o.year, amountUsd: o.amountUsd * Engine.survivorSpendingFactor, inflationLinked: o.inflationLinked)
                     : o
             }

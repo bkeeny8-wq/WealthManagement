@@ -38,11 +38,12 @@ final class CouplesTests: XCTestCase {
             return XCTFail("sample household must have a spending goal")
         }
 
-        // Every retirement-year outflow at/after the first death is scaled by the factor;
-        // earlier years are untouched.
+        // Every retirement-year outflow AFTER the first death is scaled by the factor; the
+        // first-death year itself and earlier are untouched (both still alive that year,
+        // matching SS which pays both benefits through t <= firstDeath).
         for o0 in g0.outflows {
             guard let o = g.outflows.first(where: { $0.year == o0.year }) else { continue }
-            if o0.year >= firstDeath {
+            if o0.year > firstDeath {
                 XCTAssertEqual(o.amountUsd, o0.amountUsd * Engine.survivorSpendingFactor, accuracy: 0.5)
             } else {
                 XCTAssertEqual(o.amountUsd, o0.amountUsd, accuracy: 0.5)

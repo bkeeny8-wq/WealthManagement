@@ -197,8 +197,13 @@ struct PolicyStatementTab: View {
         // (a spouse who retires at a lower age can still be the later one), so quote the
         // engine's own save-years rather than an age that could name the earlier retiree.
         let saveYears = Engine.householdSaveYears(h, asOf: eval.asOf)
-        let yearWord = saveYears == 1 ? "year" : "years"
-        return "Because the household is a couple, the plan assumes it keeps saving until the later of the two retirements — about \(saveYears) more \(yearWord) — and that joint retirement spending steps down by about \(dropPct)% (to roughly \(survivorPct)% of its level) after the first death, reflecting a survivor's lower cost of living. This assumption lowers the required return and should be verified against the household's own circumstances."
+        let stepDown = "joint retirement spending steps down by about \(dropPct)% (to roughly \(survivorPct)% of its level) after the first death, reflecting a survivor's lower cost of living"
+        // Drop the "keeps saving for N more years" clause once both are retired (saveYears
+        // == 0) — otherwise it reads "about 0 more years".
+        let lead = saveYears > 0
+            ? "the plan assumes it keeps saving until the later of the two retirements — about \(saveYears) more \(saveYears == 1 ? "year" : "years") — and that \(stepDown)"
+            : "the plan assumes \(stepDown)"
+        return "Because the household is a couple, \(lead). This assumption lowers the required return and should be verified against the household's own circumstances."
     }
 
     private var fundedText: String {

@@ -90,7 +90,7 @@ public extension Seed {
             descriptor: "Conference Board's read on how consumers rate current business and labor conditions (jobs plentiful vs. hard-to-get); a coincident marker of where the cycle stands now — high readings reflect a firm labor backdrop, and a slide marks deterioration.",
             bands: [MacroBand(85, .recession, "contracting"), MacroBand(115, .late, "softening"), MacroBand(135, .neutral, "steady"), MacroBand(999999, .early, "strong")]),
         MacroIndicator("UMich sentiment", .consumer, 49.5, .index, importance: 2, oddsWeight: 3, timing: .leading, source: "UMCSENT",
-            descriptor: "University of Michigan's broad consumer sentiment index; a leading gauge whose swings in mood foreshadow shifts in discretionary spending — subdued levels weigh on spending, while a recovering trend (as disinflation and rising equities repair household balance sheets) supports it.",
+            descriptor: "University of Michigan's broad consumer sentiment index — a leading gauge whose swings in mood foreshadow discretionary spending; depressed readings weigh on demand and often precede a pullback, while a durable rise in sentiment tends to lead firmer spending.",
             bands: [MacroBand(55, .recession, "depressed"), MacroBand(75, .neutral, "cautious"), MacroBand(90, .early, "improving"), MacroBand(999999, .early, "buoyant")]),
         MacroIndicator("Real personal income", .consumer, 0.14, .pct, importance: 2, oddsWeight: 6, timing: .coincident, source: "W875RX1",
             descriptor: "Inflation-adjusted household income excluding government transfers (YoY), a core NBER coincident recession marker — sustained declines signal contraction, while positive growth confirms real purchasing power is still expanding.",

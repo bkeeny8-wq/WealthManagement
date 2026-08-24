@@ -10,9 +10,9 @@ final class GoldenMasterTests: XCTestCase {
 
     func testHarrisonsHeadlineFigures() {
         let e = Engine.evaluate(Seed.sampleHousehold)
-        XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 456)
-        XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 398)
-        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6313)
+        XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 461)
+        XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 403)
+        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6252)
         XCTAssertEqual(e.balanceSheet.afterTaxNetWorthUsd, 2_893_928, accuracy: 0.5)
         XCTAssertEqual(e.balanceSheet.grossNetWorthUsd, 3_105_000, accuracy: 0.5)
         XCTAssertEqual(e.netFixedIncomeUsd, -120_000, accuracy: 0.5)
