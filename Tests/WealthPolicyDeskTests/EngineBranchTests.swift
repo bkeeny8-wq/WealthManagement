@@ -27,8 +27,11 @@ final class EngineBranchTests: XCTestCase {
     func testAboveExemptionEstateTaxFiresAndReducesNetWorth() {
         let bs = Engine.evaluate(inflated(20), asOf: asOf).balanceSheet   // ~$50M estate
         XCTAssertGreaterThan(bs.liabilities.projectedEstateTaxUsd, 0, "an estate above the exemption owes estate tax")
-        // The balance-sheet identity: after-tax net worth is gross net of embedded income
-        // tax AND the projected estate tax.
+        // Independent of the exact formula: the estate tax STRICTLY reduces net worth below
+        // gross-minus-income-tax (only true because projectedEstateTax > 0 here).
+        XCTAssertLessThan(bs.afterTaxNetWorthUsd, bs.grossNetWorthUsd - bs.liabilities.deferredTaxUsd)
+        // And the balance-sheet identity: after-tax net worth nets BOTH embedded income tax
+        // and the projected estate tax.
         XCTAssertEqual(bs.afterTaxNetWorthUsd,
                        bs.grossNetWorthUsd - bs.liabilities.deferredTaxUsd - bs.liabilities.projectedEstateTaxUsd,
                        accuracy: 1.0)
@@ -57,7 +60,11 @@ final class EngineBranchTests: XCTestCase {
         // out has NOTHING to pre-fund — the old prefix(years) grabbed the first 7 outflows
         // even decades away, over-sizing the bond floor.
         let far = spendingAt(Array(20...45))
-        XCTAssertEqual(Engine.ladder(far, policy: Seed.spendingPolicy, asOf: asOf).ladderSizeUsd, 0, accuracy: 0.5)
+        let plan = Engine.ladder(far, policy: Seed.spendingPolicy, asOf: asOf)
+        XCTAssertEqual(plan.ladderSizeUsd, 0, accuracy: 0.5)
+        // Pin the FILTER path, not the guard early-return: the guard returns yearsCovered 0,
+        // the real path returns 7 — so a regression dropping the spending goal can't pass here.
+        XCTAssertEqual(plan.yearsCovered, 7)
     }
 
     func testLadderPreFundsNearTermOutflows() {

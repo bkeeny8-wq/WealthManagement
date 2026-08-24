@@ -46,14 +46,15 @@ final class PersistenceTests: XCTestCase {
     }
 
     private func populatedTilt() -> TacticalTiltAction {
+        // status: .staged, NOT the decoder's ?? .committed fallback — so a dropped status key is caught.
         TacticalTiltAction(id: uuid(1), createdAt: d1, sleeveId: "us_sector_tilt", deviationBps: 300,
-                           sourceName: "Energy", thesis: "real-asset convexity", reviewDate: d2, status: .committed)
+                           sourceName: "Energy", thesis: "real-asset convexity", reviewDate: d2, status: .staged)
     }
 
     private func populatedAction() -> PlannedAction {
         PlannedAction(id: uuid(2), createdAt: d1, sellAccountId: "acct_taxable", sellTicker: "XLK",
                       sellUsd: 120_000, buyTicker: "XLP", buySleeveId: "us_sector_tilt", buySectorRaw: "consumer_staples",
-                      thesis: "rotate defensive", reviewDate: d2, status: .committed)
+                      thesis: "rotate defensive", reviewDate: d2, status: .staged)   // .staged ≠ decoder fallback .committed
     }
 
     private func populatedPractice() -> PracticeMetadata {
@@ -106,7 +107,9 @@ final class PersistenceTests: XCTestCase {
         // 9 held-away & transition
         m.heldAwayPositions = [populatedHeldPosition()]; m.annualGainBudgetUsd = 60_000
         m.transitionTargetYears = 5; m.permanentHoldPolicy = other(m.permanentHoldPolicy)
-        // 10-11 additional goals / dependents
+        // 10-11 additional goals / dependents. children MUST stay non-empty, or the decoder's
+        // childrenBirthYears→children legacy migration synthesizes a child and false-fails the
+        // round-trip. (These three types use synthesized Codable — no write-only risk inside them.)
         m.additionalGoals = [IntakeGoal()]; m.children = [IntakeChild()]; m.educationGoals = [IntakeEducationGoal()]
         // 12 estate & giving
         m.heirCount = 2; m.expectedHeirBracket = other(m.expectedHeirBracket); m.annualGivingUsd = 15_000
@@ -124,7 +127,7 @@ final class PersistenceTests: XCTestCase {
         m.equityGrantTypes = [.rsu]; m.isCompanyInsider = true; m.tradingWindow = other(m.tradingWindow)
         m.has10b51Plan = true; m.isoUnexercisedValueUsd = 400_000; m.planningIsoExerciseAndHold = true
         m.isoBargainElementUsd = 220_000; m.pending83bGrantDate = "2025-06-01"
-        m.esppAnnualContributionUsd = 25_000; m.esppDiscountBps = 1500; m.esppLookback = false
+        m.esppAnnualContributionUsd = 25_000; m.esppDiscountBps = 1200; m.esppLookback = false   // 1200 ≠ default 1500
         m.qsbsStatus = other(m.qsbsStatus)
         return m
     }
