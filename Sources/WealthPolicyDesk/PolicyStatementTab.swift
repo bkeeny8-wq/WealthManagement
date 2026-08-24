@@ -295,7 +295,7 @@ struct PolicyStatementTab: View {
     private var rebalancingSection: some View {
         section("7", "Rebalancing policy") {
             p("The portfolio is reviewed \(cadenceAdverb) and rebalanced when a sleeve breaches its band. \(reb.correctionFractionBps >= 10_000 ? "Breaches are corrected fully back to target." : "Corrections are partial — about \(Fmt.pctBps(reb.correctionFractionBps)) of the way back to target — which controls turnover while keeping the portfolio inside its risk limits.")")
-            p("Rebalancing is tax-aware: it favours sheltered accounts and realises losses before gains, observes the \(reb.washSaleWindowDays)-day wash-sale window, and \(reb.preferCashFlowRebalancing ? "uses contributions and withdrawals to rebalance where possible, minimising taxable sales" : "sizes trades to the minimum needed to restore the target"). Locked or gated holdings sit outside the bands, and the remainder of the portfolio absorbs their drift.")
+            p("Rebalancing is tax-aware: it favours sheltered accounts and realises losses before gains, observes the \(reb.washSaleWindowDays)-day wash-sale window, and \(reb.preferCashFlowRebalancing ? "as an operating preference directs new contributions and withdrawals to the underweight sleeves first, holding the bands with minimal taxable sales; the explicit trades a breach still requires are shown on the Rebalance tab" : "sizes trades to the minimum needed to restore the target"). Locked or gated holdings sit outside the bands, and the remainder of the portfolio absorbs their drift.")
         }
     }
 

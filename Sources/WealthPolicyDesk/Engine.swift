@@ -2,7 +2,7 @@
 //  WealthPolicyDesk
 //
 //  The evaluation engine — the pure functions the TypeScript policy layer only
-//  DECLARED (validateTilts, resolveTargets, analyzeItemization,
+//  DECLARED (validateTacticalTilts, resolveTargets, analyzeItemization,
 //  recommendDisposition, partitionByLayer, …) plus the implied engines it
 //  described (required return, the balance-sheet view, cross-module constraint
 //  evaluation). Everything here is a pure function of (household, policy, tax,

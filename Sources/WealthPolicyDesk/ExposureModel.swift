@@ -61,40 +61,6 @@ public enum TiltAxis: String, CaseIterable, Identifiable, Sendable, Hashable {
     public var label: String { rawValue.capitalized }
 }
 
-public enum TiltFunding: String, CaseIterable, Sendable, Hashable {
-    case proRata = "pro_rata"   // funded from core, implicitly underweighting all others
-    case paired                 // explicit named offsetting underweight (preferred)
-    public var label: String { self == .proRata ? "Pro-rata" : "Paired" }
-}
-
-public enum CurrencyStance: String, CaseIterable, Sendable, Hashable {
-    case unhedged, hedged, noView = "no_view"
-    public var label: String { self == .noView ? "No view" : rawValue.capitalized }
-}
-
-/// A generalized signed deviation on any axis. Thesis is mandatory;
-/// acknowledgedCrossExposure forces cross-axis realization at entry.
-public struct Tilt: Identifiable, Sendable, Hashable {
-    public var id: String
-    public var axis: TiltAxis
-    public var nodeId: String            // sector rawValue, geo node id, or style id
-    public var deviationBps: Bps         // signed
-    public var funding: TiltFunding
-    public var offsetNodeId: String?
-    public var currency: CurrencyStance
-    public var thesis: String
-    public var openedAt: IsoDate
-    public var reviewBy: IsoDate
-    public var exitCondition: String?
-    public var acknowledgedCrossExposure: [String]
-    public init(id: String, axis: TiltAxis, nodeId: String, deviationBps: Bps, funding: TiltFunding, offsetNodeId: String?, currency: CurrencyStance, thesis: String, openedAt: IsoDate, reviewBy: IsoDate, exitCondition: String?, acknowledgedCrossExposure: [String]) {
-        self.id = id; self.axis = axis; self.nodeId = nodeId; self.deviationBps = deviationBps
-        self.funding = funding; self.offsetNodeId = offsetNodeId; self.currency = currency; self.thesis = thesis
-        self.openedAt = openedAt; self.reviewBy = reviewBy; self.exitCondition = exitCondition
-        self.acknowledgedCrossExposure = acknowledgedCrossExposure
-    }
-}
-
 // MARK: - Geography tree
 
 public enum GeoLevel: String, CaseIterable, Sendable, Hashable {
@@ -129,7 +95,7 @@ public struct AxisRules: Identifiable, Sendable, Hashable {
 }
 
 public struct MatrixConstraint: Identifiable, Sendable, Hashable {
-    public enum Scope: String, Sendable, Hashable { case cell, geoMargin = "geo_margin", sectorMargin = "sector_margin", total }
+    public enum Scope: String, Sendable, Hashable { case cell, geoMargin = "geo_margin", sectorMargin = "sector_margin" }
     public var id: String
     public var severity: Severity
     public var scope: Scope
@@ -190,12 +156,11 @@ public struct TiltPolicy: Sendable, Hashable {
     public var maxSingleSectorDeviationBps: Bps
     public var maxLookThroughSectorBps: Bps
     public var restrictToTreatments: [AccountTaxTreatment]
-    public var activeTilts: [Tilt]
-    public init(enabled: Bool, mode: String, coreShareOfEquityBps: Bps, maxTotalAbsoluteDeviationBps: Bps, maxSingleSectorDeviationBps: Bps, maxLookThroughSectorBps: Bps, restrictToTreatments: [AccountTaxTreatment], activeTilts: [Tilt]) {
+    public init(enabled: Bool, mode: String, coreShareOfEquityBps: Bps, maxTotalAbsoluteDeviationBps: Bps, maxSingleSectorDeviationBps: Bps, maxLookThroughSectorBps: Bps, restrictToTreatments: [AccountTaxTreatment]) {
         self.enabled = enabled; self.mode = mode; self.coreShareOfEquityBps = coreShareOfEquityBps
         self.maxTotalAbsoluteDeviationBps = maxTotalAbsoluteDeviationBps
         self.maxSingleSectorDeviationBps = maxSingleSectorDeviationBps
         self.maxLookThroughSectorBps = maxLookThroughSectorBps
-        self.restrictToTreatments = restrictToTreatments; self.activeTilts = activeTilts
+        self.restrictToTreatments = restrictToTreatments
     }
 }

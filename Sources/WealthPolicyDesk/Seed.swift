@@ -232,17 +232,13 @@ public enum Seed {
     // Tactical overlay policy (tiltPolicy)
     // ========================================================
 
+    // The firm-wide tilt BUDGET (deviation caps) that governs the per-client tactical
+    // tilts. It no longer carries a seeded `activeTilts` list — tilts are per-client
+    // (ClientRecord.tilts → Household.tacticalTilts), never a static firm bet.
     public static let tiltPolicy = TiltPolicy(
         enabled: true, mode: "manual", coreShareOfEquityBps: 8300,
         maxTotalAbsoluteDeviationBps: 1000, maxSingleSectorDeviationBps: 400, maxLookThroughSectorBps: 3800,
-        restrictToTreatments: [.taxDeferred, .taxFree],
-        activeTilts: [
-            Tilt(id: "tilt_energy", axis: .sector, nodeId: Sector.energy.rawValue, deviationBps: 300, funding: .paired,
-                 offsetNodeId: Sector.utilities.rawValue, currency: .noView,
-                 thesis: "Real-asset convexity into a fiscally-dominant, higher-for-longer regime; funded from rate-sensitive utilities.",
-                 openedAt: "2026-05-01", reviewBy: "2026-11-01", exitCondition: "Real 10y back below 1.5% or thesis invalidated",
-                 acknowledgedCrossExposure: ["Overweight materials via energy complex"]),
-        ])
+        restrictToTreatments: [.taxDeferred, .taxFree])
 
     public static let axisRules: [AxisRules] = [
         .init(axis: .sector, restrictToTreatments: [.taxDeferred, .taxFree], minExpectedRelativeReturnBps: 100, maxSingleDeviationBps: 400, maxTotalAbsoluteDeviationBps: 1000),
@@ -254,7 +250,6 @@ public enum Seed {
         .init(id: "sector_lookthrough", severity: .hard, scope: .sectorMargin, limitBps: 3800, description: "Sector look-through inclusive of country-fund contribution."),
         .init(id: "single_country", severity: .hard, scope: .geoMargin, limitBps: 700, description: "Single-country exposure inclusive of core."),
         .init(id: "em_ceiling", severity: .soft, scope: .geoMargin, limitBps: 1500, description: "Emerging markets core + overlay."),
-        .init(id: "stale_matrix", severity: .hard, scope: .total, limitBps: 0, description: "Refuse to evaluate against a decomposition older than maxAgeDays."),
     ]
 
     // ========================================================

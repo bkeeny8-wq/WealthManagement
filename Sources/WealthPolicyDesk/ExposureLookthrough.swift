@@ -194,7 +194,6 @@ public extension Engine {
                             detail: "\(Fmt.pctBps(v)) of equity in a single country (\(g)) — above the \(Fmt.pctBps(mc.limitBps)) cap."))
                     }
                 }
-            case .total: break
             }
         }
         return out.sorted { $0.valueBps > $1.valueBps }

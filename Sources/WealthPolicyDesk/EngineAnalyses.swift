@@ -253,35 +253,6 @@ extension Engine {
                                recommendation: rec, rationale: why)
     }
 
-    // MARK: - Tilt validation (validateTilts)
-
-    public static func validateTilts(_ tp: TiltPolicy, asOf: IsoDate) -> [Finding] {
-        guard tp.enabled else { return [] }
-        var out: [Finding] = []
-        let total = tp.activeTilts.reduce(0) { $0 + abs($1.deviationBps) }
-        if total > tp.maxTotalAbsoluteDeviationBps {
-            out.append(Finding(ruleId: "exceeds_total_deviation", module: .tilt, severity: .hard,
-                               title: "Total active bet over budget",
-                               detail: "Sum of |deviation| is \(Fmt.bps(total)), above the \(Fmt.bps(tp.maxTotalAbsoluteDeviationBps)) ceiling."))
-        }
-        for t in tp.activeTilts {
-            if abs(t.deviationBps) > tp.maxSingleSectorDeviationBps {
-                out.append(Finding(ruleId: "exceeds_single_sector", module: .tilt, severity: .hard, key: t.nodeId,
-                                   title: "Single tilt over cap: \(t.nodeId)",
-                                   detail: "\(Fmt.bpsSigned(t.deviationBps)) exceeds the \(Fmt.bps(tp.maxSingleSectorDeviationBps)) single-name cap."))
-            }
-            if t.funding == .paired && (t.offsetNodeId?.isEmpty ?? true) {
-                out.append(Finding(ruleId: "unpaired_tilt", module: .tilt, severity: .hard, key: t.id, title: "Paired tilt missing offset", detail: "Tilt \(t.id) is paired but names no offsetting underweight."))
-            }
-            if t.thesis.trimmingCharacters(in: .whitespaces).isEmpty {
-                out.append(Finding(ruleId: "missing_thesis", module: .tilt, severity: .hard, key: t.id, title: "Tilt missing thesis", detail: "Every tilt must carry a written thesis before it can be saved."))
-            }
-            if year(t.reviewBy) < year(asOf) || (year(t.reviewBy) == year(asOf) && t.reviewBy < asOf) {
-                out.append(Finding(ruleId: "review_overdue", module: .tilt, severity: .soft, key: t.nodeId, title: "Tilt review overdue: \(t.nodeId)", detail: "reviewBy \(t.reviewBy) has passed. Re-decide or exit — tilts don't become permanent by inertia."))
-            }
-        }
-        return out
-    }
 
     // MARK: - Cross-module constraint evaluation
 
@@ -348,7 +319,14 @@ extension Engine {
                 $0.personId == hc.personId && ($0.kind == .rsu || $0.kind == .espp || $0.kind == .options)
                     && Engine.employerStockSector($0.ticker) == sector
             }
-            let tiltSameSector = Seed.tiltPolicy.activeTilts.contains { $0.axis == .sector && $0.nodeId == sector.rawValue }
+            // Per-client, not the firm seed: does THIS client hold a committed sector
+            // overweight into their own income sector? (The old check read the firm-wide
+            // Seed.tiltPolicy.activeTilts, so it fired for every earner in the seeded
+            // sector regardless of their book — the static-seed-per-household anti-pattern.)
+            let tiltSameSector = h.tacticalTilts.contains { t in
+                t.status == .committed && t.deviationBps > 0 && t.sleeveId == "us_sector_tilt"
+                    && t.sourceName.lowercased().contains(sector.label.lowercased())
+            }
             if stockSameSector || tiltSameSector {
                 out.append(Finding(ruleId: "human_capital_sector_stacking", module: .household, severity: .soft,
                                    title: "Human-capital sector stacking: \(sector.label)",
@@ -545,8 +523,7 @@ extension Engine {
                                magnitudeUsd: max(0, h.transitionAnnualRealizedGainUsd - h.transitionGainBudgetUsd)))
         }
 
-        // --- Tactical tilts ---
-        out.append(contentsOf: validateTilts(Seed.tiltPolicy, asOf: asOf))
+        // --- Tactical tilts (per-client only; the legacy firm-seed validateTilts is retired) ---
         out.append(contentsOf: validateTacticalTilts(h.tacticalTilts))
 
         // --- Look-through concentration (country×sector) ---
