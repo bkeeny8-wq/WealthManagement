@@ -469,12 +469,13 @@ struct PolicyStatementTab: View {
 
     private func comparePicker(_ label: String, _ sorted: [IPSReview], _ selectedId: String, _ onPick: @escaping (String) -> Void) -> some View {
         Menu {
-            ForEach(sorted) { r in Button { onPick(r.id) } label: { Text(r.createdAt, style: .date) } }
+            // Date + time so two reviews saved the same day are distinguishable in the menu.
+            ForEach(sorted) { r in Button { onPick(r.id) } label: { Text(r.createdAt.formatted(date: .abbreviated, time: .shortened)) } }
         } label: {
             VStack(alignment: .leading, spacing: 1) {
                 Text(label.uppercased()).font(.system(size: 8.5, weight: .heavy)).foregroundStyle(Theme.muted)
                 HStack(spacing: 3) {
-                    Text((sorted.first { $0.id == selectedId } ?? sorted[0]).createdAt, style: .date)
+                    Text((sorted.first { $0.id == selectedId } ?? sorted[0]).createdAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.accent)
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.muted)
                 }
@@ -496,9 +497,10 @@ struct PolicyStatementTab: View {
     }
 
     private func usdDelta(_ now: Usd, _ prior: Usd) -> String {
-        let d = now - prior
-        guard abs(d) >= 500 else { return "" }
-        return " (\(d > 0 ? "▲" : "▼") \(Fmt.usdShort(abs(d))))"
+        // Guard on the DISPLAYED precision (like the bps delta), so an arrow never appears
+        // beside two figures that round to the same usdShort string.
+        guard Fmt.usdShort(now) != Fmt.usdShort(prior) else { return "" }
+        return " (\(now > prior ? "▲" : "▼") \(Fmt.usdShort(abs(now - prior))))"
     }
     private func countDelta(_ now: Int, _ prior: Int) -> String {
         guard now != prior else { return "" }
