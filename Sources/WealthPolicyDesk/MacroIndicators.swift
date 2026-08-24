@@ -12,9 +12,9 @@ public extension Seed {
     /// The data-as-of date of the board below — the latest observation across the
     /// machine-refreshed FRED/Shiller series, NOT the plan date. This is what every
     /// "as of" caption should show; `generate_cme_snapshot.py` rewrites it on refresh.
-    static let macroDataAsOf: IsoDate = "2026-08-20"
+    static let macroDataAsOf: IsoDate = "2026-08-21"
 
-    /// The current macro indicator board (FRED/Shiller refresh 2026-08-20; ISM/LEI/proxy rows still "verify").
+    /// The current macro indicator board (FRED/Shiller refresh 2026-08-21; ISM/LEI/proxy rows still "verify").
     static let macroIndicators: [MacroIndicator] = [
         // --- Growth & activity ---
         MacroIndicator("ISM mfg new orders", .growth, 56.7, .index, importance: 3, oddsWeight: 8, timing: .leading, source: "estimate",
@@ -29,7 +29,7 @@ public extension Seed {
         MacroIndicator("Industrial production YoY", .growth, 1.08, .pct, importance: 2, oddsWeight: 0, timing: .coincident, source: "INDPRO",
             descriptor: "Year-over-year output of factories, mines and utilities; a core NBER coincident series — negative YoY confirms recession but lags, so it carries no forward-odds weight.",
             bands: [MacroBand(-1.5, .recession, "contracting"), MacroBand(0.5, .late, "stalling"), MacroBand(2, .neutral, "modest growth"), MacroBand(999999, .early, "expanding")]),
-        MacroIndicator("CFNAI activity factor", .growth, -0.05, .index, importance: 3, oddsWeight: 8, timing: .coincident, source: "CFNAIMA3",
+        MacroIndicator("CFNAI activity factor", .growth, -0.04, .index, importance: 3, oddsWeight: 8, timing: .coincident, source: "CFNAIMA3",
             descriptor: "Chicago Fed National Activity Index — a weighted factor of 85 monthly series (0 = trend growth); its 3-month average below -0.70 is a textbook recession-onset trigger.",
             bands: [MacroBand(-0.7, .recession, "contraction"), MacroBand(-0.2, .late, "below trend"), MacroBand(0.2, .neutral, "trend growth"), MacroBand(999999, .early, "above trend")]),
         MacroIndicator("Real retail sales YoY", .growth, 1.65, .pct, importance: 2, oddsWeight: 0, timing: .coincident, source: "RRSFS",
@@ -57,8 +57,8 @@ public extension Seed {
         MacroIndicator("Unemployment trend", .labor, -0.2, .pct, importance: 2, oddsWeight: 6, timing: .lagging, source: "UNRATE",
             descriptor: "12-month change in the unemployment rate — direction beats level: a rising trend signals labor deterioration, while a flat-to-falling trend is consistent with a firm labor market.",
             bands: [MacroBand(-0.2, .early, "falling"), MacroBand(0.25, .neutral, "stable"), MacroBand(0.5, .late, "rising"), MacroBand(999999, .recession, "climbing")]),
-        MacroIndicator("Temp-help employment", .labor, -0.5, .pct, importance: 2, oddsWeight: 8, timing: .leading, source: "estimate",
-            descriptor: "Year-over-year change in temporary-help services jobs — firms cut flexible temps before permanent staff, so it leads headcount. Slightly soft but stabilized, not collapsing.",
+        MacroIndicator("Temp-help employment", .labor, 0.43, .pct, importance: 2, oddsWeight: 8, timing: .leading, source: "TEMPHELPS",
+            descriptor: "Year-over-year change in temporary-help services jobs — firms cut flexible temps before permanent staff, so it leads headcount; a sustained decline precedes broader layoffs, while stable-to-growing temp payrolls signal firms are still staffing up.",
             bands: [MacroBand(-8, .recession, "collapsing"), MacroBand(-2, .late, "declining"), MacroBand(2, .neutral, "flat"), MacroBand(999999, .early, "expanding")]),
         MacroIndicator("Avg weekly hours", .labor, 34.3, .index, importance: 2, oddsWeight: 6, timing: .leading, source: "AWHAETP",
             descriptor: "Average weekly hours of private employees, an LEI component — employers trim hours before jobs, so falling hours precede layoffs while steady hours signal firms are still holding their workforce.",
@@ -124,7 +124,7 @@ public extension Seed {
             descriptor: "WTI crude oil price versus a year ago; energy is a cyclical catalyst — sharp spikes precede nearly every US recession, while deep collapses flag demand destruction.",
             bands: [MacroBand(-35, .recession, "demand destruction"), MacroBand(-10, .early, "disinflationary relief"), MacroBand(15, .neutral, "range-bound"), MacroBand(40, .late, "energy firming"), MacroBand(999999, .late, "oil shock")]),
         // --- Rates & policy ---
-        MacroIndicator("10y-3m curve", .rates, 0.82, .pct, importance: 3, oddsWeight: 20, timing: .leading, source: "T10Y3M",
+        MacroIndicator("10y-3m curve", .rates, 0.86, .pct, importance: 3, oddsWeight: 20, timing: .leading, source: "T10Y3M",
             descriptor: "Spread of the 10-year over the 3-month Treasury yield; the single most reliable recession lead, with deep inversion preceding downturns by roughly a year. Now positively sloped after un-inverting, so no recession signal.",
             bands: [MacroBand(-0.5, .recession, "deeply inverted"), MacroBand(0, .late, "inverted"), MacroBand(0.5, .neutral, "flat"), MacroBand(1.5, .neutral, "positively sloped"), MacroBand(2.5, .early, "steep"), MacroBand(999999, .early, "very steep")]),
         MacroIndicator("10y-2y curve", .rates, 0.5, .pct, importance: 2, oddsWeight: 12, timing: .leading, source: "T10Y2Y",
@@ -133,7 +133,7 @@ public extension Seed {
         MacroIndicator("10y real rate", .rates, 2.35, .pct, importance: 2, oddsWeight: 3, timing: .leading, source: "DFII10",
             descriptor: "10-year TIPS yield — the real cost of long-term capital; readings near multi-year highs are the most restrictive in over a decade, pressuring equity valuations and rate-sensitive demand — a late-cycle lean.",
             bands: [MacroBand(0, .early, "negative/accommodative"), MacroBand(0.75, .early, "low/easy"), MacroBand(1.5, .neutral, "moderate"), MacroBand(2.25, .late, "restrictive"), MacroBand(3, .late, "very restrictive"), MacroBand(999999, .recession, "extremely restrictive")]),
-        MacroIndicator("Curve 6-mo trend", .rates, 48, .bps, importance: 2, oddsWeight: 6, timing: .leading, source: "T10Y3M",
+        MacroIndicator("Curve 6-mo trend", .rates, 51, .bps, importance: 2, oddsWeight: 6, timing: .leading, source: "T10Y3M",
             descriptor: "Six-month change in the 10y-3m curve, capturing un-inversion momentum. Orderly re-steepening off a flat base reads as normalization, not the crash-driven bull-steepener that front-runs recessions.",
             bands: [MacroBand(-75, .late, "re-flattening"), MacroBand(-15, .neutral, "flattening"), MacroBand(40, .neutral, "stable"), MacroBand(100, .neutral, "normalizing"), MacroBand(175, .late, "rapid steepening"), MacroBand(999999, .recession, "bull-steepening off inversion")]),
         MacroIndicator("Fed funds vs r*", .rates, 0.6, .pct, importance: 2, oddsWeight: 5, timing: .leading, source: "estimate",
@@ -152,14 +152,14 @@ public extension Seed {
         MacroIndicator("SLOOS C&I tightening", .money, 0, .pct, importance: 3, oddsWeight: 14, timing: .leading, source: "DRTSCILM",
             descriptor: "Net share of banks tightening C&I lending standards (Fed Senior Loan Officer survey). A top leading indicator — net tightening above ~20% has front-run recessions by three to four quarters.",
             bands: [MacroBand(-10, .early, "easing"), MacroBand(5, .neutral, "balanced"), MacroBand(20, .late, "tightening"), MacroBand(999999, .recession, "credit crunch")]),
-        MacroIndicator("C&I loan growth", .money, 8.39, .pct, importance: 2, oddsWeight: 5, timing: .lagging, source: "BUSLOANS",
+        MacroIndicator("C&I loan growth", .money, 8.64, .pct, importance: 2, oddsWeight: 5, timing: .lagging, source: "BUSLOANS",
             descriptor: "YoY growth in commercial & industrial bank loans — the business credit cycle in real time. Outright contraction is a late/recession tell, though it lags the turn; moderate growth confirms a firm mid-cycle.",
             bands: [MacroBand(-3, .recession, "contracting"), MacroBand(1, .late, "stalling"), MacroBand(6, .neutral, "moderate"), MacroBand(12, .early, "expanding"), MacroBand(999999, .late, "overheating")]),
         MacroIndicator("Reserves / GDP", .money, 10.3, .pct, importance: 1, oddsWeight: 3, timing: .leading, source: "estimate",
             descriptor: "Bank reserves as a share of GDP with the ON RRP buffer now drained to near zero — the system-liquidity cushion. As reserves drift toward 'scarce,' funding-stress risk rises (cf. the Sept 2019 repo spike).",
             bands: [MacroBand(8, .recession, "scarce"), MacroBand(11, .late, "adequate"), MacroBand(14, .neutral, "ample"), MacroBand(999999, .early, "abundant")]),
         // --- Credit ---
-        MacroIndicator("HY OAS", .credit, 273, .bps, importance: 3, oddsWeight: 16, timing: .leading, source: "BAMLH0A0HYM2",
+        MacroIndicator("HY OAS", .credit, 270, .bps, importance: 3, oddsWeight: 16, timing: .leading, source: "BAMLH0A0HYM2",
             descriptor: "ICE BofA US high-yield option-adjusted spread; the premier market gauge of default risk and credit tightness — very tight spreads signal late-cycle complacency, blowouts above ~600bp precede recessions.",
             bands: [MacroBand(300, .late, "very tight"), MacroBand(450, .neutral, "normal"), MacroBand(600, .late, "widening"), MacroBand(800, .recession, "stressed"), MacroBand(999999, .recession, "crisis")]),
         MacroIndicator("IG OAS", .credit, 81, .bps, importance: 2, oddsWeight: 9, timing: .leading, source: "BAMLC0A0CM",
@@ -178,7 +178,7 @@ public extension Seed {
             descriptor: "US high-yield trailing-12-month default rate; the realized-loss confirmation of the credit cycle — lagging but definitive, and its rising trend marks late-cycle deterioration; currently low, below the ~3.5-4% long-run average.",
             bands: [MacroBand(2.5, .early, "very low"), MacroBand(4, .neutral, "benign"), MacroBand(6, .late, "rising"), MacroBand(8, .recession, "elevated"), MacroBand(999999, .recession, "spiking")]),
         // --- Equity & market ---
-        MacroIndicator("Shiller CAPE", .market, 41.8, .ratio, importance: 2, oddsWeight: 0, timing: .leading, source: "multpl",
+        MacroIndicator("Shiller CAPE", .market, 42, .ratio, importance: 2, oddsWeight: 0, timing: .leading, source: "multpl",
             descriptor: "Cyclically-adjusted P/E; extreme readings mark late-cycle valuation risk and cap forward returns, though it is a poor short-term timing tool.",
             bands: [MacroBand(16, .early, "cheap"), MacroBand(24, .neutral, "fair"), MacroBand(32, .late, "elevated"), MacroBand(999999, .late, "extreme")]),
         MacroIndicator("Fwd EPS revision breadth", .market, 11, .pct, importance: 2, oddsWeight: 4, timing: .leading, source: "estimate",
@@ -196,7 +196,7 @@ public extension Seed {
         MacroIndicator("Copper/gold ratio", .market, -0.3, .zscore, importance: 1, oddsWeight: 0, timing: .leading, source: "estimate",
             descriptor: "Copper priced against gold, a growth/reflation gauge; copper strength signals expansion, gold leadership signals hedging and late-cycle caution.",
             bands: [MacroBand(-1.5, .recession, "deep risk-off"), MacroBand(-0.4, .late, "gold leadership"), MacroBand(0.5, .neutral, "range-bound"), MacroBand(999999, .early, "reflationary")]),
-        MacroIndicator("VIX", .market, 14.89, .index, importance: 2, oddsWeight: 5, timing: .leading, source: "VIXCLS",
+        MacroIndicator("VIX", .market, 15.13, .index, importance: 2, oddsWeight: 5, timing: .leading, source: "VIXCLS",
             descriptor: "Implied S&P volatility; ultra-low readings mark complacency, spikes into the 30s-40s coincide with stress and recessions.",
             bands: [MacroBand(15, .late, "complacent"), MacroBand(20, .neutral, "calm"), MacroBand(28, .late, "stressed"), MacroBand(40, .recession, "fear"), MacroBand(999999, .recession, "panic")]),
         MacroIndicator("Put/call ratio", .market, 0.85, .ratio, importance: 1, oddsWeight: 0, timing: .leading, source: "estimate",
