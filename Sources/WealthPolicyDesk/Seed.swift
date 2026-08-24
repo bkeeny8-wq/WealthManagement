@@ -16,42 +16,6 @@ import Foundation
 public enum Seed {
 
     // ========================================================
-    // Fund lineup (LINEUP) and geography tree (GEO_TREE)
-    // ========================================================
-
-    public static let lineup = FundLineup(
-        domesticCore: .init(ticker: "IVV", label: "S&P 500", feeBps: 3),
-        domesticMid: .init(ticker: "IJH", label: "S&P MidCap 400", feeBps: 5),
-        domesticSmall: .init(ticker: "IJR", label: "S&P SmallCap 600", feeBps: 6),
-        developedCore: .init(ticker: "IEFA", label: "MSCI EAFE IMI", feeBps: 7),
-        emergingCore: .init(ticker: "IEMG", label: "MSCI EM IMI", feeBps: 9),
-        tlhPartners: ["IVV": "VOO", "IJH": "VO", "IJR": "VB"]
-    )
-
-    public static let geoTree: [GeoNode] = [
-        .init(id: "world", label: "World", level: .global, parentId: nil),
-        .init(id: "us", label: "United States", level: .bloc, parentId: "world", isoCode: "US"),
-        .init(id: "dev_exus", label: "Developed ex-US", level: .bloc, parentId: "world"),
-        .init(id: "em", label: "Emerging Markets", level: .bloc, parentId: "world"),
-        .init(id: "europe_dev", label: "Europe (developed)", level: .region, parentId: "dev_exus"),
-        .init(id: "asia_dev", label: "Asia (developed)", level: .region, parentId: "dev_exus"),
-        .init(id: "americas_dev", label: "Americas (developed)", level: .region, parentId: "dev_exus"),
-        .init(id: "asia_em", label: "Asia (emerging)", level: .region, parentId: "em"),
-        .init(id: "latam_em", label: "Latin America (emerging)", level: .region, parentId: "em"),
-        .init(id: "emea_em", label: "EMEA (emerging)", level: .region, parentId: "em"),
-        .init(id: "de", label: "Germany", level: .country, parentId: "europe_dev", isoCode: "DE"),
-        .init(id: "fr", label: "France", level: .country, parentId: "europe_dev", isoCode: "FR"),
-        .init(id: "gb", label: "United Kingdom", level: .country, parentId: "europe_dev", isoCode: "GB"),
-        .init(id: "ch", label: "Switzerland", level: .country, parentId: "europe_dev", isoCode: "CH"),
-        .init(id: "jp", label: "Japan", level: .country, parentId: "asia_dev", isoCode: "JP"),
-        .init(id: "tw", label: "Taiwan", level: .country, parentId: "asia_em", isoCode: "TW"),
-        .init(id: "kr", label: "South Korea", level: .country, parentId: "asia_em", isoCode: "KR"),
-        .init(id: "in", label: "India", level: .country, parentId: "asia_em", isoCode: "IN"),
-        .init(id: "br", label: "Brazil", level: .country, parentId: "latam_em", isoCode: "BR"),
-        .init(id: "mx", label: "Mexico", level: .country, parentId: "latam_em", isoCode: "MX"),
-    ]
-
-    // ========================================================
     // Sleeves (shared by both seeded policies)
     // ========================================================
 
@@ -168,15 +132,13 @@ public enum Seed {
     ]
 
     static let rebalance = RebalancePolicy(
-        reviewCadence: "annual", trigger: "band", outerBandMultiplier: 2.0, correctionFractionBps: 6000,
+        reviewCadence: "annual", outerBandMultiplier: 2.0, correctionFractionBps: 6000,
         minTradeUsd: 1_000, preferCashFlowRebalancing: true, washSaleWindowDays: 31,
         realizedGainBudgetBps: nil, excludedLiquidityClasses: [.locked, .gated])
 
     static let withdrawal = WithdrawalPolicy(
         mode: .flagOpportunities, strategy: "bracket_fill", targetBracketRateBps: 2200,
         conversionWindow: (fromAge: 62, toAge: 73), cliffAwareness: ["niit", "irmaa", "ltcg_breakpoint"])
-
-    static let regime = RegimePolicy(enabled: false, evaluationCadence: "quarterly", maxTiltBps: 300, restrictToTreatments: [.taxDeferred])
 
     static let policyConstraints: [PolicyRule] = [
         .init(id: "smoothed_marks_guard", severity: .hard, description: "No wrapper with returnsAreSmoothed may enter a projection without a volatilityOverrideBps or an unsmoothed series. Otherwise the optimizer allocates 60% to private credit."),
@@ -207,23 +169,19 @@ public enum Seed {
         id: "legacy-perpetual", version: "2.0.0", effectiveDate: "2026-08-11", taxModuleVersion: "us-fed-2026.1",
         sleeves: sleeves, altBudgets: altBudgets, altWrappers: altWrappers, eligibilityTiers: eligibilityTiers,
         ladder: LadderPolicy(yearsCovered: 0, minCreditQuality: "AA", allowCredit: false, rollForward: false, rebalanceReserveBps: 300),
-        glide: nil, rebalance: rebalance, withdrawal: withdrawal, regime: regime,
+        rebalance: rebalance, withdrawal: withdrawal,
         constraints: policyConstraints, statement: statement)
 
-    /// spendingPolicy — the decumulation instance the README leaves unbuilt:
-    /// a 7-year liability ladder and a ratcheting, valuation-modulated glide.
+    /// spendingPolicy — the decumulation instance: a 7-year liability ladder so no
+    /// drawdown ever forces a sale into weakness. (Its policyId "spending-glide" is the
+    /// default selected at runtime; the valuation-glide subtree was never wired and is gone.)
     public static let spendingPolicy = InvestmentPolicy(
         id: "spending-glide", version: "2.0.0", effectiveDate: "2026-08-11", taxModuleVersion: "us-fed-2026.1",
         sleeves: sleeves, altBudgets: altBudgets, altWrappers: altWrappers, eligibilityTiers: eligibilityTiers,
         ladder: LadderPolicy(yearsCovered: 7, minCreditQuality: "AA", allowCredit: false, rollForward: true, rebalanceReserveBps: 300),
-        glide: GlidePolicy(
-            startDate: "2026-08-11", hardCompletionDate: "2038-01-01",
-            fromEquityBps: 6500, toEquityBps: 4000, ratchet: true,
-            valuationSignal: ValuationSignal(metric: .cape, richThreshold: 30, cheapThreshold: 18, maxScheduleDeviationYears: 3),
-            altCompositionShift: [(fn: .illiquidityPremium, deltaBps: -300), (fn: .shapedPayoff, deltaBps: 300)]),
-        rebalance: rebalance, withdrawal: withdrawal, regime: regime,
+        rebalance: rebalance, withdrawal: withdrawal,
         constraints: policyConstraints,
-        statement: "The spending claim glides on a ratchet toward a hard deadline; the ladder pre-funds seven years of net outflows so no drawdown ever forces a sale into weakness.")
+        statement: "The spending claim is funded by a ladder that pre-funds seven years of net outflows so no drawdown ever forces a sale into weakness.")
 
     public static let policies: [InvestmentPolicy] = [legacyPolicy, spendingPolicy]
     public static func policy(_ id: String) -> InvestmentPolicy { policies.first { $0.id == id } ?? legacyPolicy }
@@ -240,35 +198,11 @@ public enum Seed {
         maxTotalAbsoluteDeviationBps: 1000, maxSingleSectorDeviationBps: 400, maxLookThroughSectorBps: 3800,
         restrictToTreatments: [.taxDeferred, .taxFree])
 
-    public static let axisRules: [AxisRules] = [
-        .init(axis: .sector, restrictToTreatments: [.taxDeferred, .taxFree], minExpectedRelativeReturnBps: 100, maxSingleDeviationBps: 400, maxTotalAbsoluteDeviationBps: 1000),
-        .init(axis: .geo, restrictToTreatments: [.taxDeferred, .taxFree], minExpectedRelativeReturnBps: 300, maxSingleDeviationBps: 300, maxTotalAbsoluteDeviationBps: 800),
-    ]
-
     public static let matrixConstraints: [MatrixConstraint] = [
         .init(id: "cell_concentration", severity: .soft, scope: .cell, limitBps: 800, description: "Flags any country×sector cell above 8% of equity — the joint-exposure a per-axis view misses. SOFT by design: a cap-weighted US index alone puts ~18% in US·Technology, so a large cell is worth noticing, not a mandatory correction. The hard guardrails are the sector-marginal (38%) and single-country (7%) caps."),
         .init(id: "sector_lookthrough", severity: .hard, scope: .sectorMargin, limitBps: 3800, description: "Sector look-through inclusive of country-fund contribution."),
         .init(id: "single_country", severity: .hard, scope: .geoMargin, limitBps: 700, description: "Single-country exposure inclusive of core."),
         .init(id: "em_ceiling", severity: .soft, scope: .geoMargin, limitBps: 1500, description: "Emerging markets core + overlay."),
-    ]
-
-    // ========================================================
-    // Layer separation
-    // ========================================================
-
-    public static let holdingPeriods: [HoldingPeriodPolicy] = [
-        .init(axis: .sector, reviewIntervalDays: 90, maxHoldingDays: 548, requiresFreshThesisOnReentry: true, reentryCooldownDays: 0),
-        .init(axis: .geo, reviewIntervalDays: 90, maxHoldingDays: 548, requiresFreshThesisOnReentry: true, reentryCooldownDays: 0),
-    ]
-
-    public static let layerBudget = LayerBudget(maxTacticalShareOfEquityBps: 1700, maxTacticalShareOfPortfolioBps: 900, maxConcurrentTilts: 4, annualCostBudgetBps: 40)
-
-    public static let layerConstraints: [PolicyRule] = [
-        .init(id: "layer_isolation", severity: .hard, description: "The strategic engine may not transact tactical lots, or vice versa."),
-        .init(id: "no_tactical_step_up", severity: .hard, description: "Tactical lots never carry a holdToStepUp earmark."),
-        .init(id: "holding_period_ceiling", severity: .hard, description: "A tactical lot past maxHoldingDays must exit or re-enter with a fresh thesis."),
-        .init(id: "entry_gate", severity: .soft, description: "A tilt whose expected return is below its round-trip cost; override is logged and surfaced."),
-        .init(id: "annual_cost_budget", severity: .hard, description: "Trailing 12-month tactical cost over budget pauses new entries."),
     ]
 
     // ========================================================

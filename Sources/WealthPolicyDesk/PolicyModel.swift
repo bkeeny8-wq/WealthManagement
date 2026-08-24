@@ -220,45 +220,8 @@ public struct LadderPolicy: Sendable, Hashable {
     }
 }
 
-public struct ValuationSignal: Sendable, Hashable {
-    public enum Metric: String, Sendable, Hashable { case cape, earningsYieldReal = "earnings_yield_real", equityRiskPremium = "equity_risk_premium" }
-    public var metric: Metric
-    public var richThreshold: Double
-    public var cheapThreshold: Double
-    public var maxScheduleDeviationYears: Double
-    public init(metric: Metric, richThreshold: Double, cheapThreshold: Double, maxScheduleDeviationYears: Double) {
-        self.metric = metric; self.richThreshold = richThreshold
-        self.cheapThreshold = cheapThreshold; self.maxScheduleDeviationYears = maxScheduleDeviationYears
-    }
-}
-
-/// Applies to the SPENDING claim only. The legacy claim never glides.
-public struct GlidePolicy: Sendable, Hashable {
-    public var startDate: IsoDate
-    public var hardCompletionDate: IsoDate
-    public var fromEquityBps: Bps
-    public var toEquityBps: Bps
-    public var ratchet: Bool
-    public var valuationSignal: ValuationSignal
-    public var altCompositionShift: [(fn: AltFunction, deltaBps: Bps)]
-    public init(startDate: IsoDate, hardCompletionDate: IsoDate, fromEquityBps: Bps, toEquityBps: Bps, ratchet: Bool, valuationSignal: ValuationSignal, altCompositionShift: [(fn: AltFunction, deltaBps: Bps)]) {
-        self.startDate = startDate; self.hardCompletionDate = hardCompletionDate
-        self.fromEquityBps = fromEquityBps; self.toEquityBps = toEquityBps
-        self.ratchet = ratchet; self.valuationSignal = valuationSignal; self.altCompositionShift = altCompositionShift
-    }
-    public static func == (l: GlidePolicy, r: GlidePolicy) -> Bool {
-        l.startDate == r.startDate && l.hardCompletionDate == r.hardCompletionDate &&
-        l.fromEquityBps == r.fromEquityBps && l.toEquityBps == r.toEquityBps &&
-        l.ratchet == r.ratchet && l.valuationSignal == r.valuationSignal &&
-        l.altCompositionShift.map(\.deltaBps) == r.altCompositionShift.map(\.deltaBps) &&
-        l.altCompositionShift.map(\.fn) == r.altCompositionShift.map(\.fn)
-    }
-    public func hash(into h: inout Hasher) { h.combine(fromEquityBps); h.combine(toEquityBps) }
-}
-
 public struct RebalancePolicy: Sendable, Hashable {
     public var reviewCadence: String
-    public var trigger: String
     /// Inner band: flag. Outer band: mandatory.
     public var outerBandMultiplier: Double
     /// Partial correction toward target, letting momentum run. 0–10000 bps.
@@ -270,8 +233,8 @@ public struct RebalancePolicy: Sendable, Hashable {
     public var realizedGainBudgetBps: Bps?
     /// Locked/gated holdings sit outside bands; the rest absorbs their drift.
     public var excludedLiquidityClasses: [LiquidityClass]
-    public init(reviewCadence: String, trigger: String, outerBandMultiplier: Double, correctionFractionBps: Bps, minTradeUsd: Usd, preferCashFlowRebalancing: Bool, washSaleWindowDays: Int, realizedGainBudgetBps: Bps?, excludedLiquidityClasses: [LiquidityClass]) {
-        self.reviewCadence = reviewCadence; self.trigger = trigger; self.outerBandMultiplier = outerBandMultiplier
+    public init(reviewCadence: String, outerBandMultiplier: Double, correctionFractionBps: Bps, minTradeUsd: Usd, preferCashFlowRebalancing: Bool, washSaleWindowDays: Int, realizedGainBudgetBps: Bps?, excludedLiquidityClasses: [LiquidityClass]) {
+        self.reviewCadence = reviewCadence; self.outerBandMultiplier = outerBandMultiplier
         self.correctionFractionBps = correctionFractionBps; self.minTradeUsd = minTradeUsd
         self.preferCashFlowRebalancing = preferCashFlowRebalancing; self.washSaleWindowDays = washSaleWindowDays
         self.realizedGainBudgetBps = realizedGainBudgetBps; self.excludedLiquidityClasses = excludedLiquidityClasses
@@ -299,17 +262,6 @@ public struct WithdrawalPolicy: Sendable, Hashable {
     public func hash(into h: inout Hasher) { h.combine(mode); h.combine(targetBracketRateBps) }
 }
 
-public struct RegimePolicy: Sendable, Hashable {
-    public var enabled: Bool
-    public var evaluationCadence: String
-    public var maxTiltBps: Bps
-    public var restrictToTreatments: [AccountTaxTreatment]
-    public init(enabled: Bool, evaluationCadence: String, maxTiltBps: Bps, restrictToTreatments: [AccountTaxTreatment]) {
-        self.enabled = enabled; self.evaluationCadence = evaluationCadence
-        self.maxTiltBps = maxTiltBps; self.restrictToTreatments = restrictToTreatments
-    }
-}
-
 // MARK: - The policy aggregate
 
 public struct InvestmentPolicy: Identifiable, Sendable, Hashable {
@@ -322,18 +274,16 @@ public struct InvestmentPolicy: Identifiable, Sendable, Hashable {
     public var altWrappers: [AltWrapper]
     public var eligibilityTiers: [EligibilityTier]
     public var ladder: LadderPolicy
-    public var glide: GlidePolicy?
     public var rebalance: RebalancePolicy
     public var withdrawal: WithdrawalPolicy
-    public var regime: RegimePolicy
     public var constraints: [PolicyRule]
     /// Becomes IPS language and client explanation.
     public var statement: String
-    public init(id: String, version: String, effectiveDate: IsoDate, taxModuleVersion: String, sleeves: [Sleeve], altBudgets: [AltFunctionBudget], altWrappers: [AltWrapper], eligibilityTiers: [EligibilityTier], ladder: LadderPolicy, glide: GlidePolicy?, rebalance: RebalancePolicy, withdrawal: WithdrawalPolicy, regime: RegimePolicy, constraints: [PolicyRule], statement: String) {
+    public init(id: String, version: String, effectiveDate: IsoDate, taxModuleVersion: String, sleeves: [Sleeve], altBudgets: [AltFunctionBudget], altWrappers: [AltWrapper], eligibilityTiers: [EligibilityTier], ladder: LadderPolicy, rebalance: RebalancePolicy, withdrawal: WithdrawalPolicy, constraints: [PolicyRule], statement: String) {
         self.id = id; self.version = version; self.effectiveDate = effectiveDate; self.taxModuleVersion = taxModuleVersion
         self.sleeves = sleeves; self.altBudgets = altBudgets; self.altWrappers = altWrappers
-        self.eligibilityTiers = eligibilityTiers; self.ladder = ladder; self.glide = glide
-        self.rebalance = rebalance; self.withdrawal = withdrawal; self.regime = regime
+        self.eligibilityTiers = eligibilityTiers; self.ladder = ladder
+        self.rebalance = rebalance; self.withdrawal = withdrawal
         self.constraints = constraints; self.statement = statement
     }
     public func sleeve(_ id: String) -> Sleeve? { sleeves.first { $0.id == id } }

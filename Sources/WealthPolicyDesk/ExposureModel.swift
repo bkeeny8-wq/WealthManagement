@@ -8,7 +8,9 @@
 //  unavoidably also a sector tilt: a technology overweight plus a Taiwan
 //  overweight each read compliant per-axis while jointly forming a large
 //  undeclared semiconductor bet. Only constraints on matrix CELLS — not just the
-//  margins — catch this.
+//  margins — catch this. The live look-through works off String-keyed cells
+//  (ExposureLookthrough.swift); the geo-tree / axis-rule / fund-lineup scaffolding
+//  this file once carried was never wired and has been retired.
 
 import Foundation
 
@@ -53,46 +55,7 @@ public enum Sector: String, CaseIterable, Identifiable, Sendable, Hashable {
     }
 }
 
-// MARK: - Tilts
-
-public enum TiltAxis: String, CaseIterable, Identifiable, Sendable, Hashable {
-    case sector, geo, style
-    public var id: String { rawValue }
-    public var label: String { rawValue.capitalized }
-}
-
-// MARK: - Geography tree
-
-public enum GeoLevel: String, CaseIterable, Sendable, Hashable {
-    case global, bloc, region, country
-}
-
-public struct GeoNode: Identifiable, Sendable, Hashable {
-    public var id: String
-    public var label: String
-    public var level: GeoLevel
-    public var parentId: String?
-    public var isoCode: String?
-    public init(id: String, label: String, level: GeoLevel, parentId: String?, isoCode: String? = nil) {
-        self.id = id; self.label = label; self.level = level; self.parentId = parentId; self.isoCode = isoCode
-    }
-}
-
-// MARK: - Rules and constraints
-
-public struct AxisRules: Identifiable, Sendable, Hashable {
-    public var axis: TiltAxis
-    public var restrictToTreatments: [AccountTaxTreatment]
-    public var minExpectedRelativeReturnBps: Bps    // hurdle
-    public var maxSingleDeviationBps: Bps
-    public var maxTotalAbsoluteDeviationBps: Bps
-    public var id: String { axis.rawValue }
-    public init(axis: TiltAxis, restrictToTreatments: [AccountTaxTreatment], minExpectedRelativeReturnBps: Bps, maxSingleDeviationBps: Bps, maxTotalAbsoluteDeviationBps: Bps) {
-        self.axis = axis; self.restrictToTreatments = restrictToTreatments
-        self.minExpectedRelativeReturnBps = minExpectedRelativeReturnBps
-        self.maxSingleDeviationBps = maxSingleDeviationBps; self.maxTotalAbsoluteDeviationBps = maxTotalAbsoluteDeviationBps
-    }
-}
+// MARK: - Matrix constraints (the country×sector look-through caps)
 
 public struct MatrixConstraint: Identifiable, Sendable, Hashable {
     public enum Scope: String, Sendable, Hashable { case cell, geoMargin = "geo_margin", sectorMargin = "sector_margin" }
@@ -106,48 +69,11 @@ public struct MatrixConstraint: Identifiable, Sendable, Hashable {
     }
 }
 
-// MARK: - Live decomposition (fetched, never stored as policy)
+// MARK: - Tactical sector-overlay policy (the per-client tilt BUDGET)
 
-public struct ExposureMatrix: Sendable, Hashable {
-    public var asOf: IsoDate
-    public var source: String
-    public var maxAgeDays: Int
-    /// cells[geoId][sector] in bps of total equity (joint exposure).
-    public var cells: [String: [Sector: Bps]]
-    public var byGeoBps: [String: Bps]
-    public var bySectorBps: [Sector: Bps]
-    public init(asOf: IsoDate, source: String, maxAgeDays: Int, cells: [String: [Sector: Bps]], byGeoBps: [String: Bps], bySectorBps: [Sector: Bps]) {
-        self.asOf = asOf; self.source = source; self.maxAgeDays = maxAgeDays
-        self.cells = cells; self.byGeoBps = byGeoBps; self.bySectorBps = bySectorBps
-    }
-}
-
-// MARK: - Fund lineup
-
-/// One-family-per-side lineup, preventing index-family reconciliation bugs
-/// (FTSE vs MSCI Korea classification). Domestic = S&P family; international =
-/// MSCI family. TLH partners are always a different family.
-public struct FundLineup: Sendable, Hashable {
-    public struct Vehicle: Sendable, Hashable {
-        public var ticker: String
-        public var label: String
-        public var feeBps: Bps
-        public init(ticker: String, label: String, feeBps: Bps) { self.ticker = ticker; self.label = label; self.feeBps = feeBps }
-    }
-    public var domesticCore: Vehicle
-    public var domesticMid: Vehicle
-    public var domesticSmall: Vehicle
-    public var developedCore: Vehicle
-    public var emergingCore: Vehicle
-    public var tlhPartners: [String: String]     // primary ticker -> partner ticker
-    public init(domesticCore: Vehicle, domesticMid: Vehicle, domesticSmall: Vehicle, developedCore: Vehicle, emergingCore: Vehicle, tlhPartners: [String: String]) {
-        self.domesticCore = domesticCore; self.domesticMid = domesticMid; self.domesticSmall = domesticSmall
-        self.developedCore = developedCore; self.emergingCore = emergingCore; self.tlhPartners = tlhPartners
-    }
-}
-
-/// The tactical sector-overlay policy (from src/sector-tilt-module.ts). Kept
-/// small: this is the weakest-evidence component and is budgeted accordingly.
+/// The firm-wide deviation caps governing the per-client tactical tilts. Kept
+/// small: tactical rotation is the weakest-evidence component and is budgeted
+/// accordingly. Tilts themselves are per-client (Household.tacticalTilts).
 public struct TiltPolicy: Sendable, Hashable {
     public var enabled: Bool
     public var mode: String
