@@ -72,13 +72,13 @@ Constraints · Tax · Disposition · Tilts · Learn.
 ```
 Sources/WealthPolicyDesk/
   Units.swift              Bps / Usd / IsoDate + Fmt formatting, Severity, PolicyRule
-  PolicyModel.swift        InvestmentPolicy, sleeves, alt budgets/wrappers, tiers, glide, rebalance
+  PolicyModel.swift        InvestmentPolicy, sleeves, alt budgets/wrappers, tiers, rebalance, withdrawal
   HouseholdModel.swift     Household, people, human capital, goals-as-claims, positions, EstateInputs
   TaxModel.swift           TaxParameterSet, SALT, estate, disposition types, itemization
-  FixedIncomeModel.swift   Liabilities, instrument location, BalanceSheetView, muni/paydown/duration
-  ExposureModel.swift      Sector, tilts, Country×Sector matrix, geography tree, fund lineup
-  LayerModel.swift         Strategic/tactical/ladder layers, regimes, budget, attribution
-  Seed.swift               legacyPolicy, spendingPolicy, TAX_2026, tiltPolicy, LINEUP, GEO_TREE,
+  FixedIncomeModel.swift   Liabilities, BalanceSheetView, DeferredTaxLiability, muni crossover / paydown
+  ExposureModel.swift      Sector, TiltPolicy (per-client tilt budget), Country×Sector matrix constraints
+  LayerModel.swift         the Layer tag (strategic / tactical / ladder) every position carries
+  Seed.swift               legacyPolicy, spendingPolicy, TAX_2026, tiltPolicy (budget),
                            every *_CONSTRAINTS set, and the sample household (the Harrisons)
   IntakeModel.swift        The 15-section questionnaire (Codable) + intake→Household builder + synthesis
   PracticeMetadata.swift   CRM envelope (Codable), PracticeStore, CRMExportRecord (interchange record)
@@ -92,7 +92,7 @@ Sources/WealthPolicyDesk/
   IntakeView.swift         RootView (multi-client routing + book persistence), WelcomeView, wizard, form controls
   RosterView.swift         the book of business — client roster, summary, whole-book export
   DeskView.swift           the desk shell, client strip, live household inspector
-  *Tab.swift               the ten analysis tabs (incl. Decumulation, Resilience)
+  *Tab.swift               the 17 desk tabs (Policy Statement, Plan Summary, … Decumulation, Resilience, Frontier)
 Example/                   host app + Info.plist + Assets
 generate_xcodeproj.py      regenerates the pbxproj from the framework file list
 ```

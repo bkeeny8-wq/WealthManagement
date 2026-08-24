@@ -164,23 +164,6 @@ public struct AssetDispositionProfile: Identifiable, Sendable, Hashable {
     }
 }
 
-/// Administrability constraints that break tax-optimal plans.
-public struct HeirFeasibility: Sendable, Hashable {
-    public var unfundedCommitmentsUsd: Usd
-    public var heirsAreAccredited: Bool
-    public var indivisibleAssetHeirCount: Int
-    public var governingEntityExists: Bool
-    public var estimatedEstateTaxDueUsd: Usd
-    public var liquidAssetsAvailableUsd: Usd
-    public var liquidityShortfallUsd: Usd
-    public init(unfundedCommitmentsUsd: Usd, heirsAreAccredited: Bool, indivisibleAssetHeirCount: Int, governingEntityExists: Bool, estimatedEstateTaxDueUsd: Usd, liquidAssetsAvailableUsd: Usd, liquidityShortfallUsd: Usd) {
-        self.unfundedCommitmentsUsd = unfundedCommitmentsUsd; self.heirsAreAccredited = heirsAreAccredited
-        self.indivisibleAssetHeirCount = indivisibleAssetHeirCount; self.governingEntityExists = governingEntityExists
-        self.estimatedEstateTaxDueUsd = estimatedEstateTaxDueUsd; self.liquidAssetsAvailableUsd = liquidAssetsAvailableUsd
-        self.liquidityShortfallUsd = liquidityShortfallUsd
-    }
-}
-
 /// Per-lot basis-vs-estate-tax tradeoff. Produced by the engine.
 public struct DispositionDecision: Identifiable, Sendable, Hashable {
     public var lotId: String

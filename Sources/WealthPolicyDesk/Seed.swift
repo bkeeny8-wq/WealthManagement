@@ -206,29 +206,6 @@ public enum Seed {
     ]
 
     // ========================================================
-    // Fixed income & liability constraints, instrument profiles
-    // ========================================================
-
-    public static let instrumentProfiles: [InstrumentProfile] = [
-        .init(instrument: .treasury, federallyTaxable: true, stateTaxable: false, countsTowardMagi: true, hasPhantomIncome: false, preferredLocation: [.taxable], prohibitedLocation: []),
-        .init(instrument: .tips, federallyTaxable: true, stateTaxable: false, countsTowardMagi: true, hasPhantomIncome: true, preferredLocation: [.taxDeferred, .taxFree], prohibitedLocation: []),
-        .init(instrument: .corporateIg, federallyTaxable: true, stateTaxable: true, countsTowardMagi: true, hasPhantomIncome: false, preferredLocation: [.taxDeferred, .taxFree], prohibitedLocation: []),
-        .init(instrument: .corporateHy, federallyTaxable: true, stateTaxable: true, countsTowardMagi: true, hasPhantomIncome: false, preferredLocation: [.taxDeferred, .taxFree], prohibitedLocation: []),
-        .init(instrument: .muniNational, federallyTaxable: false, stateTaxable: true, countsTowardMagi: false, hasPhantomIncome: false, preferredLocation: [.taxable], prohibitedLocation: [.taxDeferred, .taxFree]),
-        .init(instrument: .muniInState, federallyTaxable: false, stateTaxable: false, countsTowardMagi: false, hasPhantomIncome: false, preferredLocation: [.taxable], prohibitedLocation: [.taxDeferred, .taxFree]),
-    ]
-
-    public static let fiLiabilityConstraints: [PolicyRule] = [
-        .init(id: "muni_in_sheltered_account", severity: .hard, description: "Municipal bonds held in a tax-deferred or tax-free account. Paying for an exemption inside an already-sheltered account, then converting to ordinary income on withdrawal."),
-        .init(id: "tips_in_taxable", severity: .soft, description: "TIPS in a taxable account. Inflation accruals are taxed currently without a cash distribution — tax due on money not received."),
-        .init(id: "negative_net_fixed_income", severity: .soft, description: "Debt exceeds fixed income assets. The household believes it holds a defensive allocation while running net short duration."),
-        .init(id: "revocable_credit_in_liquidity_floor", severity: .hard, description: "HELOC or SBLOC counted toward the liquidity floor. Both were withdrawn or called in past drawdowns — exactly when needed."),
-        .init(id: "duration_mismatch", severity: .soft, description: "FI duration materially different from the duration of the liabilities it funds."),
-        .init(id: "odd_lot_ladder", severity: .soft, description: "Individual bond positions below the odd-lot threshold. Markups likely exceed the benefit over a defined-maturity ETF."),
-        .init(id: "gross_net_worth_displayed", severity: .soft, description: "Presentation showing gross rather than after-tax net worth. Overstates available wealth, commonly by 15–25%."),
-    ]
-
-    // ========================================================
     // Disposition
     // ========================================================
 

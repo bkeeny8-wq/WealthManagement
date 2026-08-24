@@ -16,66 +16,6 @@ import Foundation
 
 // MARK: - Vehicles
 
-/// Three ways to own fixed income, each right for a different job.
-public enum FiVehicle: String, CaseIterable, Sendable, Hashable {
-    case individualBond = "individual_bond"        // only vehicle with a defined maturity
-    case bondEtf = "bond_etf"                       // perpetual duration; the reserve
-    case definedMaturityEtf = "defined_maturity_etf" // iBonds / BulletShares — the bridge
-    public var label: String {
-        switch self {
-        case .individualBond: return "Individual bond"
-        case .bondEtf: return "Bond ETF"
-        case .definedMaturityEtf: return "Defined-maturity ETF"
-        }
-    }
-}
-
-// MARK: - Instruments and account location
-
-/// Account location for FI is more consequential than for equities: tax
-/// characteristics differ sharply BY INSTRUMENT, not uniformly across the sleeve.
-public enum FiInstrument: String, CaseIterable, Identifiable, Sendable, Hashable {
-    case treasury, tips, agency
-    case corporateIg = "corporate_ig", corporateHy = "corporate_hy"
-    case muniNational = "muni_national", muniInState = "muni_in_state"
-    case cashEquivalent = "cash_equivalent"
-    public var id: String { rawValue }
-    public var label: String {
-        switch self {
-        case .treasury: return "Treasury"
-        case .tips: return "TIPS"
-        case .agency: return "Agency"
-        case .corporateIg: return "Corporate IG"
-        case .corporateHy: return "Corporate HY"
-        case .muniNational: return "Muni (national)"
-        case .muniInState: return "Muni (in-state)"
-        case .cashEquivalent: return "Cash equivalent"
-        }
-    }
-}
-
-/// The prohibitions matter more than the preferences. Munis in an IRA is a HARD
-/// error; TIPS in taxable is a soft error (phantom income); Treasuries are
-/// state-tax-exempt and belong in taxable specifically.
-public struct InstrumentProfile: Identifiable, Sendable, Hashable {
-    public var instrument: FiInstrument
-    public var federallyTaxable: Bool
-    public var stateTaxable: Bool
-    /// Muni interest does NOT count toward MAGI — keeps it out of SALT phase-down,
-    /// IRMAA and NIIT. (It IS in the Social Security taxability calc, so not fully invisible.)
-    public var countsTowardMagi: Bool
-    /// TIPS accrue inflation as CURRENT TAXABLE INCOME with no cash — phantom income.
-    public var hasPhantomIncome: Bool
-    public var preferredLocation: [AccountTaxTreatment]
-    public var prohibitedLocation: [AccountTaxTreatment]
-    public var id: String { instrument.rawValue }
-    public init(instrument: FiInstrument, federallyTaxable: Bool, stateTaxable: Bool, countsTowardMagi: Bool, hasPhantomIncome: Bool, preferredLocation: [AccountTaxTreatment], prohibitedLocation: [AccountTaxTreatment]) {
-        self.instrument = instrument; self.federallyTaxable = federallyTaxable; self.stateTaxable = stateTaxable
-        self.countsTowardMagi = countsTowardMagi; self.hasPhantomIncome = hasPhantomIncome
-        self.preferredLocation = preferredLocation; self.prohibitedLocation = prohibitedLocation
-    }
-}
-
 /// Muni crossover — often the largest single FI decision for a high-bracket
 /// household in a high-tax state. Naive TEY = muni / (1 - rate) understates
 /// munis (omits NIIT, state tax, MAGI effects) and overstates them (omits
@@ -95,25 +35,6 @@ public struct MuniCrossover: Sendable, Hashable {
         self.marginalOrdinaryRateBps = marginalOrdinaryRateBps; self.niitApplies = niitApplies
         self.inSaltPhaseDownBand = inSaltPhaseDownBand; self.taxableEquivalentYieldBps = taxableEquivalentYieldBps
         self.muniPreferred = muniPreferred
-    }
-}
-
-// MARK: - Duration (derived, not chosen)
-
-public struct DurationTarget: Identifiable, Sendable, Hashable {
-    public var claimId: String
-    public var liabilityDurationYears: Double
-    public var currentAssetDurationYears: Double
-    public var mismatchYears: Double
-    /// A 30-year fixed mortgage is a large negative-duration position.
-    public var liabilitySideDurationOffsetYears: Double
-    public var netHouseholdDurationYears: Double
-    public var id: String { claimId }
-    public init(claimId: String, liabilityDurationYears: Double, currentAssetDurationYears: Double, mismatchYears: Double, liabilitySideDurationOffsetYears: Double, netHouseholdDurationYears: Double) {
-        self.claimId = claimId; self.liabilityDurationYears = liabilityDurationYears
-        self.currentAssetDurationYears = currentAssetDurationYears; self.mismatchYears = mismatchYears
-        self.liabilitySideDurationOffsetYears = liabilitySideDurationOffsetYears
-        self.netHouseholdDurationYears = netHouseholdDurationYears
     }
 }
 
