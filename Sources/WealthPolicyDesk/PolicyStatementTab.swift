@@ -27,8 +27,15 @@ struct PolicyStatementTab: View {
     /// PLAN OF RECORD, so saving is blocked until those are committed or discarded.
     var hasStagedMoves: Bool = false
     @State private var share: SharePayload? = nil
-    @State private var reviewNote = ""
-    @State private var confirmed: Set<String> = []
+    /// The two reviews chosen in the compare panel (nil ⇒ default oldest→newest). Local
+    /// @State: a low-stakes UI selection, not typed data, so resetting on a tab switch is fine.
+    @State private var compareFromId: String? = nil
+    @State private var compareToId: String? = nil
+    /// The in-progress annual-review draft (note + confirmed section keys). Owned by
+    /// DeskView so it SURVIVES a tab switch — DeskView rebuilds this tab on every section
+    /// change, which would blank plain @State mid-review; it resets per-client via .id().
+    @Binding var reviewNote: String
+    @Binding var confirmed: Set<String>
 
     /// The IPS sections the advisor walks and confirms during a review.
     private let reviewSections: [(key: String, label: String)] = [
@@ -92,6 +99,7 @@ struct PolicyStatementTab: View {
         rebalancingSection
         reviewSection
         if !reviews.isEmpty { reviewHistorySection }
+        if reviews.count >= 2 { compareReviewsView }   // screen-only; not in printBlocks
         disclosuresSection
         exportBar
     }
@@ -428,6 +436,73 @@ struct PolicyStatementTab: View {
     private func delta(_ now: Bps, _ prior: Bps?) -> String {
         guard let prior, Fmt.pctBps(now) != Fmt.pctBps(prior) else { return "" }
         return " (\(now > prior ? "▲" : "▼") \(Fmt.pctBps(abs(now - prior))))"
+    }
+
+    // MARK: - Compare two reviews (screen-only; pick any two, not just adjacent)
+
+    @ViewBuilder private var compareReviewsView: some View {
+        let sorted = reviews.sorted { $0.createdAt < $1.createdAt }   // oldest → newest
+        if let oldest = sorted.first, let newest = sorted.last, sorted.count >= 2 {
+            let from = reviews.first { $0.id == compareFromId } ?? oldest
+            let to   = reviews.first { $0.id == compareToId } ?? newest
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Compare two reviews").font(.system(.title3, design: .serif).weight(.semibold)).foregroundStyle(Theme.ink)
+                HStack(spacing: 10) {
+                    comparePicker("From", sorted, from.id) { compareFromId = $0 }
+                    Image(systemName: "arrow.right").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
+                    comparePicker("To", sorted, to.id) { compareToId = $0 }
+                    Spacer()
+                }
+                compareRow("Required real return", Fmt.pctBps(from.requiredRealReturnBps), Fmt.pctBps(to.requiredRealReturnBps), delta(to.requiredRealReturnBps, from.requiredRealReturnBps))
+                compareRow("Funded ratio", Fmt.pctBps(from.fundedRatioBps), Fmt.pctBps(to.fundedRatioBps), delta(to.fundedRatioBps, from.fundedRatioBps))
+                compareRow("Equity ceiling", Fmt.pctBps(from.equityCeilingBps), Fmt.pctBps(to.equityCeilingBps), delta(to.equityCeilingBps, from.equityCeilingBps))
+                compareRow("After-tax net worth", Fmt.usdShort(from.afterTaxNetWorthUsd), Fmt.usdShort(to.afterTaxNetWorthUsd), usdDelta(to.afterTaxNetWorthUsd, from.afterTaxNetWorthUsd))
+                compareRow("Goals on file", "\(from.goalCount)", "\(to.goalCount)", countDelta(to.goalCount, from.goalCount))
+                Note("Pick any two dated reviews to see how the objectives and funded status moved between them — not only since the immediately prior review.")
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.accent.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.15)))
+        }
+    }
+
+    private func comparePicker(_ label: String, _ sorted: [IPSReview], _ selectedId: String, _ onPick: @escaping (String) -> Void) -> some View {
+        Menu {
+            ForEach(sorted) { r in Button { onPick(r.id) } label: { Text(r.createdAt, style: .date) } }
+        } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label.uppercased()).font(.system(size: 8.5, weight: .heavy)).foregroundStyle(Theme.muted)
+                HStack(spacing: 3) {
+                    Text((sorted.first { $0.id == selectedId } ?? sorted[0]).createdAt, style: .date)
+                        .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.accent)
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.muted)
+                }
+            }
+        }
+    }
+
+    private func compareRow(_ label: String, _ from: String, _ to: String, _ deltaText: String) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.system(size: 12)).foregroundStyle(Theme.ink)
+            Spacer(minLength: 8)
+            Text(from).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted)
+            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(Theme.muted)
+            Text(to).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)
+            Text(deltaText).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                .frame(width: 78, alignment: .trailing)
+        }
+        .padding(.vertical, 1.5)
+    }
+
+    private func usdDelta(_ now: Usd, _ prior: Usd) -> String {
+        let d = now - prior
+        guard abs(d) >= 500 else { return "" }
+        return " (\(d > 0 ? "▲" : "▼") \(Fmt.usdShort(abs(d))))"
+    }
+    private func countDelta(_ now: Int, _ prior: Int) -> String {
+        guard now != prior else { return "" }
+        return " (\(now > prior ? "▲" : "▼") \(abs(now - prior)))"
     }
 
     // MARK: - Export (screen-only, not part of printBlocks)

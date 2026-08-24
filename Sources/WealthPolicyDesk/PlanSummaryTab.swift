@@ -156,7 +156,7 @@ struct PlanSummaryTab: View {
 
     private var masthead: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("INVESTMENT POLICY STATEMENT").font(.system(size: 12, weight: .heavy)).tracking(2).foregroundStyle(Theme.accent)
+            Text("PLAN SUMMARY").font(.system(size: 12, weight: .heavy)).tracking(2).foregroundStyle(Theme.accent)
             Text(clientHeader?.title ?? eval.household.name).font(.system(size: 30, weight: .bold, design: .serif)).foregroundStyle(Theme.ink)
             Text("Prepared \(eval.asOf) · \(eval.household.filingStatus.label) · \(eval.household.stateOfResidence)")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted)
@@ -170,7 +170,7 @@ struct PlanSummaryTab: View {
     private var exportBar: some View {
         Button {
             let name = clientHeader?.title ?? eval.household.name
-            if let url = PlanSummaryPDF.render(blocks: printBlocks, fileName: PlanSummaryPDF.fileName(for: name)) {
+            if let url = PlanSummaryPDF.render(blocks: printBlocks, fileName: PlanSummaryPDF.fileName(for: name, kind: .planSummary)) {
                 share = SharePayload(url: url)
             }
         } label: {

@@ -79,6 +79,10 @@ struct DeskView: View {
     @State private var stagedTilts: [TacticalTiltAction] = []
     /// Foundational-assumption edits made from the Policy Statement, not yet committed.
     @State private var draftOverrides = HouseholdOverrides()
+    /// The in-progress annual-review draft, owned here so it survives a section switch
+    /// (the Policy Statement tab is rebuilt on every switch). Reset per-client via .id().
+    @State private var reviewNote = ""
+    @State private var reviewConfirmed: Set<String> = []
 
     /// The household everything on the desk is evaluated against — the record
     /// plus any staged (uncommitted) moves, tactical tilts, and policy edits.
@@ -206,7 +210,8 @@ struct DeskView: View {
                                                   reviews: reviews,
                                                   saveReview: { note, confirmed in onSaveReview(draftOverrides, note, confirmed); draftOverrides = HouseholdOverrides() },
                                                   canPersist: canPersist,
-                                                  hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty)
+                                                  hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty,
+                                                  reviewNote: $reviewNote, confirmed: $reviewConfirmed)
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)

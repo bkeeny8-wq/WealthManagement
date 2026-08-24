@@ -73,11 +73,20 @@ enum PlanSummaryPDF {
         return url
     }
 
-    /// A filesystem-safe "IPS - <name>.pdf".
-    static func fileName(for clientName: String) -> String {
+    /// Which client document is being exported — they must NOT share a filename, or the
+    /// second export overwrites the first in the temp directory and a pending share sheet
+    /// can hand off the wrong governing document.
+    enum Kind {
+        case policyStatement   // the CFA narrative — THE Investment Policy Statement
+        case planSummary       // the one-page card dashboard
+        var base: String { self == .policyStatement ? "Investment Policy Statement" : "Plan Summary" }
+    }
+
+    /// A filesystem-safe, per-document filename, e.g. "Investment Policy Statement - <name>.pdf".
+    static func fileName(for clientName: String, kind: Kind = .policyStatement) -> String {
         let cleaned = clientName.components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>")).joined(separator: " ")
         let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "IPS - \(trimmed.isEmpty ? "Plan Summary" : trimmed).pdf"
+        return "\(kind.base) - \(trimmed.isEmpty ? "Client" : trimmed).pdf"
     }
 }
 
