@@ -148,16 +148,21 @@ public extension Engine {
         // and consistent across the sector/geo marginals below).
         let cells = cellUsd.values
             .map { ExposureCell(geo: $0.geo, sector: $0.sector, bps: ($0.usd / total).bps) }
-            .filter { $0.bps > 0 }.sorted { $0.bps > $1.bps }
+            .filter { $0.bps > 0 }.sorted { $0.bps != $1.bps ? $0.bps > $1.bps : $0.id < $1.id }
         var bySector: [Sector: Bps] = [:], byGeo: [String: Bps] = [:]
         for c in cells { bySector[c.sector, default: 0] += c.bps; byGeo[c.geo, default: 0] += c.bps }
         let emGeoNames = Set(LookThrough.emGeo.map { $0.geo })
         let emBps = byGeo.filter { emGeoNames.contains($0.key) }.reduce(0) { $0 + $1.value }
+        // Sort by bps with a deterministic id/name tiebreak — Dictionary iteration order is
+        // not stable across launches, so equal-bps rows must not reorder (reproducibility).
+        let sectorRows = Sector.allCases.map { (sector: $0, bps: bySector[$0] ?? 0) }.filter { $0.bps > 0 }
+            .sorted { $0.bps != $1.bps ? $0.bps > $1.bps : $0.sector.rawValue < $1.sector.rawValue }
+        let geoRows = byGeo.map { (geo: $0.key, bps: $0.value) }
+            .sorted { $0.bps != $1.bps ? $0.bps > $1.bps : $0.geo < $1.geo }
 
         return ExposureView(
             equityUsd: equityUsd, cells: cells,
-            bySector: Sector.allCases.map { (s: $0, bps: bySector[$0] ?? 0) }.filter { $0.bps > 0 }.sorted { $0.bps > $1.bps },
-            byGeo: byGeo.map { (geo: $0.key, bps: $0.value) }.sorted { $0.bps > $1.bps },
+            bySector: sectorRows, byGeo: geoRows,
             emBps: emBps, breaches: evaluateExposure(cells: cells, bySector: bySector, byGeo: byGeo, emBps: emBps),
             asOf: asOf)
     }
@@ -196,6 +201,6 @@ public extension Engine {
                 }
             }
         }
-        return out.sorted { $0.valueBps > $1.valueBps }
+        return out.sorted { $0.valueBps != $1.valueBps ? $0.valueBps > $1.valueBps : $0.id < $1.id }
     }
 }

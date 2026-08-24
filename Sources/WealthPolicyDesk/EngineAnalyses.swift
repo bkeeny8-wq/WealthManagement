@@ -532,12 +532,15 @@ extension Engine {
                                key: b.id, title: "Concentration: \(b.label)", detail: b.detail))
         }
 
-        // Sort: hard first, then by dollars at stake (bigger first), then module.
+        // Sort: hard first, then by dollars at stake (bigger first), then module, then a
+        // deterministic final tiebreak on id (Swift's sort isn't stable — equal-rank
+        // findings must not reorder launch-to-launch; the reproducibility doctrine).
         return out.sorted {
             let aHard = $0.severity == .hard ? 0 : 1, bHard = $1.severity == .hard ? 0 : 1
             if aHard != bHard { return aHard < bHard }
             if $0.magnitudeUsd != $1.magnitudeUsd { return $0.magnitudeUsd > $1.magnitudeUsd }
-            return $0.module.rawValue < $1.module.rawValue
+            if $0.module != $1.module { return $0.module.rawValue < $1.module.rawValue }
+            return $0.id < $1.id
         }
     }
 }

@@ -174,7 +174,7 @@ public enum Engine {
 
     // MARK: top-level entry point
 
-    public static func evaluate(_ input: Household, asOf: IsoDate = "2026-08-11") -> Evaluation {
+    public static func evaluate(_ input: Household, asOf: IsoDate = Engine.planningAsOf) -> Evaluation {
         // For a couple, step retirement spending down to the survivor share after the first
         // death. Applied once here so every downstream read (required return, funded ratio,
         // decumulation, and the IPS display) sees one consistent schedule.
