@@ -93,7 +93,10 @@ final class PersistenceTests: XCTestCase {
         // 4 accounts & holdings
         m.taxableUsd = 900_000; m.traditionalUsd = 600_000; m.rothUsd = 120_000
         m.taxableTitling = .communityProperty; m.taxableUnrealizedGainPct = 0.42; m.currentEquityPct = 0.7
-        // 5 real estate & debts
+        // 5 real estate & debts. ownsHome = false while home > 0 is deliberate teeth: the
+        // decoder derives ownsHome from home>0 when the key is absent, so only a real
+        // round-trip of the stored bool can reproduce false here.
+        m.ownsHome = false
         m.homeValueUsd = 1_200_000; m.mortgageBalanceUsd = 400_000; m.mortgageRateBps = 625
         m.mortgageFixed = false; m.helocUsd = 50_000; m.otherDebtUsd = 30_000; m.otherDebtRateBps = 900
         // 6 external income

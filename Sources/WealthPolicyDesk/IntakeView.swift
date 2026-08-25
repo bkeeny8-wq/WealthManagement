@@ -83,7 +83,9 @@ public struct RootView: View {
         .fullScreenCover(isPresented: $showEcon) {
             EconView(onClose: { showEcon = false })
         }
-        .sheet(isPresented: $showWizard) {
+        // Full-screen (not a sheet): the intake is a long single page, and a form-sheet's
+        // swipe/tap-outside dismissal would silently discard everything typed so far.
+        .fullScreenCover(isPresented: $showWizard) {
             IntakeWizard(intake: wizardSeed, practice: wizardPractice) { builtIntake, builtPractice in
                 saveFromWizard(builtIntake, builtPractice); showWizard = false
             } onCancel: { showWizard = false }
@@ -318,63 +320,172 @@ struct IntakeWizard: View {
             }
         }
     }
-    @State private var step: Step = .household
+    @State private var visibleSection: Step = .household   // for the rail highlight
+    @State private var scrollTarget: Step? = nil           // a rail tap requests a jump here
+    @State private var viewportH: CGFloat = 0              // content scroll-view height
+    @State private var reviewVisible = false               // gate for the heavy review evaluate
+    @State private var dirty = false
+    @State private var confirmCancel = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                ProgressView(value: Double(step.rawValue), total: Double(Step.allCases.count - 1))
-                    .tint(Theme.ink).padding(.horizontal, 20).padding(.top, 8)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text(step.title).font(.system(size: 26, weight: .bold, design: .serif)).foregroundStyle(Theme.ink)
-                        stepBody
+                HStack(alignment: .top, spacing: 0) {
+                    sectionRail()
+                    Divider().overlay(Theme.rule)
+                    // The reader wraps ONLY the content scroll view (not the rail's own
+                    // scroll view), so a jump is never ambiguous about what to move.
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 30) {
+                                ForEach(Step.allCases, id: \.self) { s in
+                                    VStack(alignment: .leading, spacing: 14) {
+                                        sectionHeader(s)
+                                        sectionContent(s)
+                                    }
+                                    .frame(maxWidth: 720, alignment: .leading)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .id(s)
+                                    .background(sectionVisibilityReader(s))
+                                }
+                                createFooter
+                                    .frame(maxWidth: 720, alignment: .leading)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
+                            .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 40)
+                        }
+                        .scrollDismissesKeyboard(.interactively)
+                        .coordinateSpace(name: "intakeScroll")
+                        .background(GeometryReader { g in
+                            Color.clear.preference(key: ViewportHeightKey.self, value: g.size.height)
+                        })
+                        .onPreferenceChange(ViewportHeightKey.self) { viewportH = $0 }
+                        .onPreferenceChange(SectionOffsetKey.self) { updateVisible($0) }
+                        .onChange(of: scrollTarget) { _, target in
+                            guard let target else { return }
+                            withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(target, anchor: .top) }
+                            scrollTarget = nil
+                        }
                     }
-                    .padding(20).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity, alignment: .center)
                 }
-                .scrollDismissesKeyboard(.interactively)
-                footer
+                actionBar
             }
             .background(Theme.paper.ignoresSafeArea())
             .navigationTitle("Set up my plan").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
                 ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { dismissKeyboard() } }
+            }
+            .onChange(of: intake) { dirty = true }
+            .onChange(of: practice) { dirty = true }
+            .confirmationDialog("Discard this plan?", isPresented: $confirmCancel, titleVisibility: .visible) {
+                Button("Discard", role: .destructive, action: onCancel)
+                Button("Keep editing", role: .cancel) {}
+            } message: {
+                Text("Nothing you've entered has been saved yet.")
             }
         }
     }
 
-    private var footer: some View {
-        HStack {
-            if step != .household {
-                Button { withAnimation { step = Step(rawValue: step.rawValue - 1) ?? .household } } label: {
-                    Label("Back", systemImage: "chevron.left").font(.system(size: 15, weight: .semibold))
-                }.buttonStyle(.plain).foregroundStyle(Theme.ink)
+    // A leading rail of every section — the "whole page" made navigable. Tapping
+    // jumps to that section; the rail tracks which one you're reading.
+    private func sectionRail() -> some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Step.allCases, id: \.self) { s in
+                    Button {
+                        dismissKeyboard()
+                        visibleSection = s      // immediate highlight; auto-tracking corrects as it scrolls
+                        scrollTarget = s        // requests the content reader to jump
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("\(s.rawValue + 1)")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(visibleSection == s ? Color.white : Theme.muted)
+                                .frame(width: 20, height: 20)
+                                .background(visibleSection == s ? Theme.ink : Theme.card, in: Circle())
+                            Text(s.title)
+                                .font(.system(size: 13, weight: visibleSection == s ? .semibold : .regular))
+                                .foregroundStyle(visibleSection == s ? Theme.ink : Theme.muted)
+                                .lineLimit(1).minimumScaleFactor(0.8)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 7).padding(.horizontal, 10)
+                        .background(visibleSection == s ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: 7))
+                        .contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
             }
-            Spacer()
-            if step == .review {
-                Button { onComplete(intake, practice) } label: {
-                    Label("Create my policy statement", systemImage: "doc.richtext")
-                        .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                        .padding(.horizontal, 20).padding(.vertical, 12)
-                        .background(Theme.asset, in: Capsule())
-                }.buttonStyle(.plain)
-            } else {
-                Button { withAnimation { step = Step(rawValue: step.rawValue + 1) ?? .review } } label: {
-                    Label("Next", systemImage: "chevron.right").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                        .labelStyle(.titleAndIcon)
-                        .padding(.horizontal, 20).padding(.vertical, 12)
-                        .background(Theme.ink, in: Capsule())
-                }.buttonStyle(.plain)
-            }
+            .padding(.vertical, 14).padding(.horizontal, 8)
         }
-        .padding(.horizontal, 20).padding(.vertical, 12)
+        .frame(width: 208)
+        .background(Theme.paper)
+    }
+
+    private func sectionHeader(_ s: Step) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(s.rawValue + 1)").font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundStyle(Theme.muted)
+            Text(s.title).font(.system(size: 26, weight: .bold, design: .serif)).foregroundStyle(Theme.ink)
+        }
+    }
+
+    private var createFooter: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Note("Creating it opens the statement on the desk. From there you can walk it, adjust any driver live, export it as a PDF, and save annual reviews — nothing here is locked.", icon: "doc.richtext", color: Theme.accent)
+            Button { onComplete(intake, practice) } label: {
+                Label("Create my policy statement", systemImage: "doc.richtext")
+                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).padding(.vertical, 15)
+                    .background(Theme.asset, in: RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(.plain)
+        }
+    }
+
+    // Pinned action bar: Cancel (with a discard guard) + the primary create action.
+    private var actionBar: some View {
+        HStack {
+            Button { if dirty { confirmCancel = true } else { onCancel() } } label: {
+                Text("Cancel").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
+            }.buttonStyle(.plain)
+            Spacer()
+            Button { onComplete(intake, practice) } label: {
+                Label("Create my policy statement", systemImage: "doc.richtext")
+                    .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 20).padding(.vertical, 11)
+                    .background(Theme.asset, in: Capsule())
+            }.buttonStyle(.plain)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 10)
         .background(Theme.paper)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .top)
     }
 
-    @ViewBuilder private var stepBody: some View {
-        switch step {
+    /// Reports each section's top offset in the scroll's coordinate space, so the rail
+    /// can highlight whichever section header last crossed the top of the viewport.
+    private func sectionVisibilityReader(_ s: Step) -> some View {
+        GeometryReader { geo in
+            Color.clear.preference(key: SectionOffsetKey.self,
+                                   value: [SectionOffset(step: s, top: geo.frame(in: .named("intakeScroll")).minY)])
+        }
+    }
+    private func updateVisible(_ offsets: [SectionOffset]) {
+        // The current section is the last one whose header has scrolled to/above ~90pt.
+        let crossed = offsets.filter { $0.top <= 90 }.max(by: { $0.top < $1.top })
+        var next = crossed?.step ?? offsets.min(by: { $0.top < $1.top })?.step
+        let reviewTop = offsets.first(where: { $0.step == .review })?.top ?? .infinity
+        // Tail case: the final section can't scroll its header to the 90pt line (there
+        // isn't enough content below it), so once it sits in the upper viewport it is
+        // clearly the one being read — highlight it.
+        if viewportH > 0, reviewTop <= viewportH * 0.45 { next = .review }
+        if let next, next != visibleSection { visibleSection = next }
+        // Compute the (expensive) review figures only once that section is within ~400pt
+        // of the viewport, so the payoff screen is always current when reached but never
+        // recomputes while the user is typing far above it.
+        let show = reviewTop < viewportH + 400
+        if show != reviewVisible { reviewVisible = show }
+    }
+
+    @ViewBuilder private func sectionContent(_ s: Step) -> some View {
+        switch s {
         case .household: householdStep
         case .family: familyStep
         case .income: incomeStep
@@ -412,8 +523,10 @@ struct IntakeWizard: View {
                 if intake.adults.count > 1 { AdultForm(adult: $intake.adults[1], index: 1, showIncome: false) }
             }
             Card("Filing & residence") {
-                ChoiceChips(FilingStatus.allCases.map { ($0, $0.rawValue.uppercased()) }, selection: intake.filingStatus) { intake.filingStatus = $0 }
-                FormText(label: "State", value: $intake.state)
+                FieldLabel("Filing status") {
+                    ChoiceChips(FilingStatus.allCases.map { ($0, $0.rawValue.uppercased()) }, selection: intake.filingStatus) { intake.filingStatus = $0 }
+                }
+                WheelRow(label: "State of residence", selection: stateSelection, options: USStates.options)
             }
         }
     }
@@ -458,11 +571,13 @@ struct IntakeWizard: View {
                 Note("We'll shape a portfolio across these accounts from your current mix below. (Entering exact holdings can come later.)")
             }
             Card("How it's invested today") {
-                PercentField(label: "Roughly what share is in stocks (vs bonds/cash)?", value: $intake.currentEquityPct)
-                Note("This is your AS-IS mix — the desk compares it to the policy target, so the allocation gap is real. The rest is treated as fixed income.")
+                PercentField(label: "Roughly what share is in stocks (vs bonds/cash)?", value: $intake.currentEquityPct,
+                             maxPct: 1.0, presets: [0.0, 0.4, 0.6, 0.8, 1.0])
+                Note("This is your AS-IS mix — the desk compares it to the policy target, so the allocation gap is real. The rest is treated as fixed income. 100% stocks is allowed.")
             }
             Card("Taxable cost basis") {
-                PercentField(label: "Roughly how much of the taxable balance is gains?", value: $intake.taxableUnrealizedGainPct)
+                PercentField(label: "Roughly how much of the taxable balance is gains?", value: $intake.taxableUnrealizedGainPct,
+                             maxPct: 1.0, presets: [0.0, 0.25, 0.5, 0.75, 1.0])
                 Note("Drives the deferred-tax and step-up math — a low-basis taxable account is worth holding to step-up.")
             }
         }
@@ -471,13 +586,18 @@ struct IntakeWizard: View {
     private var propertyStep: some View {
         VStack(spacing: 14) {
             Card("Home", help: Teach.help("netFI")) {
-                MoneyField(label: "Home value", value: $intake.homeValueUsd)
-                MoneyField(label: "Mortgage balance", value: $intake.mortgageBalanceUsd)
-                PercentField(label: "Mortgage rate", value: bpsAsPct($intake.mortgageRateBps), maxPct: 0.12)
-                FormToggle(label: "Fixed rate", isOn: $intake.mortgageFixed)
+                YesNoRow(label: "Do you own your home?", value: $intake.ownsHome)
+                if intake.ownsHome {
+                    MoneyField(label: "Home value", value: $intake.homeValueUsd)
+                    MoneyField(label: "Mortgage balance", value: $intake.mortgageBalanceUsd)
+                    PercentField(label: "Mortgage rate", value: bpsAsPct($intake.mortgageRateBps), maxPct: 0.12)
+                    FormToggle(label: "Fixed rate", isOn: $intake.mortgageFixed)
+                    MoneyField(label: "HELOC drawn", value: $intake.helocUsd)
+                } else {
+                    Note("No home — renters skip this. Home equity and any mortgage are left out of the balance sheet.")
+                }
             }
             Card("Other debts") {
-                MoneyField(label: "HELOC drawn", value: $intake.helocUsd)
                 MoneyField(label: "Other debt (auto, student…)", value: $intake.otherDebtUsd)
             }
         }
@@ -486,7 +606,7 @@ struct IntakeWizard: View {
     private var externalStep: some View {
         VStack(spacing: 14) {
             Card("Social Security") {
-                StepperRow(label: "Planned claiming age", value: $intake.ssClaimAge, range: 62...70)
+                WheelRow(label: "Planned claiming age", selection: $intake.ssClaimAge, options: ages(62...70))
                 Note("We estimate your benefit from your earnings. Delaying past your full retirement age (67) raises it ~8%/yr.")
             }
             Card("Pension") {
@@ -588,8 +708,8 @@ struct IntakeWizard: View {
         VStack(spacing: 14) {
             Card("Retirement spending", help: Teach.help("requiredReturn")) {
                 MoneyField(label: "Annual spending (today's $)", value: $intake.retirementSpendingUsd)
-                StepperRow(label: "Retire at age", value: $intake.retirementStartAge, range: 45...75)
-                StepperRow(label: "Plan to age", value: $intake.planToAge, range: 80...100)
+                WheelRow(label: "Retire at age", selection: $intake.retirementStartAge, options: ages(45...75))
+                WheelRow(label: "Plan to age", selection: $intake.planToAge, options: ages(80...100))
             }
             Card("Legacy floor", help: Teach.help("requiredReturn")) {
                 MoneyField(label: "Corpus to leave at the end (today's $)", value: $intake.legacyFloorUsd)
@@ -733,7 +853,19 @@ struct IntakeWizard: View {
         }
     }
 
-    private var reviewStep: some View {
+    @ViewBuilder private var reviewStep: some View {
+        // buildHousehold + evaluate costs tens of ms — too much to run on every keystroke,
+        // so compute only once the reader has scrolled this section into range (reviewVisible).
+        if reviewVisible {
+            reviewFigures
+        } else {
+            Card("The figures your statement will anchor on") {
+                Note("Your headline figures — required real return, funded ratio, after-tax net worth — appear here as you reach this section.")
+            }
+        }
+    }
+
+    private var reviewFigures: some View {
         let h = intake.buildHousehold()
         let e = Engine.evaluate(h)
         return VStack(spacing: 14) {
@@ -756,7 +888,6 @@ struct IntakeWizard: View {
                     }
                 }
             }
-            Note("Creating it opens the statement on the desk. From there you can walk it, adjust any driver live, export it as a PDF, and save annual reviews — nothing here is locked.", icon: "doc.richtext", color: Theme.accent)
         }
     }
 
@@ -764,6 +895,11 @@ struct IntakeWizard: View {
     private var nearestTolerance: Int { intake.statedThresholdBps }
     private func bpsAsPct(_ b: Binding<Bps>) -> Binding<Double> {
         Binding(get: { Double(b.wrappedValue) / 10_000 }, set: { b.wrappedValue = Int(($0 * 10_000).rounded()) })
+    }
+    /// The state wheel binds to a normalized code so a legacy free-text value displays its
+    /// proper name and selection always matches an option (never "—", never auto-reset).
+    private var stateSelection: Binding<String> {
+        Binding(get: { USStates.code(for: intake.state) }, set: { intake.state = $0 })
     }
 }
 
@@ -776,9 +912,9 @@ struct AdultForm: View {
     var body: some View {
         VStack(spacing: 0) {
             if !showIncome {
-                FormText(label: "Name (optional)", value: $adult.name)
-                StepperRow(label: "Birth year", value: $adult.birthYear, range: 1940...2010)
-                StepperRow(label: "Planned retirement age", value: $adult.retirementAge, range: 45...75)
+                FormText(label: index == 0 ? "Your name" : "Their name", value: $adult.name)
+                WheelRow(label: "Birth year", selection: $adult.birthYear, options: years(1940...2010))
+                WheelRow(label: "Planned retirement age", selection: $adult.retirementAge, options: ages(45...75))
                 labeledChips("Health") { ChoiceChips(HealthStatus.allCases.map { ($0, $0.rawValue.capitalized) }, selection: adult.health) { adult.health = $0 } }
             } else {
                 MoneyField(label: "Base salary", value: $adult.salaryUsd)
@@ -806,6 +942,7 @@ struct AdultForm: View {
 struct MoneyField: View {
     let label: String
     @Binding var value: Usd
+    @FocusState private var focused: Bool
     var body: some View {
         HStack {
             Text(label).font(.system(size: 14)).foregroundStyle(Theme.ink)
@@ -813,12 +950,17 @@ struct MoneyField: View {
             HStack(spacing: 1) {
                 Text("$").foregroundStyle(Theme.muted).font(.system(size: 15))
                 TextField("0", value: $value, format: .number.precision(.fractionLength(0)))
+                    .focused($focused)
                     .keyboardType(.numberPad).multilineTextAlignment(.trailing)
                     .font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)
                     .frame(minWidth: 90, maxWidth: 140)
             }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 9)
+        // Focus on a tap anywhere in the row: an empty numeric field's glyph area is
+        // too small to reliably hit on its own.
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
     }
 }
@@ -827,14 +969,29 @@ struct PercentField: View {
     let label: String
     @Binding var value: Double     // 0..1
     var maxPct: Double = 0.95
+    var presets: [Double] = []
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(label).font(.system(size: 14)).foregroundStyle(Theme.ink)
                 Spacer()
                 Text(Fmt.pct(value)).font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)
             }
             Slider(value: $value, in: 0...maxPct, step: 0.01).tint(Theme.ink)
+            if !presets.isEmpty {
+                HStack(spacing: 5) {
+                    ForEach(presets, id: \.self) { p in
+                        let on = abs(value - p) < 0.005
+                        Button { value = p } label: {
+                            Text(Fmt.pct(p)).font(.system(size: 12.5, weight: .semibold))
+                                .padding(.horizontal, 11).padding(.vertical, 5)
+                                .background(on ? Theme.ink : Theme.card, in: Capsule())
+                                .foregroundStyle(on ? Color.white : Theme.ink)
+                                .overlay(Capsule().stroke(on ? Theme.ink : Theme.rule))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
         }
         .padding(.vertical, 6)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
@@ -861,14 +1018,22 @@ struct StepperRow: View {
 struct FormText: View {
     let label: String
     @Binding var value: String
+    var placeholder: String = "Tap to enter"
+    @FocusState private var focused: Bool
     var body: some View {
         HStack {
             Text(label).font(.system(size: 14)).foregroundStyle(Theme.ink)
             Spacer(minLength: 10)
-            TextField("", text: $value).multilineTextAlignment(.trailing)
-                .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink).frame(maxWidth: 180)
+            TextField(placeholder, text: $value)
+                .focused($focused)
+                .multilineTextAlignment(.trailing)
+                .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink).frame(maxWidth: 240)
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 9)
+        // An empty TextField with no placeholder has almost no tappable width — focus
+        // the field from a tap anywhere in the row instead.
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
     }
 }
@@ -895,6 +1060,113 @@ struct FieldLabel<C: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 7)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
     }
+}
+
+// MARK: - Scrolling pickers, yes/no, section tracking
+
+/// A compact row that expands into a real scroll wheel — the fix for tapping a
+/// stepper dozens of times to set a birth year, an age, or a state.
+struct WheelRow<T: Hashable>: View {
+    let label: String
+    @Binding var selection: T
+    let options: [(T, String)]
+    @State private var expanded = false
+    private var currentLabel: String { options.first(where: { $0.0 == selection })?.1 ?? "—" }
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                dismissKeyboard()
+                withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() }
+            } label: {
+                HStack {
+                    Text(label).font(.system(size: 14)).foregroundStyle(Theme.ink)
+                    Spacer()
+                    Text(currentLabel)
+                        .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(expanded ? Theme.accent : Theme.ink)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+                .contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            if expanded {
+                Picker(label, selection: $selection) {
+                    ForEach(options, id: \.0) { opt in Text(opt.1).tag(opt.0) }
+                }
+                .pickerStyle(.wheel).frame(height: 132).clipped()
+            }
+        }
+        .padding(.vertical, 7)
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+    }
+}
+
+/// A two-button Yes / No — clearer than a toggle for a gating question.
+struct YesNoRow: View {
+    let label: String
+    @Binding var value: Bool
+    var body: some View {
+        HStack {
+            Text(label).font(.system(size: 14)).foregroundStyle(Theme.ink)
+            Spacer()
+            HStack(spacing: 5) {
+                pill("No", on: !value) { value = false }
+                pill("Yes", on: value) { value = true }
+            }
+        }
+        .padding(.vertical, 7)
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+    }
+    private func pill(_ text: String, on: Bool, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            Text(text).font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, 16).padding(.vertical, 7)
+                .background(on ? Theme.ink : Theme.card, in: Capsule())
+                .foregroundStyle(on ? Color.white : Theme.ink)
+                .overlay(Capsule().stroke(on ? Theme.ink : Theme.rule))
+        }.buttonStyle(.plain)
+    }
+}
+
+/// Option builders for the year/age wheels.
+func years(_ r: ClosedRange<Int>) -> [(Int, String)] { r.map { ($0, String($0)) } }
+func ages(_ r: ClosedRange<Int>) -> [(Int, String)] { r.map { ($0, "\($0)") } }
+
+/// US states + DC, stored as the two-letter code the tax layer expects.
+enum USStates {
+    static let options: [(String, String)] = [
+        ("AL","Alabama"),("AK","Alaska"),("AZ","Arizona"),("AR","Arkansas"),("CA","California"),
+        ("CO","Colorado"),("CT","Connecticut"),("DE","Delaware"),("DC","District of Columbia"),
+        ("FL","Florida"),("GA","Georgia"),("HI","Hawaii"),("ID","Idaho"),("IL","Illinois"),
+        ("IN","Indiana"),("IA","Iowa"),("KS","Kansas"),("KY","Kentucky"),("LA","Louisiana"),
+        ("ME","Maine"),("MD","Maryland"),("MA","Massachusetts"),("MI","Michigan"),("MN","Minnesota"),
+        ("MS","Mississippi"),("MO","Missouri"),("MT","Montana"),("NE","Nebraska"),("NV","Nevada"),
+        ("NH","New Hampshire"),("NJ","New Jersey"),("NM","New Mexico"),("NY","New York"),
+        ("NC","North Carolina"),("ND","North Dakota"),("OH","Ohio"),("OK","Oklahoma"),("OR","Oregon"),
+        ("PA","Pennsylvania"),("RI","Rhode Island"),("SC","South Carolina"),("SD","South Dakota"),
+        ("TN","Tennessee"),("TX","Texas"),("UT","Utah"),("VT","Vermont"),("VA","Virginia"),
+        ("WA","Washington"),("WV","West Virginia"),("WI","Wisconsin"),("WY","Wyoming")
+    ]
+    /// Normalize any stored value (2-letter code, full name, mixed case, or legacy free
+    /// text) to a canonical code that always matches an option — so the wheel never shows
+    /// "—" and can never silently commit the first row over an unmatched value.
+    static func code(for raw: String) -> String {
+        let up = raw.trimmingCharacters(in: .whitespaces).uppercased()
+        if options.contains(where: { $0.0 == up }) { return up }
+        if let m = options.first(where: { $0.1.uppercased() == up }) { return m.0 }
+        return "CA"
+    }
+}
+
+/// Reports section header offsets up to the wizard, so the rail can highlight the
+/// section currently being read.
+struct SectionOffset: Equatable { let step: IntakeWizard.Step; let top: CGFloat }
+struct SectionOffsetKey: PreferenceKey {
+    static var defaultValue: [SectionOffset] = []
+    static func reduce(value: inout [SectionOffset], nextValue: () -> [SectionOffset]) { value.append(contentsOf: nextValue()) }
+}
+struct ViewportHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 // MARK: - Add/remove sub-forms
@@ -945,7 +1217,7 @@ struct ChildForm: View {
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
-            StepperRow(label: "Birth year", value: $child.birthYear, range: 1990...IntakeModel.currentYear)
+            WheelRow(label: "Birth year", selection: $child.birthYear, options: years(1990...IntakeModel.currentYear))
         }
         .padding(11)
         .background(Theme.paper, in: RoundedRectangle(cornerRadius: 8))
@@ -974,7 +1246,7 @@ struct EducationGoalForm: View {
             }
             MoneyField(label: "Annual cost (today's $)", value: $goal.annualCostTodayUsd)
             StepperRow(label: "Number of years", value: $goal.years, range: 1...8)
-            StepperRow(label: "Start year", value: $goal.startYear, range: IntakeModel.currentYear...(IntakeModel.currentYear + 30))
+            WheelRow(label: "Start year", selection: $goal.startYear, options: years(IntakeModel.currentYear...(IntakeModel.currentYear + 30)))
             MoneyField(label: "529 balance", value: $goal.five29BalanceUsd)
         }
         .padding(11)
@@ -999,7 +1271,7 @@ struct AdditionalGoalForm: View {
             FieldLabel("Type") { ChoiceChips(GoalType.allCases.map { ($0, $0.label) }, selection: goal.type) { goal.type = $0 } }
             FormText(label: "Name (optional)", value: $goal.label)
             MoneyField(label: "Amount (today's $)", value: $goal.amountUsd)
-            StepperRow(label: "Target year", value: $goal.targetYear, range: IntakeModel.currentYear...(IntakeModel.currentYear + 40))
+            WheelRow(label: "Target year", selection: $goal.targetYear, options: years(IntakeModel.currentYear...(IntakeModel.currentYear + 40)))
             StepperRow(label: "Spread over (years)", value: $goal.spanYears, range: 1...10)
             FieldLabel("How essential?") { ChoiceChips(GoalTier.allCases.map { ($0, $0.label) }, selection: goal.tier) { goal.tier = $0 } }
         }

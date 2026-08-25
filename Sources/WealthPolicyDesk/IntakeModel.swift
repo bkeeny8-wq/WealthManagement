@@ -337,6 +337,7 @@ public struct IntakeModel: Codable, Hashable {
     public var currentEquityPct: Double = 0.65
 
     // 5 — real estate & debts
+    public var ownsHome: Bool = false        // the yes/no gate; home fields apply only when true
     public var homeValueUsd: Usd = 0
     public var mortgageBalanceUsd: Usd = 0
     public var mortgageRateBps: Bps = 550
@@ -449,6 +450,12 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(Bool.self, forKey: .mortgageFixed)) ?? nil { mortgageFixed = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .helocUsd)) ?? nil { helocUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .otherDebtUsd)) ?? nil { otherDebtUsd = v }
+        // ownsHome pre-dates the explicit yes/no gate: absent the key, derive it from
+        // whether the household actually carried a home OR home-secured debt (an old plan
+        // could hold a HELOC with the home value left blank), so nothing drops on reload.
+        // Must run AFTER helocUsd is decoded above.
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: .ownsHome)) ?? nil { ownsHome = v }
+        else { ownsHome = homeValueUsd > 0 || mortgageBalanceUsd > 0 || helocUsd > 0 }
         if let v = (try? c.decodeIfPresent(Bps.self, forKey: .otherDebtRateBps)) ?? nil { otherDebtRateBps = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .pensionAnnualUsd)) ?? nil { pensionAnnualUsd = v }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .ssClaimAge)) ?? nil { ssClaimAge = v }
@@ -661,9 +668,16 @@ public extension IntakeModel {
                               policyId: "spending-glide"))
         }
 
+        // Home & home-secured debt apply only when the household owns a home. A "No"
+        // answer excludes them without discarding any values the user typed, so a later
+        // "Yes" brings them right back.
+        let effHomeValue = ownsHome ? homeValueUsd : 0
+        let effMortgage  = ownsHome ? mortgageBalanceUsd : 0
+        let effHeloc     = ownsHome ? helocUsd : 0
+
         // External assets: home equity + pension PV.
         var externalAssets: [ExternalAsset] = []
-        let homeEquity = max(0, homeValueUsd - mortgageBalanceUsd)
+        let homeEquity = max(0, effHomeValue - effMortgage)
         if homeEquity > 0 {
             externalAssets.append(ExternalAsset(id: "ext_home", label: "Primary residence equity", kind: .homeEquity, valueUsd: homeEquity,
                                                 offsetsClaimId: "g_spending", offsetsFromYear: max(retireStartYear, horizon - 10), displacesSleeveId: "real_assets", liquidityClass: .locked))
@@ -737,13 +751,13 @@ public extension IntakeModel {
 
         // Liabilities.
         var liabilities: [Liability] = []
-        if mortgageBalanceUsd > 0 {
-            liabilities.append(Liability(id: "liab_mortgage", kind: .mortgagePrimary, balanceUsd: mortgageBalanceUsd, rateBps: mortgageRateBps,
+        if effMortgage > 0 {
+            liabilities.append(Liability(id: "liab_mortgage", kind: .mortgagePrimary, balanceUsd: effMortgage, rateBps: mortgageRateBps,
                                          fixed: mortgageFixed, maturityDate: nil, durationYears: mortgageFixed ? 7.5 : 2.0, interestDeductible: true,
                                          afterTaxRateBps: mortgageRateBps, revocable: false))
         }
-        if helocUsd > 0 {
-            liabilities.append(Liability(id: "liab_heloc", kind: .heloc, balanceUsd: helocUsd, rateBps: 780, fixed: false, maturityDate: nil,
+        if effHeloc > 0 {
+            liabilities.append(Liability(id: "liab_heloc", kind: .heloc, balanceUsd: effHeloc, rateBps: 780, fixed: false, maturityDate: nil,
                                          durationYears: 0.25, interestDeductible: false, afterTaxRateBps: 780, revocable: true))
         }
         if otherDebtUsd > 0 {
@@ -789,7 +803,7 @@ public extension IntakeModel {
             let monthlyIncome = adults.reduce(0) { $0 + $1.salaryUsd + $1.bonusUsd } / 12
             let diNeed = diEngaged ? monthlyIncome * 0.60 : 0                     // 60% replacement target
             let diCoverage = diEngaged ? (disabilityIndividualMonthlyUsd + disabilityGroupMonthlyUsd * (disabilityBenefitsTaxable ? 0.72 : 1.0)) : 0
-            let totalDebt = mortgageBalanceUsd + helocUsd + otherDebtUsd
+            let totalDebt = effMortgage + effHeloc + otherDebtUsd
             let primaryIncome = adults.first.map { $0.salaryUsd + $0.bonusUsd } ?? 0
             let survivorYears = Double(max(0, retirementStartAge - primaryAge))
             let lifeNeed = lifeEngaged ? max(0, totalDebt + 150_000 * Double(children.count) + survivorYears * primaryIncome - totalInvestableUsd) : 0
