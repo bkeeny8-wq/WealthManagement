@@ -62,6 +62,7 @@ framework_files = [
     # ported domain model (mirrors src/*.ts)
     "PolicyModel.swift",
     "HouseholdModel.swift",
+    "EquityStyleModel.swift",
     "TaxModel.swift",
     "FixedIncomeModel.swift",
     "ExposureModel.swift",
@@ -96,6 +97,7 @@ framework_files = [
     "Decumulation.swift",
     "Resilience.swift",
     "Planning.swift",
+    "PortfolioModel.swift",
     # design system + teaching copy
     "Theme.swift",
     "Components.swift",
@@ -114,6 +116,7 @@ framework_files = [
     "PlanSummaryPDF.swift",
     "ResilienceTab.swift",
     "AllocationTab.swift",
+    "PortfolioTab.swift",
     "RiskScaleTab.swift",
     "MacroTab.swift",
     "SentimentTab.swift",

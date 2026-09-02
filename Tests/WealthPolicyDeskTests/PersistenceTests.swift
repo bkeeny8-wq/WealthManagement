@@ -35,6 +35,7 @@ final class PersistenceTests: XCTestCase {
         o.goalAmountOverrides = ["g_spending": 210_000]
         o.goalTimingOverrides = ["ov_home": GoalTiming(startYear: 4, years: 2)]
         o.removedGoalIds = ["ov_travel"]
+        o.usEquityStyle = USEquityStyleTilt(large: .growth, mid: .value, small: .blend)   // non-nil ⇒ teeth for the write
         return o
     }
 

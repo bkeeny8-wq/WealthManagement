@@ -19,6 +19,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
     case balanceSheet = "Balance Sheet"
     case requiredReturn = "Required Return"
     case resilience = "Resilience"
+    case portfolio = "Portfolio"
     case allocation = "Allocation"
     case exposure = "Exposure"
     case riskScale = "Risk Scale"
@@ -39,6 +40,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Hashable {
         case .balanceSheet: return "scalemass"
         case .requiredReturn: return "target"
         case .resilience: return "shield.lefthalf.filled"
+        case .portfolio: return "tray.full"
         case .allocation: return "chart.pie"
         case .exposure: return "square.grid.3x3.fill"
         case .riskScale: return "slider.horizontal.3"
@@ -65,6 +67,8 @@ struct DeskView: View {
     var onCommit: ([PlannedAction]) -> Void = { _ in }
     var onCommitTilts: ([TacticalTiltAction]) -> Void = { _ in }
     var onEditIntake: () -> Void
+    var currentHoldings: [IntakeHeldPosition] = []
+    var onUpdateHoldings: ([IntakeHeldPosition]) -> Void = { _ in }
     var onLoadSample: () -> Void
     var onClose: () -> Void
     var onEcon: () -> Void = {}
@@ -213,6 +217,7 @@ struct DeskView: View {
                                                   hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty,
                                                   reviewNote: $reviewNote, confirmed: $reviewConfirmed)
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
+        case .portfolio:      PortfolioTab(eval: e, holdings: currentHoldings, canEdit: canPersist, onApply: onUpdateHoldings)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)
         case .resilience:     ResilienceTab(eval: e)
@@ -228,7 +233,7 @@ struct DeskView: View {
         case .tax:            TaxTab(eval: e)
         case .decumulation:   DecumulationTab(eval: e)
         case .disposition:    DispositionTab(eval: e)
-        case .tilts:          TiltsTab(eval: e)
+        case .tilts:          TiltsTab(eval: e, onSetStyle: { onCommitOverrides(HouseholdOverrides(usEquityStyle: $0)) })
         case .learn:          LearnTab()
         }
     }

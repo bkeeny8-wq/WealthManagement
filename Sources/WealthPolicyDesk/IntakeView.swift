@@ -54,6 +54,8 @@ public struct RootView: View {
                     onCommit: commitActions,
                     onCommitTilts: commitTilts,
                     onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
+                    currentHoldings: intake?.heldAwayPositions ?? [],
+                    onUpdateHoldings: updateHoldings,
                     onLoadSample: openSample,
                     onClose: closeToBook,
                     onEcon: { showEcon = true },
@@ -189,6 +191,17 @@ public struct RootView: View {
         } else {
             household = Seed.sampleHousehold
         }
+    }
+
+    /// Replace the open client's itemized holdings (from the Portfolio tab), persist, and
+    /// rebuild so the desk re-derives against the real book. Sample has no record — no-op.
+    private func updateHoldings(_ holdings: [IntakeHeldPosition]) {
+        guard let id = activeId, let i = book.firstIndex(where: { $0.id == id }) else { return }
+        book[i].intake.heldAwayPositions = holdings
+        book[i].touch()
+        BookStore.save(book)
+        intake = book[i].intake
+        household = book[i].household()
     }
 
     /// Commit any staged driver edits and snapshot the resulting plan as a dated review.

@@ -24,10 +24,11 @@ let package = Package(
             sources: [
                 "AllocationSolver.swift", "Book.swift", "CapitalMarketModel.swift", "CapitalMarketRisk.swift",
                 "Decumulation.swift", "Engine.swift", "EngineAnalyses.swift", "EquityCompModel.swift",
+                "EquityStyleModel.swift",
                 "ExposureLookthrough.swift", "ExposureModel.swift", "FactorLookthrough.swift", "FixedIncomeModel.swift",
                 "FrontierModel.swift", "HouseholdModel.swift", "HouseholdOverrides.swift", "IPSReview.swift",
                 "IntakeModel.swift", "LayerModel.swift", "MacroIndicators.swift", "MacroModel.swift",
-                "OwnershipModel.swift", "Planning.swift", "PolicyModel.swift", "PracticeMetadata.swift",
+                "OwnershipModel.swift", "Planning.swift", "PolicyModel.swift", "PortfolioModel.swift", "PracticeMetadata.swift",
                 "RebalanceModel.swift", "Resilience.swift", "RiskScale.swift", "Seed.swift",
                 "ShortfallModel.swift", "TacticalModel.swift", "TacticalTilts.swift", "TaxLotModel.swift",
                 "TaxModel.swift", "Teach.swift", "Units.swift", "WealthGlideModel.swift",
