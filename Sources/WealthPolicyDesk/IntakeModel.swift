@@ -168,6 +168,10 @@ public struct IntakeHeldPosition: Codable, Hashable, Identifiable {
     /// When set, the lot's acquisition date drives its holding period (short vs long term).
     /// Optional so records saved before this field decode cleanly. Empty/nil = unknown vintage.
     public var acquisitionDate: IsoDate? = nil
+    /// For a SINGLE STOCK, the sector it belongs to. A bare ticker carries no sector, so
+    /// without this a single name can't be classified to a policy sleeve or placed in the
+    /// country×sector look-through. nil = a fund/ETF (classified from its ticker instead).
+    public var sector: Sector? = nil
     public init() {}
     public var unrealizedGainUsd: Usd { marketValueUsd - costBasisUsd }
 }
@@ -723,7 +727,8 @@ public extension IntakeModel {
                 : []
             positions.append(Position(id: "\(acct)_held_\(i)_\(hp.ticker)", accountId: acct, ticker: hp.ticker.isEmpty ? "HELD\(i)" : hp.ticker,
                                       sleeveId: nil, marketValueUsd: hp.marketValueUsd, costBasisUsd: hp.costBasisUsd,
-                                      layer: .strategic, disposition: disp, holdToStepUp: hold, isConcentrated: hp.isConcentrated, lots: lots))
+                                      layer: .strategic, disposition: disp, holdToStepUp: hold, isConcentrated: hp.isConcentrated,
+                                      sector: hp.sector, lots: lots))
             itemizedByTreatment[hp.treatment, default: 0] += hp.marketValueUsd
             if draws && hp.treatment == .taxable {
                 let gain = max(0, hp.unrealizedGainUsd)

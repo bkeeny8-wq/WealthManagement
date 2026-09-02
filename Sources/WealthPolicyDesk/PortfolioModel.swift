@@ -80,6 +80,8 @@ public struct HoldingSuggestion: Identifiable, Sendable, Hashable {
     public var rationale: String
     public var taxNote: String?
     public var isConcentrated: Bool
+    /// Given a home in the model — a policy sleeve, or an alt-budget function.
+    public var isPlaced: Bool
 }
 
 public struct PortfolioIntegration: Sendable {
@@ -117,9 +119,24 @@ public extension Engine {
             // sleeve home, and "unwind it on a tax-aware schedule" is precisely the advice.
             var action: HoldingAction = .keep
             var rationale = ""
+            var altLabel: String? = nil
             if p.isConcentrated {
                 action = .unwind
                 rationale = "Concentrated single-name risk. Diversify into \(sleeve?.label ?? "the core policy sleeves") on a tax-aware schedule."
+            } else if let fn = Engine.altFunction(ofTicker: p.ticker.uppercased()) {
+                // An alternative is sized by its ALT BUDGET, not the sleeve targets — read it
+                // against that budget rather than sending it to "review" for having no sleeve.
+                altLabel = fn.label
+                let row = eval.altSizing.first { $0.fn == fn }
+                let target = row?.targetBps ?? 0
+                let current = row?.currentBps ?? 0
+                if current > target, target > 0, current - target >= 100 {
+                    action = .trim
+                    rationale = "A \(fn.label.lowercased()) alternative. The book carries \(Fmt.pctBps(current)) against a \(Fmt.pctBps(target)) budget for this function — trim toward budget."
+                } else {
+                    action = .keep
+                    rationale = "A \(fn.label.lowercased()) alternative, sized by the alt budget rather than the sleeve targets: \(Fmt.pctBps(current)) held against a \(Fmt.pctBps(target)) budget."
+                }
             } else if sleeveId == nil {
                 action = .review
                 rationale = "No clean policy sleeve for \(p.ticker) — classify it by hand or treat it as a satellite."
@@ -152,8 +169,9 @@ public extension Engine {
             suggestions.append(HoldingSuggestion(
                 id: p.id, ticker: p.ticker, accountLabel: h.account(p.accountId)?.label ?? treatment.short,
                 treatment: treatment, marketValueUsd: p.marketValueUsd, unrealizedGainUsd: gain,
-                sleeveId: sleeveId, sleeveLabel: sleeve?.label ?? "Unclassified",
-                action: action, rationale: rationale, taxNote: taxNote, isConcentrated: p.isConcentrated))
+                sleeveId: sleeveId, sleeveLabel: altLabel ?? sleeve?.label ?? "Unclassified",
+                action: action, rationale: rationale, taxNote: taxNote, isConcentrated: p.isConcentrated,
+                isPlaced: sleeveId != nil || altLabel != nil))
         }
 
         // Deterministic order: most-pressing action first, then larger positions, then ticker.
@@ -164,7 +182,7 @@ public extension Engine {
         }
 
         let itemized = holdings.reduce(0) { $0 + $1.marketValueUsd }
-        let classified = suggestions.filter { $0.sleeveId != nil }.reduce(0) { $0 + $1.marketValueUsd }
+        let classified = suggestions.filter { $0.isPlaced }.reduce(0) { $0 + $1.marketValueUsd }
         let totalGain = holdings.reduce(0) { $0 + $1.unrealizedGainUsd }
         var counts: [HoldingAction: Int] = [:]
         for s in suggestions { counts[s.action, default: 0] += 1 }

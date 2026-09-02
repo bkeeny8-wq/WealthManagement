@@ -81,6 +81,7 @@ final class PersistenceTests: XCTestCase {
         h.id = uuid(5); h.ticker = "AAPL"; h.marketValueUsd = 300_000; h.costBasisUsd = 90_000
         h.treatment = other(h.treatment); h.plan = other(h.plan); h.unwindYears = 5
         h.isConcentrated = true; h.acquisitionDate = "2019-03-15"
+        h.sector = .technology        // non-nil ⇒ teeth for the single-stock sector write
         return h
     }
 

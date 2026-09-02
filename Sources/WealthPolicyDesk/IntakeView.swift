@@ -1144,6 +1144,12 @@ struct YesNoRow: View {
 func years(_ r: ClosedRange<Int>) -> [(Int, String)] { r.map { ($0, String($0)) } }
 func ages(_ r: ClosedRange<Int>) -> [(Int, String)] { r.map { ($0, "\($0)") } }
 
+/// Sector options for a held position — "not a single stock" first, since most holdings
+/// are funds and are classified from their ticker instead.
+var sectorOptions: [(Sector?, String)] {
+    [(Sector?.none, "Fund / not a single stock")] + Sector.allCases.map { (Sector?.some($0), $0.label) }
+}
+
 /// US states + DC, stored as the two-letter code the tax layer expects.
 enum USStates {
     static let options: [(String, String)] = [
@@ -1204,6 +1210,7 @@ struct HeldPositionForm: View {
             FormText(label: "Acquired (YYYY-MM-DD, optional)", value: Binding(
                 get: { position.acquisitionDate ?? "" },
                 set: { position.acquisitionDate = $0.isEmpty ? nil : $0 }))
+            WheelRow(label: "Sector (single stocks)", selection: $position.sector, options: sectorOptions)
             FieldLabel("Account") { ChoiceChips(AccountTaxTreatment.allCases.map { ($0, $0.short) }, selection: position.treatment) { position.treatment = $0 } }
             FieldLabel("Plan") { ChoiceChips(HeldPositionTreatment.allCases.map { ($0, $0.label) }, selection: position.plan) { position.plan = $0 } }
             if position.plan == .unwindScheduled {
