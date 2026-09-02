@@ -25,12 +25,14 @@ public extension Seed {
     static func sleeveId(forTicker raw: String, sector: Sector? = nil) -> String? {
         let t = raw.uppercased().trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return nil }
-        // 1. exact instrument in any sleeve (VOO, BND, VNQ, XLK, VLUE, …)
+        // 1. value/growth style ETFs across the US size ladder — FIRST, because VUG is both
+        //    the large-growth style ETF and an option instrument of us_factor_tilt; a held VUG
+        //    is US large core (growth flavor), not the factor satellite.
+        if let bucket = USSizeBucket.bucket(forTicker: t) { return bucket.sleeveId }
+        // 2. exact instrument in any sleeve (VOO, BND, VNQ, XLK, VLUE, …)
         if let s = legacyPolicy.sleeves.first(where: { $0.instruments.contains { $0.ticker.uppercased() == t } }) {
             return s.id
         }
-        // 2. value/growth style ETFs across the US size ladder
-        if let bucket = USSizeBucket.bucket(forTicker: t) { return bucket.sleeveId }
         // 3. a sector SPDR is a sector bet
         if Sector.fromSpdr(t) != nil { return "us_sector_tilt" }
         // 4. fixed-income / commodity families
@@ -110,15 +112,17 @@ public extension Engine {
             let gain = p.unrealizedGainUsd
             let treatment = h.treatment(of: p)
 
-            // Decide the action, most-pressing first.
+            // Decide the action, most-pressing first. Concentration is checked BEFORE
+            // classification: a concentrated single name (e.g. AAPL) usually has no clean
+            // sleeve home, and "unwind it on a tax-aware schedule" is precisely the advice.
             var action: HoldingAction = .keep
             var rationale = ""
-            if sleeveId == nil {
+            if p.isConcentrated {
+                action = .unwind
+                rationale = "Concentrated single-name risk. Diversify into \(sleeve?.label ?? "the core policy sleeves") on a tax-aware schedule."
+            } else if sleeveId == nil {
                 action = .review
                 rationale = "No clean policy sleeve for \(p.ticker) — classify it by hand or treat it as a satellite."
-            } else if p.isConcentrated {
-                action = .unwind
-                rationale = "Concentrated single-name risk. Diversify into \(sleeve?.label ?? "the policy sleeves") on a tax-aware schedule."
             } else if let sl = sleeve, prefersShelter(sl), treatment == .taxable {
                 action = .relocate
                 rationale = "\(sl.label) is tax-inefficient in a taxable account — hold it in a tax-deferred/Roth account instead."

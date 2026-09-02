@@ -98,9 +98,13 @@ public extension Household {
     func withEquityStyle(_ st: USEquityStyleTilt) -> Household {
         var h = self
         h.equityStyle = st
-        guard !st.isNeutral else { return h }   // blend everywhere: base holdings already blend
+        // Re-flavor only the SYNTHESIZED, policy-shaped holdings (sleeveId set). A client's
+        // real entered holding (itemized, sleeveId == nil) is left exactly as entered — we
+        // never silently rename what they actually hold. Runs even for a neutral tilt, so a
+        // reset to blend maps a previously-styled proxy ticker back to its blend ETF (the map
+        // is idempotent for blend: VUG → VOO, VOO → VOO).
         h.positions = h.positions.map { p in
-            guard let bucket = USSizeBucket.bucket(forTicker: p.ticker) else { return p }
+            guard p.sleeveId != nil, let bucket = USSizeBucket.bucket(forTicker: p.ticker) else { return p }
             var np = p
             np.ticker = bucket.ticker(for: st.style(for: bucket))
             return np

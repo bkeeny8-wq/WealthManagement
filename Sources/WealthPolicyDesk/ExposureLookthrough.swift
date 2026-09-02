@@ -48,8 +48,10 @@ enum LookThrough {
     // Total-market and large-cap US funds carry the large-cap sector profile. VTI is
     // Vanguard Total Stock Market — cap-weighted, ~82% large — so it tracks usLargeSector,
     // NOT the mid/small table (misfiling it there understated the headline US·Tech cell).
-    static let usBroad: Set<String> = ["VOO", "SPLG", "VLUE", "MTUM", "QUAL", "USMV", "VUG", "SPY", "IVV", "VTI"]
-    static let usSmall: Set<String> = ["VO", "VB"]   // VO = mid-cap, VB = small-cap
+    static let usBroad: Set<String> = ["VOO", "SPLG", "VLUE", "MTUM", "QUAL", "USMV", "VUG", "VTV", "SPY", "IVV", "VTI"]
+    // VO/VB (blend) plus the value/growth style flavors of each — all mid/small, so they
+    // decompose on the mid/small sector table, not the large-cap one.
+    static let usSmall: Set<String> = ["VO", "VB", "VOE", "VOT", "VBR", "VBK"]
 
     // Region-blend fractions for multi-region funds (dated ≈2026 snapshot — verify).
     // Without these, a total-international fund's EM sleeve is misattributed to developed

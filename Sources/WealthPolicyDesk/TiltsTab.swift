@@ -87,9 +87,10 @@ struct TiltsTab: View {
                 .padding(.vertical, 7)
                 .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
             }
-            LedgerRow("Net value/growth posture", stylePostureText(valueTilt),
+            LedgerRow("Equity book value/growth", stylePostureText(valueTilt),
                       color: abs(valueTilt) < 0.05 ? Theme.muted : (valueTilt > 0 ? Theme.asset : Theme.accent), bold: true)
-            LedgerRow("Style set", st.summary, color: Theme.muted)
+            LedgerRow("US style set", st.summary, color: Theme.muted)
+            Note("The posture is the value/growth axis of the WHOLE equity book (this US style plus international, REITs, sectors) — the net bet the client actually carries.", color: Theme.muted)
             if !st.isNeutral {
                 Button { onSetStyle(USEquityStyleTilt()) } label: {
                     Label("Reset to cap-weighted blend", systemImage: "arrow.uturn.backward")
