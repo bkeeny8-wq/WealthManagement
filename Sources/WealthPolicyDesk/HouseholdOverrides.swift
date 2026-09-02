@@ -50,15 +50,18 @@ public struct HouseholdOverrides: Codable, Sendable, Hashable {
     public var goalAmountOverrides: [String: Usd] = [:] // goalId → per-outflow amount (retirement or any goal)
     public var goalTimingOverrides: [String: GoalTiming] = [:]  // goalId → start year & duration
     public var removedGoalIds: [String] = []            // goal ids to drop (added or standard)
+    public var usEquityStyle: USEquityStyleTilt? = nil   // value/growth style posture across US size buckets
 
     public init(legacyFloorUsd: Usd? = nil, toleranceMaxDrawdownBps: Bps? = nil,
                 annualSavingsUsd: Usd? = nil, retirementAge: Int? = nil, spouseRetirementAge: Int? = nil,
                 addedGoals: [GoalEdit] = [], goalAmountOverrides: [String: Usd] = [:],
-                goalTimingOverrides: [String: GoalTiming] = [:], removedGoalIds: [String] = []) {
+                goalTimingOverrides: [String: GoalTiming] = [:], removedGoalIds: [String] = [],
+                usEquityStyle: USEquityStyleTilt? = nil) {
         self.legacyFloorUsd = legacyFloorUsd; self.toleranceMaxDrawdownBps = toleranceMaxDrawdownBps
         self.annualSavingsUsd = annualSavingsUsd; self.retirementAge = retirementAge; self.spouseRetirementAge = spouseRetirementAge
         self.addedGoals = addedGoals; self.goalAmountOverrides = goalAmountOverrides
         self.goalTimingOverrides = goalTimingOverrides; self.removedGoalIds = removedGoalIds
+        self.usEquityStyle = usEquityStyle
     }
 
     /// Forward/backward-compatible decode: a missing field never drops the record.
@@ -73,17 +76,20 @@ public struct HouseholdOverrides: Codable, Sendable, Hashable {
         goalAmountOverrides = ((try? c.decodeIfPresent([String: Usd].self, forKey: .goalAmountOverrides)) ?? nil) ?? [:]
         goalTimingOverrides = ((try? c.decodeIfPresent([String: GoalTiming].self, forKey: .goalTimingOverrides)) ?? nil) ?? [:]
         removedGoalIds = ((try? c.decodeIfPresent([String].self, forKey: .removedGoalIds)) ?? nil) ?? []
+        usEquityStyle = (try? c.decodeIfPresent(USEquityStyleTilt.self, forKey: .usEquityStyle)) ?? nil
     }
 
     public var isEmpty: Bool {
         legacyFloorUsd == nil && toleranceMaxDrawdownBps == nil && annualSavingsUsd == nil
             && retirementAge == nil && spouseRetirementAge == nil
             && addedGoals.isEmpty && goalAmountOverrides.isEmpty && goalTimingOverrides.isEmpty && removedGoalIds.isEmpty
+            && usEquityStyle == nil
     }
     public var count: Int {
         (legacyFloorUsd == nil ? 0 : 1) + (toleranceMaxDrawdownBps == nil ? 0 : 1)
             + (annualSavingsUsd == nil ? 0 : 1) + (retirementAge == nil ? 0 : 1) + (spouseRetirementAge == nil ? 0 : 1)
             + addedGoals.count + goalAmountOverrides.count + goalTimingOverrides.count + removedGoalIds.count
+            + (usEquityStyle == nil ? 0 : 1)
     }
 
     /// Fold another set of overrides in — scalars: non-nil wins; collections append; dicts: key wins.
@@ -97,6 +103,7 @@ public struct HouseholdOverrides: Codable, Sendable, Hashable {
         for (k, v) in o.goalAmountOverrides { goalAmountOverrides[k] = v }
         for (k, v) in o.goalTimingOverrides { goalTimingOverrides[k] = v }
         removedGoalIds.append(contentsOf: o.removedGoalIds)
+        if let v = o.usEquityStyle { usEquityStyle = v }
     }
 }
 
@@ -175,6 +182,9 @@ public extension Household {
             }
         }
         if !o.removedGoalIds.isEmpty { h.goals.removeAll { o.removedGoalIds.contains($0.id) } }
+        // US-equity style: re-flavor the held ETF per size bucket (composition only). Applied
+        // last, over the final position set, so an added-goal or timing edit never disturbs it.
+        if let st = o.usEquityStyle { h = h.withEquityStyle(st) }
         return h
     }
 }

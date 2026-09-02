@@ -163,7 +163,7 @@ public extension Engine {
             guard let sleeve = policy.sleeve(gap.sleeveId) else { continue }
             let buyUsd = gap.gapUsd * correction * scale
             if buyUsd < reb.minTradeUsd { continue }
-            let ticker = sleeve.primaryTicker
+            let ticker = styledBuyTicker(for: sleeve, style: h.equityStyle)
             let acct = preferredAccount(for: sleeve, accounts: h.accounts)
             totalBuys += buyUsd
             trades.append(RebalanceTrade(id: "buy-\(gap.sleeveId)", side: .buy, ticker: ticker,
@@ -242,6 +242,16 @@ public extension Engine {
         if treatment != .taxable { return 0 }
         if p.unrealizedGainUsd < 0 { return 1 }
         return 2 + (1 - Double(p.basisRatioBps) / 10000)   // higher basis ratio → less gain → sell sooner
+    }
+
+    /// The instrument to BUY for a sleeve, honoring the household's US-equity style so a buy
+    /// proposal names the same ETF the book actually holds (VUG when large = growth, not VOO).
+    /// Non-US-size sleeves are unaffected and keep their primary instrument. The mid/small
+    /// sleeve buys its MID flavor, matching that sleeve's primary instrument (VO).
+    static func styledBuyTicker(for sleeve: Sleeve, style: USEquityStyleTilt) -> String {
+        let primary = sleeve.primaryTicker
+        guard let bucket = USSizeBucket.bucket(forTicker: primary) else { return primary }
+        return bucket.ticker(for: style.style(for: bucket))
     }
 
     private static func preferredAccount(for sleeve: Sleeve, accounts: [Account]) -> Account? {

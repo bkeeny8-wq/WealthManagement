@@ -11,6 +11,7 @@ import SwiftUI
 
 struct TiltsTab: View {
     let eval: Evaluation
+    var onSetStyle: (USEquityStyleTilt) -> Void = { _ in }
     private var tilts: [TacticalTiltAction] { eval.household.tacticalTilts }
     private var budget: TiltPolicy { Seed.tiltPolicy }
     private var usedBps: Bps { tilts.reduce(0) { $0 + abs($1.deviationBps) } }
@@ -18,6 +19,8 @@ struct TiltsTab: View {
 
     var body: some View {
         let tiltFindings = eval.findings.filter { $0.module == .tilt && $0.ruleId.hasPrefix("tactical_") }
+
+        styleCard
 
         Card("The tactical layer is small by design", help: Teach.help("tilts")) {
             Note("The weakest-evidence component, so it is budgeted: a capped total deviation, a mandatory thesis, and a review date on every tilt. Tilts come from the firm-wide Sentiment board (Econ → Sentiment) and are staged per client on the Planning tab; they deviate the tactical target within the same role, so the equity/bond risk level is never moved — only the composition.")
@@ -58,6 +61,50 @@ struct TiltsTab: View {
                 Note("Strategic → tactical target per sleeve. Each tilt is funded pro-rata from the other sleeves of its role, so these deviations net to zero within equity (or within bonds) — the risk budget is untouched.", color: Theme.muted)
             }
         }
+    }
+
+    // MARK: - US equity value/growth style overlay
+
+    private var styleCard: some View {
+        let st = eval.household.equityStyle
+        let fx = Engine.factorExposure(eval.household)
+        let valueTilt = fx.tilts.first { $0.axis == .value }?.tilt ?? 0
+        return Card("US equity style — value ⇄ growth") {
+            Note("Tilt each US size bucket toward value or growth. This is a COMPOSITION change only — it swaps which style ETF is held (e.g. VOO → VTV value or VUG growth), never how much equity you hold or the risk level the solver set. It flows into the factor look-through and the rebalancer.", icon: "dial.medium")
+            ForEach(USSizeBucket.allCases, id: \.self) { b in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(b.label).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
+                        Spacer()
+                        Text(b.ticker(for: st.style(for: b)))
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundStyle(st.style(for: b) == .blend ? Theme.muted : Theme.accent)
+                    }
+                    ChoiceChips(EquityStyle.allCases.map { ($0, $0.label) }, selection: st.style(for: b)) { newStyle in
+                        var ns = st; ns.set(newStyle, for: b); onSetStyle(ns)
+                    }
+                }
+                .padding(.vertical, 7)
+                .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+            }
+            LedgerRow("Equity book value/growth", stylePostureText(valueTilt),
+                      color: abs(valueTilt) < 0.05 ? Theme.muted : (valueTilt > 0 ? Theme.asset : Theme.accent), bold: true)
+            LedgerRow("US style set", st.summary, color: Theme.muted)
+            Note("The posture is the value/growth axis of the WHOLE equity book (this US style plus international, REITs, sectors) — the net bet the client actually carries.", color: Theme.muted)
+            if !st.isNeutral {
+                Button { onSetStyle(USEquityStyleTilt()) } label: {
+                    Label("Reset to cap-weighted blend", systemImage: "arrow.uturn.backward")
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accent)
+                }.buttonStyle(.plain).padding(.top, 4)
+            }
+        }
+    }
+
+    /// The value-axis reading as a plain lean (the factor look-through's value(+)/growth(−) axis).
+    private func stylePostureText(_ t: Double) -> String {
+        if abs(t) < 0.05 { return "Cap-weighted — no net value/growth bet" }
+        let mag = String(format: "%.2f", abs(t))
+        return t > 0 ? "Value-leaning (+\(mag))" : "Growth-leaning (+\(mag))"
     }
 
     private func tiltCard(_ t: TacticalTiltAction) -> some View {

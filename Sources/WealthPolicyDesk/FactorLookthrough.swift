@@ -63,7 +63,12 @@ enum FactorRef {
         "VO":   [.size: 0.4], "IJH": [.size: 0.4],               // mid-cap (IJH ≡ VO, its TLH partner)
         "VB":   [.size: 0.8], "IJR": [.size: 0.8],               // small-cap (IJR ≡ VB, its TLH partner)
         "IWM":  [.size: 0.8],                                    // Russell 2000 — the "Small-cap (Size)" sleeve's instrument
-        "VUG":  [.value: -0.6, .quality: 0.2, .momentum: 0.2, .size: -0.15],  // growth = anti-value, large/mega-cap
+        "VUG":  [.value: -0.6, .quality: 0.2, .momentum: 0.2, .size: -0.15],  // large growth = anti-value, large/mega-cap
+        "VTV":  [.value: 0.5, .size: -0.1],                       // large value
+        "VOT":  [.value: -0.45, .size: 0.4, .momentum: 0.15],     // mid growth
+        "VOE":  [.value: 0.45, .size: 0.4],                       // mid value
+        "VBK":  [.value: -0.45, .size: 0.8],                      // small growth
+        "VBR":  [.value: 0.45, .size: 0.8],                       // small value
         "VNQ":  [.value: 0.2], "IYR": [.value: 0.2],             // REITs lean value
         "VEA":  [.value: 0.15], "VXUS": [.value: 0.15], "IEFA": [.value: 0.15], "IXUS": [.value: 0.15],
         "VWO":  [.value: 0.25, .size: 0.1], "IEMG": [.value: 0.25, .size: 0.1],

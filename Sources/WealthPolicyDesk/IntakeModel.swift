@@ -168,6 +168,10 @@ public struct IntakeHeldPosition: Codable, Hashable, Identifiable {
     /// When set, the lot's acquisition date drives its holding period (short vs long term).
     /// Optional so records saved before this field decode cleanly. Empty/nil = unknown vintage.
     public var acquisitionDate: IsoDate? = nil
+    /// For a SINGLE STOCK, the sector it belongs to. A bare ticker carries no sector, so
+    /// without this a single name can't be classified to a policy sleeve or placed in the
+    /// country×sector look-through. nil = a fund/ETF (classified from its ticker instead).
+    public var sector: Sector? = nil
     public init() {}
     public var unrealizedGainUsd: Usd { marketValueUsd - costBasisUsd }
 }
@@ -723,7 +727,8 @@ public extension IntakeModel {
                 : []
             positions.append(Position(id: "\(acct)_held_\(i)_\(hp.ticker)", accountId: acct, ticker: hp.ticker.isEmpty ? "HELD\(i)" : hp.ticker,
                                       sleeveId: nil, marketValueUsd: hp.marketValueUsd, costBasisUsd: hp.costBasisUsd,
-                                      layer: .strategic, disposition: disp, holdToStepUp: hold, isConcentrated: hp.isConcentrated, lots: lots))
+                                      layer: .strategic, disposition: disp, holdToStepUp: hold, isConcentrated: hp.isConcentrated,
+                                      sector: hp.sector, lots: lots))
             itemizedByTreatment[hp.treatment, default: 0] += hp.marketValueUsd
             if draws && hp.treatment == .taxable {
                 let gain = max(0, hp.unrealizedGainUsd)
@@ -903,7 +908,7 @@ public extension IntakeModel {
                           accountId: accountId, treatment: treatment, gainPct: gainPct)
         out += fillBucket(sleeves.filter { $0.role != .growth }, dollars: balance * (1 - eq),
                           accountId: accountId, treatment: treatment, gainPct: gainPct)
-        return out.isEmpty ? [position(core, accountId: accountId, treatment: treatment, value: balance, gainPct: gainPct)] : out
+        return out.isEmpty ? positions(core, accountId: accountId, treatment: treatment, value: balance, gainPct: gainPct) : out
     }
 
     /// Fill one asset-role bucket with `dollars`, split by the sleeves' structural
@@ -914,12 +919,16 @@ public extension IntakeModel {
         let survivors = bucket.map { ($0, dollars * Double($0.targetBps) / weight) }.filter { $0.1 >= 500 }
         let sum = survivors.reduce(0) { $0 + $1.1 }
         if sum > 0 {
-            return survivors.map { position($0.0, accountId: accountId, treatment: treatment, value: $0.1 * dollars / sum, gainPct: gainPct) }
+            return survivors.flatMap { positions($0.0, accountId: accountId, treatment: treatment, value: $0.1 * dollars / sum, gainPct: gainPct) }
         }
-        return [position(bucket[0], accountId: accountId, treatment: treatment, value: dollars, gainPct: gainPct)]
+        return positions(bucket[0], accountId: accountId, treatment: treatment, value: dollars, gainPct: gainPct)
     }
 
-    private static func position(_ s: Sleeve, accountId: String, treatment: AccountTaxTreatment, value: Usd, gainPct: Double) -> Position {
+    /// One synthesized holding per PRIMARY instrument of the sleeve, splitting the sleeve's
+    /// dollars evenly. Single-primary sleeves are unchanged; the one multi-primary sleeve
+    /// (`us_mid_small` = VO mid + VB small) becomes two holdings so the value/growth style
+    /// overlay can flavor mid and small independently.
+    private static func positions(_ s: Sleeve, accountId: String, treatment: AccountTaxTreatment, value: Usd, gainPct: Double) -> [Position] {
         let disposition: Disposition
         let holdToStepUp: Bool
         switch treatment {
@@ -931,8 +940,14 @@ public extension IntakeModel {
         case .taxFree:
             holdToStepUp = false; disposition = .stepUpThenSell
         }
-        let basis = treatment == .taxable ? value * (1 - max(0, min(0.95, gainPct))) : value
-        return Position(id: "\(accountId)_\(s.id)", accountId: accountId, ticker: s.primaryTicker, sleeveId: s.id,
-                        marketValueUsd: value, costBasisUsd: basis, layer: .strategic, disposition: disposition, holdToStepUp: holdToStepUp)
+        let primaries = s.instruments.filter { $0.role == .primary }.map { $0.ticker }
+        let tickers = primaries.isEmpty ? [s.primaryTicker] : primaries
+        let per = value / Double(tickers.count)
+        let basis = treatment == .taxable ? per * (1 - max(0, min(0.95, gainPct))) : per
+        return tickers.enumerated().map { i, tk in
+            let pid = i == 0 ? "\(accountId)_\(s.id)" : "\(accountId)_\(s.id)_\(tk)"
+            return Position(id: pid, accountId: accountId, ticker: tk, sleeveId: s.id,
+                            marketValueUsd: per, costBasisUsd: basis, layer: .strategic, disposition: disposition, holdToStepUp: holdToStepUp)
+        }
     }
 }

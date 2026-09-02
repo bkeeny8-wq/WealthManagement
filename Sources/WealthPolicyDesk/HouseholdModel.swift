@@ -405,6 +405,11 @@ public struct Household: Identifiable, Sendable, Hashable {
     /// Defaulted, so no construction site needs to change.
     public var tacticalTilts: [TacticalTiltAction] = []
 
+    /// The US-equity value/growth style posture across the size ladder. A composition
+    /// overlay only — re-flavors which ETF is held per size bucket, never the risk level.
+    /// Defaulted to neutral (cap-weighted blend), so no construction site needs to change.
+    public var equityStyle: USEquityStyleTilt = USEquityStyleTilt()
+
     /// Transition: annual realized-gain budget (0 = not set), the currently
     /// scheduled annual realized gain from unwinding held-away positions, and
     /// the policy for positions that will never be sold.

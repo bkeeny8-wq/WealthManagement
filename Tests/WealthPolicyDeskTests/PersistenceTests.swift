@@ -35,6 +35,7 @@ final class PersistenceTests: XCTestCase {
         o.goalAmountOverrides = ["g_spending": 210_000]
         o.goalTimingOverrides = ["ov_home": GoalTiming(startYear: 4, years: 2)]
         o.removedGoalIds = ["ov_travel"]
+        o.usEquityStyle = USEquityStyleTilt(large: .growth, mid: .value, small: .blend)   // non-nil ⇒ teeth for the write
         return o
     }
 
@@ -80,6 +81,7 @@ final class PersistenceTests: XCTestCase {
         h.id = uuid(5); h.ticker = "AAPL"; h.marketValueUsd = 300_000; h.costBasisUsd = 90_000
         h.treatment = other(h.treatment); h.plan = other(h.plan); h.unwindYears = 5
         h.isConcentrated = true; h.acquisitionDate = "2019-03-15"
+        h.sector = .technology        // non-nil ⇒ teeth for the single-stock sector write
         return h
     }
 
