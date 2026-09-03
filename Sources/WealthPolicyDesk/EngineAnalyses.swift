@@ -71,12 +71,17 @@ extension Engine {
         let magi = estimatedMagi(h, asOf: asOf)
         let homeValue = h.externalAssets.filter { $0.kind == .homeEquity }.reduce(0) { $0 + $1.valueUsd }
             + h.liabilities.filter { $0.kind == .mortgagePrimary }.reduce(0) { $0 + $1.balanceUsd }
-        let stateIncomeTax = magi * 0.06          // NJ-ish effective state rate
-        let propertyTax = homeValue * 0.018        // NJ property tax is high
+        // State tax comes from the household's OWN state, not a hardcoded New Jersey profile,
+        // and charitable giving from what the client actually entered. Both were constants,
+        // which meant a Texan with no state income tax and no giving was still analysed as a
+        // high-tax itemizer — driving the SALT, muni-crossover and paydown verdicts wrong.
+        let profile = Seed.stateTaxProfile(for: h.stateOfResidence)
+        let stateIncomeTax = magi * profile.incomeRate
+        let propertyTax = homeValue * profile.propertyRate
         let mortgageInterest = h.liabilities.filter { $0.kind == .mortgagePrimary }.reduce(0.0) { $0 + $1.balanceUsd * $1.rateBps.frac }
         return ItemizationInput(taxYear: year(asOf), filingStatus: h.filingStatus, magiUsd: magi,
                                 stateIncomeTaxUsd: stateIncomeTax, propertyTaxUsd: propertyTax,
-                                mortgageInterestUsd: mortgageInterest, charitableUsd: 20_000)
+                                mortgageInterestUsd: mortgageInterest, charitableUsd: max(0, h.estate.annualGivingUsd))
     }
 
     public static func analyzeItemization(_ input: ItemizationInput, tax: TaxParameterSet) -> ItemizationAnalysis {

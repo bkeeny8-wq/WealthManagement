@@ -224,7 +224,8 @@ public extension Engine {
         var rmd: Usd = 0
         if let primary = h.primary {
             let a = age(birthDate: primary.birthDate, asOf: asOf)
-            if a >= tax.rmdStartAge { rmd = h.value(in: .taxDeferred) / uniformLifetimeDivisor(a) }
+            let rmdAge = rmdStartAge(birthDate: primary.birthDate, default: tax.rmdStartAge)
+            if a >= rmdAge { rmd = h.value(in: .taxDeferred) / uniformLifetimeDivisor(a) }
         }
         let ordinaryExSS = wages + pension + rmd
         let ss = socialSecurityAnnual(h, year: 0, asOf: asOf)

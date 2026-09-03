@@ -89,6 +89,7 @@ public extension Engine {
         let stdDed = tax.standardDeduction[filing] ?? 0
         let r = max(0, rr.requiredRealReturnBps.frac)          // real growth = the plan's own required return
         let primaryAge0 = age(birthDate: primary.birthDate, asOf: asOf)
+        let rmdAge = rmdStartAge(birthDate: primary.birthDate, default: tax.rmdStartAge)
         let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
         let planToAge = primaryAge0 + horizon
         let firstAge = max(primaryAge0, primary.expectedRetirementAge)
@@ -124,28 +125,37 @@ public extension Engine {
             let t = ageNow - primaryAge0                       // plan-year index (years from asOf)
             let ss = socialSecurityAnnual(h, year: t, asOf: asOf)
             let pension = pensionAnnual(h, year: t)
+            // Wages of any adult still working this year. The projection starts at the
+            // PRIMARY's retirement, so a younger spouse is often still earning — ignoring
+            // that income made the pre-RMD years look empty, understated Social-Security
+            // taxation, and handed the Roth optimizer a phantom low bracket to fill.
+            let wages = adults.reduce(0.0) { acc, p in
+                let ageAtT = age(birthDate: p.birthDate, asOf: asOf) + t
+                guard ageAtT < p.expectedRetirementAge else { return acc }
+                return acc + (h.humanCapital.first { $0.personId == p.id }?.annualIncomeUsd ?? 0)
+            }
             // RMD: the whole tax-deferred balance divided by the IRS Uniform Lifetime factor.
-            let rmd = ageNow >= tax.rmdStartAge ? deferred / uniformLifetimeDivisor(ageNow) : 0
+            let rmd = ageNow >= rmdAge ? deferred / uniformLifetimeDivisor(ageNow) : 0
             if rmd > 0 && firstRmdAge == 0 { firstRmdAge = ageNow }
             deferred -= rmd                                    // the RMD leaves the account (as income)
 
             // Discretionary need beyond guaranteed income and the forced RMD.
             let spend = retirementSpendingOutflow(h, year: t)
-            var need = max(0, spend - ss - pension - rmd)
+            var need = max(0, spend - ss - pension - wages - rmd)
             var wTaxable: Usd = 0, wDeferred: Usd = 0, wRoth: Usd = 0
             if need > 0 { wTaxable = min(taxable, need); taxable -= wTaxable; need -= wTaxable }
             if need > 0 { wDeferred = min(deferred, need); deferred -= wDeferred; need -= wDeferred }
             if need > 0 { wRoth = min(roth, need); roth -= wRoth; need -= wRoth }
             // Forced RMD cash beyond what spending consumed doesn't vanish — it's reinvested taxable.
-            taxable += max(0, rmd - max(0, spend - ss - pension))
+            taxable += max(0, rmd - max(0, spend - ss - pension - wages))
 
             // Income and federal tax.
             let capGains = wTaxable * taxableGainFrac
-            var ordinaryExSS = rmd + wDeferred + pension
+            var ordinaryExSS = rmd + wDeferred + pension + wages
             // Roth conversion: in the pre-RMD window, fill ordinary income up to the top
             // of the target bracket (tax-deferred → Roth, taxed now at the low rate).
             var conversion: Usd = 0
-            if let topBps = conversionToBracketTopBps, ageNow < tax.rmdStartAge, deferred > 0 {
+            if let topBps = conversionToBracketTopBps, ageNow < rmdAge, deferred > 0 {
                 let ceiling = bracketTopTaxable(topBps, filing: filing, tax: tax)
                 let ssEst = taxableSocialSecurity(ss: ss, otherIncome: ordinaryExSS + capGains, filing: filing)
                 let preTaxable = max(0, ordinaryExSS + ssEst - stdDed)
@@ -163,7 +173,7 @@ public extension Engine {
             let niit = niitTax(magi: magi, netInvestmentIncome: capGains, filing: filing, tax: tax)
             let federalTax = ordinaryTax + ltcgTax + niit
             let medicareCount = adults.filter { age(birthDate: $0.birthDate, asOf: asOf) + t >= 65 }.count
-            let irmaa = irmaaAnnual(magi: magi, medicareCount: medicareCount, tiers: tax.irmaaTiers)
+            let irmaa = irmaaAnnual(magi: magi, medicareCount: medicareCount, filing: filing, tiers: tax.irmaaTiers)
             lifetimeTax += federalTax; lifetimeIrmaa += irmaa
             // Conservation: the year's tax is actually paid from the portfolio (taxable → deferred → Roth),
             // so the balances that roll forward — and the RMDs they drive — are genuinely after-tax.
@@ -258,16 +268,32 @@ public extension Engine {
 
     /// Annual Medicare IRMAA surcharge — the highest tier the MAGI clears, times the
     /// number of Medicare-age adults (each pays their own surcharge).
-    static func irmaaAnnual(magi: Usd, medicareCount: Int, tiers: [IrmaaTier]) -> Usd {
+    static func irmaaAnnual(magi: Usd, medicareCount: Int, filing: FilingStatus, tiers: [FilingStatus: [IrmaaTier]]) -> Usd {
         guard medicareCount > 0 else { return 0 }
+        // Fall back to the single schedule rather than MFJ: for an unmarried filer the MFJ
+        // table silently reports no surcharge where one is actually due.
+        let band = tiers[filing] ?? tiers[.single] ?? []
         var monthly: Usd = 0
-        for tier in tiers.sorted(by: { $0.magiOverUsd < $1.magiOverUsd }) where magi > tier.magiOverUsd {
+        for tier in band.sorted(by: { $0.magiOverUsd < $1.magiOverUsd }) where magi > tier.magiOverUsd {
             monthly = tier.monthlySurchargeUsd
         }
         return monthly * 12 * Double(medicareCount)
     }
 
     /// IRS Uniform Lifetime Table (2022+) divisor; flat outside the tabulated range.
+    /// The required beginning age for RMDs, which SECURE 2.0 makes a function of BIRTH YEAR,
+    /// not a single scalar: 73 for those born 1951–1959, 75 for anyone born 1960 or later.
+    /// (Born before 1951 the age was 72 and has already passed.) `tax.rmdStartAge` remains the
+    /// seeded default for callers with no birth date.
+    static func rmdStartAge(birthDate: IsoDate, default fallback: Int) -> Int {
+        // Parse directly rather than via `year(_:)`, which masks a bad date as 2026 and would
+        // silently classify a missing birth date into the 1960+ cohort.
+        guard let by = Int(birthDate.prefix(4)), by > 1800 else { return fallback }
+        if by >= 1960 { return 75 }
+        if by >= 1951 { return 73 }
+        return 72
+    }
+
     static func uniformLifetimeDivisor(_ age: Int) -> Double {
         let t: [Int: Double] = [72: 27.4, 73: 26.5, 74: 25.5, 75: 24.6, 76: 23.7, 77: 22.9, 78: 22.0, 79: 21.1,
                                 80: 20.2, 81: 19.4, 82: 18.5, 83: 17.7, 84: 16.8, 85: 16.0, 86: 15.2, 87: 14.4,

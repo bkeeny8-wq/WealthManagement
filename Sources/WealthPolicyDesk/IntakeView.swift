@@ -239,12 +239,13 @@ public struct RootView: View {
 
     // MARK: per-client export (canonical plan, not live what-ifs)
 
-    /// The household of record for export — committed moves AND tilts applied, so
-    /// the desk export matches the roster (whole-book) export for the same client.
+    /// The household of record for export. This MUST be the same plan of record the roster
+    /// (whole-book) export evaluates — `ClientRecord.household()` — or the same client leaves
+    /// the device with two different required returns depending on which menu was used. The
+    /// record path already folds committed moves, committed tilts AND driver overrides.
     private func exportHousehold(_ intake: IntakeModel) -> Household {
-        var h = intake.buildHousehold().applying(activeCommittedActions)
-        h.tacticalTilts = activeCommittedTilts
-        return h
+        if let id = activeId, let rec = book.first(where: { $0.id == id }) { return rec.household() }
+        return intake.buildHousehold()
     }
 
     private var exportJSON: String? {

@@ -55,6 +55,23 @@ public struct EstateParameters: Sendable, Hashable {
     }
 }
 
+/// A state's EFFECTIVE tax profile, used only to estimate the itemized-deduction inputs
+/// (SALT) that drive the muni-crossover and mortgage-paydown comparisons.
+///
+/// These are dated, teaching-grade effective rates to VERIFY — not a tax table and not a
+/// substitute for a return. `incomeRate` is an effective (not marginal) rate applied to
+/// MAGI, and is 0 for states with no broad income tax; `propertyRate` is the effective
+/// annual property tax as a share of home value.
+public struct StateTaxProfile: Sendable, Hashable {
+    public var code: String
+    public var name: String
+    public var incomeRate: Double
+    public var propertyRate: Double
+    public init(code: String, name: String, incomeRate: Double, propertyRate: Double) {
+        self.code = code; self.name = name; self.incomeRate = incomeRate; self.propertyRate = propertyRate
+    }
+}
+
 public struct IrmaaTier: Sendable, Hashable {
     public var magiOverUsd: Usd
     public var monthlySurchargeUsd: Usd
@@ -88,12 +105,15 @@ public struct TaxParameterSet: Identifiable, Sendable, Hashable {
     public var estate: EstateParameters
     public var niitThreshold: [FilingStatus: Usd]
     public var niitRateBps: Bps
-    public var irmaaTiers: [IrmaaTier]
+    /// IRMAA brackets keyed by filing status. The thresholds are NOT one schedule: the
+    /// single/HoH bands sit at roughly half the married-filing-jointly bands, so applying
+    /// the MFJ table to a single filer understates the surcharge by a whole tier or more.
+    public var irmaaTiers: [FilingStatus: [IrmaaTier]]
     public var rmdStartAge: Int
     public var bracketIndexation: String
     public var scheduledChanges: [ScheduledChange]
     public var id: String { version }
-    public init(version: String, effectiveFrom: IsoDate, effectiveTo: IsoDate?, lastVerifiedAt: IsoDate, sources: [String], standardDeduction: [FilingStatus: Usd], ordinaryBrackets: [FilingStatus: [BracketRow]], ltcgBreakpoints: [FilingStatus: [BracketRow]], salt: SaltParameters, estate: EstateParameters, niitThreshold: [FilingStatus: Usd], niitRateBps: Bps, irmaaTiers: [IrmaaTier], rmdStartAge: Int, bracketIndexation: String, scheduledChanges: [ScheduledChange]) {
+    public init(version: String, effectiveFrom: IsoDate, effectiveTo: IsoDate?, lastVerifiedAt: IsoDate, sources: [String], standardDeduction: [FilingStatus: Usd], ordinaryBrackets: [FilingStatus: [BracketRow]], ltcgBreakpoints: [FilingStatus: [BracketRow]], salt: SaltParameters, estate: EstateParameters, niitThreshold: [FilingStatus: Usd], niitRateBps: Bps, irmaaTiers: [FilingStatus: [IrmaaTier]], rmdStartAge: Int, bracketIndexation: String, scheduledChanges: [ScheduledChange]) {
         self.version = version; self.effectiveFrom = effectiveFrom; self.effectiveTo = effectiveTo
         self.lastVerifiedAt = lastVerifiedAt; self.sources = sources; self.standardDeduction = standardDeduction
         self.ordinaryBrackets = ordinaryBrackets; self.ltcgBreakpoints = ltcgBreakpoints; self.salt = salt

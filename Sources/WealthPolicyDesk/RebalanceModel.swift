@@ -119,8 +119,8 @@ public extension Engine {
         for gap in gaps where gap.traded && gap.gapUsd < 0 {
             var raise = -gap.gapUsd * correction
             let all = h.positions.filter { $0.sleeveId == gap.sleeveId }
-            heldOutUsd += all.filter { !isSellable($0) }.reduce(0) { $0 + $1.marketValueUsd }
-            let candidates = all.filter { isSellable($0) }
+            heldOutUsd += all.filter { !isSellable($0, treatment: h.treatment(of: $0)) }.reduce(0) { $0 + $1.marketValueUsd }
+            let candidates = all.filter { isSellable($0, treatment: h.treatment(of: $0)) }
                 .sorted { sellRank($0, treatment: h.treatment(of: $0)) < sellRank($1, treatment: h.treatment(of: $1)) }
             for p in candidates {
                 if raise <= 1 { break }
@@ -228,10 +228,16 @@ public extension Engine {
     // MARK: - helpers
 
     /// A position may be sold only if no terminal disposition earmarks it to be held.
-    static func isSellable(_ p: Position) -> Bool {
+    ///
+    /// `charitableAtDeath` is the exception: routing an IRA to charity is a BENEFICIARY
+    /// designation on the account, not a lock on the instrument inside it, so a sheltered
+    /// position carrying it rebalances freely. In a taxable account the same disposition
+    /// does earmark the specific low-basis lot, so it still holds.
+    static func isSellable(_ p: Position, treatment: AccountTaxTreatment) -> Bool {
         if p.holdToStepUp { return false }
         switch p.disposition {
-        case .holdToStepUp, .giftDuringLife, .charitableAtDeath: return false
+        case .holdToStepUp, .giftDuringLife: return false
+        case .charitableAtDeath: return treatment == .taxDeferred
         case .stepUpThenSell, .consume: return true
         }
     }
