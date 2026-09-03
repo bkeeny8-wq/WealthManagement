@@ -122,6 +122,27 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
     public var employerStockUsd: Usd = 0
     public var deferredCashUsd: Usd = 0
     public init() {}
+
+    /// Defaults-first decode, matching IntakeModel's own decoder. Synthesized Codable
+    /// FAILS the whole value when a newly-added non-optional key is missing from older
+    /// JSON — and because the parent decodes these arrays inside a `try?`, one such
+    /// element silently discarded EVERY element, then the next save persisted the loss.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        if let v = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil { id = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil { name = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .birthYear)) ?? nil { birthYear = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .retirementAge)) ?? nil { retirementAge = v }
+        if let v = (try? c.decodeIfPresent(HealthStatus.self, forKey: .health)) ?? nil { health = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .salaryUsd)) ?? nil { salaryUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .bonusUsd)) ?? nil { bonusUsd = v }
+        if let v = (try? c.decodeIfPresent(BonusStability.self, forKey: .bonusStability)) ?? nil { bonusStability = v }
+        if let v = (try? c.decodeIfPresent(IncomeCharacter.self, forKey: .incomeCharacter)) ?? nil { incomeCharacter = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .employerStockUsd)) ?? nil { employerStockUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .deferredCashUsd)) ?? nil { deferredCashUsd = v }
+        sector = (try? c.decodeIfPresent(Sector.self, forKey: .sector)) ?? nil
+    }
 }
 
 // MARK: - Held-away holdings & transition
@@ -174,6 +195,25 @@ public struct IntakeHeldPosition: Codable, Hashable, Identifiable {
     public var sector: Sector? = nil
     public init() {}
     public var unrealizedGainUsd: Usd { marketValueUsd - costBasisUsd }
+
+    /// Defaults-first decode, matching IntakeModel's own decoder. Synthesized Codable
+    /// FAILS the whole value when a newly-added non-optional key is missing from older
+    /// JSON — and because the parent decodes these arrays inside a `try?`, one such
+    /// element silently discarded EVERY element, then the next save persisted the loss.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        if let v = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil { id = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .ticker)) ?? nil { ticker = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .marketValueUsd)) ?? nil { marketValueUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .costBasisUsd)) ?? nil { costBasisUsd = v }
+        if let v = (try? c.decodeIfPresent(AccountTaxTreatment.self, forKey: .treatment)) ?? nil { treatment = v }
+        if let v = (try? c.decodeIfPresent(HeldPositionTreatment.self, forKey: .plan)) ?? nil { plan = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .unwindYears)) ?? nil { unwindYears = v }
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: .isConcentrated)) ?? nil { isConcentrated = v }
+        acquisitionDate = (try? c.decodeIfPresent(IsoDate.self, forKey: .acquisitionDate)) ?? nil
+        sector = (try? c.decodeIfPresent(Sector.self, forKey: .sector)) ?? nil
+    }
 }
 
 // MARK: - Additional goals
@@ -208,6 +248,25 @@ public struct IntakeGoal: Codable, Hashable, Identifiable {
     public var scalableDownBps: Bps = 1500
     public var abandonable: Bool = false
     public init() {}
+
+    /// Defaults-first decode, matching IntakeModel's own decoder. Synthesized Codable
+    /// FAILS the whole value when a newly-added non-optional key is missing from older
+    /// JSON — and because the parent decodes these arrays inside a `try?`, one such
+    /// element silently discarded EVERY element, then the next save persisted the loss.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        if let v = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil { id = v }
+        if let v = (try? c.decodeIfPresent(GoalType.self, forKey: .type)) ?? nil { type = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? nil { label = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .amountUsd)) ?? nil { amountUsd = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .targetYear)) ?? nil { targetYear = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .spanYears)) ?? nil { spanYears = v }
+        if let v = (try? c.decodeIfPresent(GoalTier.self, forKey: .tier)) ?? nil { tier = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .deferrableYears)) ?? nil { deferrableYears = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .scalableDownBps)) ?? nil { scalableDownBps = v }
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: .abandonable)) ?? nil { abandonable = v }
+    }
 }
 
 // MARK: - Dependents & education
@@ -232,6 +291,18 @@ public struct IntakeChild: Codable, Hashable, Identifiable {
     public var name: String = ""
     public var birthYear: Int = 2015
     public init() {}
+
+    /// Defaults-first decode, matching IntakeModel's own decoder. Synthesized Codable
+    /// FAILS the whole value when a newly-added non-optional key is missing from older
+    /// JSON — and because the parent decodes these arrays inside a `try?`, one such
+    /// element silently discarded EVERY element, then the next save persisted the loss.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        if let v = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil { id = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil { name = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .birthYear)) ?? nil { birthYear = v }
+    }
 }
 
 public struct IntakeEducationGoal: Codable, Hashable, Identifiable {
@@ -246,6 +317,25 @@ public struct IntakeEducationGoal: Codable, Hashable, Identifiable {
     public var five29OpenedYear: Int? = nil
     public var rothRolloverEligible: Bool = false
     public init() {}
+
+    /// Defaults-first decode, matching IntakeModel's own decoder. Synthesized Codable
+    /// FAILS the whole value when a newly-added non-optional key is missing from older
+    /// JSON — and because the parent decodes these arrays inside a `try?`, one such
+    /// element silently discarded EVERY element, then the next save persisted the loss.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        if let v = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil { id = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? nil { label = v }
+        if let v = (try? c.decodeIfPresent(EducationCostPreset.self, forKey: .costPreset)) ?? nil { costPreset = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .annualCostTodayUsd)) ?? nil { annualCostTodayUsd = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .years)) ?? nil { years = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .startYear)) ?? nil { startYear = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .five29BalanceUsd)) ?? nil { five29BalanceUsd = v }
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: .rothRolloverEligible)) ?? nil { rothRolloverEligible = v }
+        childId = (try? c.decodeIfPresent(UUID.self, forKey: .childId)) ?? nil
+        five29OpenedYear = (try? c.decodeIfPresent(Int.self, forKey: .five29OpenedYear)) ?? nil
+    }
 }
 
 // MARK: - Estate & giving
