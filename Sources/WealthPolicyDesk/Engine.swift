@@ -107,7 +107,9 @@ public struct LadderPlan: Sendable, Hashable {
     public var rebalanceReserveUsd: Usd
     public var twelveMonthFloorUsd: Usd
     public var requiredLiquidUsd: Usd
-    public var availableDailyLiquidUsd: Usd
+    /// Cash + fixed income. NOT every position: funding near-term spending out of
+    /// equities is precisely the sequence risk the ladder exists to avoid.
+    public var availableDefensiveUsd: Usd
     public var covered: Bool
 }
 
@@ -213,7 +215,7 @@ public enum Engine {
         let findings = evaluateConstraints(h, policy: derivedPolicy, tax: tax, asOf: asOf,
                                            balanceSheet: bs, allocation: alloc, altSizing: alts, ladder: lad,
                                            rothTaxSavedUsd: decum.lifetimeTaxSavedUsd)
-        let resil = resilience(h, tax: tax, rr: rr, asOf: asOf, annualTaxUsd: taxByYear)
+        let resil = resilience(h, tax: tax, rr: rr, asOf: asOf, policy: derivedPolicy, annualTaxUsd: taxByYear)
         return Evaluation(household: h, policy: policy, legacyPolicy: derivedPolicy, tax: tax, asOf: asOf,
                           balanceSheet: bs, requiredReturn: rr, allocation: alloc, altSizing: alts,
                           findings: findings, itemization: item, dispositions: disp, ladder: lad, muni: mc,
@@ -252,7 +254,7 @@ public enum Engine {
     public static func riskProfile(_ h: Household, fundedRatioBps: Bps, ladder: LadderPlan) -> RiskProfile? {
         guard h.statedToleranceMaxDrawdownBps > 0 else { return nil }
         let cap = riskCapacityBps(h, fundedRatioBps: fundedRatioBps)
-        let tol = toleranceEquityBps(h, fundedRatioBps: fundedRatioBps, ladder: ladder, maxDrawdownBps: h.statedToleranceMaxDrawdownBps)
+        let tol = toleranceEquityBps(h, ladder: ladder, maxDrawdownBps: h.statedToleranceMaxDrawdownBps)
         let binding = min(cap, tol)
         return RiskProfile(capacityEquityBps: cap, toleranceImpliedEquityBps: tol,
                            bindingEquityBps: binding, gapBps: abs(cap - tol), bindingIsCapacity: cap <= tol)

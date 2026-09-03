@@ -170,8 +170,8 @@ extension Engine {
         let years = policy.ladder.yearsCovered
         guard years > 0, let spending = h.goals.first(where: { $0.kind == .spending }) else {
             let reserve = policy.ladder.rebalanceReserveBps.frac * h.portfolioValueUsd
-            let daily = dailyLiquidUsd(h)
-            return LadderPlan(yearsCovered: 0, netAnnualOutflowUsd: 0, ladderSizeUsd: 0, rebalanceReserveUsd: reserve, twelveMonthFloorUsd: 0, requiredLiquidUsd: reserve, availableDailyLiquidUsd: daily, covered: daily >= reserve)
+            let defensive = defensiveLiquidUsd(h)
+            return LadderPlan(yearsCovered: 0, netAnnualOutflowUsd: 0, ladderSizeUsd: 0, rebalanceReserveUsd: reserve, twelveMonthFloorUsd: 0, requiredLiquidUsd: reserve, availableDefensiveUsd: defensive, covered: defensive >= reserve)
         }
         // Pre-fund only GENUINELY near-term outflows — those within the ladder's
         // horizon (`years`) measured from today. Using `prefix(years)` grabbed the
@@ -189,14 +189,24 @@ extension Engine {
         let reserve = policy.ladder.rebalanceReserveBps.frac * h.portfolioValueUsd
         let floor = netAnnual
         let required = ladderSize + reserve + floor
-        let daily = dailyLiquidUsd(h)
+        let defensive = defensiveLiquidUsd(h)
         return LadderPlan(yearsCovered: years, netAnnualOutflowUsd: netAnnual, ladderSizeUsd: ladderSize,
                           rebalanceReserveUsd: reserve, twelveMonthFloorUsd: floor, requiredLiquidUsd: required,
-                          availableDailyLiquidUsd: daily, covered: daily >= required)
+                          availableDefensiveUsd: defensive, covered: defensive >= required)
     }
 
+    /// Sellable-today assets. Used for CAPITAL CALLS, where the question really is "could
+    /// this be raised on demand" and equities legitimately count.
     static func dailyLiquidUsd(_ h: Household) -> Usd {
         h.positions.filter { $0.ticker != "PCRED" && $0.ticker != "PE" }.reduce(0) { $0 + $1.marketValueUsd }
+    }
+
+    /// Cash and fixed income — what can fund near-term spending WITHOUT selling growth.
+    /// The spending ladder previously counted every non-private position, so the hard
+    /// `liquidity_floor` rule was satisfied by equities and never fired, while the IPS
+    /// told the client the opposite: that several years of spending sit in short bonds.
+    static func defensiveLiquidUsd(_ h: Household) -> Usd {
+        h.positions.filter { isFixedIncome($0) || sleeveRole($0) == .cash }.reduce(0) { $0 + $1.marketValueUsd }
     }
 
     // MARK: - Muni crossover
@@ -293,7 +303,7 @@ extension Engine {
         if !lad.covered {
             out.append(Finding(ruleId: "liquidity_floor", module: .policy, severity: .hard,
                                title: "Liquidity floor not covered",
-                               detail: "Daily-liquid assets (\(Fmt.usdShort(lad.availableDailyLiquidUsd))) fall short of the ladder + reserve + 12 months of outflows (\(Fmt.usdShort(lad.requiredLiquidUsd)))."))
+                               detail: "Cash and fixed income (\(Fmt.usdShort(lad.availableDefensiveUsd))) fall short of the ladder + reserve + 12 months of outflows (\(Fmt.usdShort(lad.requiredLiquidUsd))). Funding near-term spending from equities is the sequence risk the ladder exists to avoid."))
         }
         let unfunded = h.liabilities.filter { $0.kind == .unfundedCommitment }.reduce(0) { $0 + $1.balanceUsd }
         if unfunded > 0 {

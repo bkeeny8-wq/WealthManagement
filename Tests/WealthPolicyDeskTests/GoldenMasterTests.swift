@@ -39,7 +39,13 @@ final class GoldenMasterTests: XCTestCase {
         XCTAssertEqual(e.allocation.reduce(0) { $0 + $1.targetBps }, 8000)
         XCTAssertEqual(e.allocation.count, 14)
         XCTAssertEqual(e.altSizing.reduce(0) { $0 + $1.targetBps }, 2000)
-        XCTAssertEqual(e.findings.filter { $0.severity == .hard }.count, 4)
+        // 4 -> 5: `liquidity_floor` now fires. The ladder is measured against cash and
+        // fixed income rather than every non-private position, so the Harrisons' need of
+        // ~$1.29M is no longer "covered" by $460k of defensive assets plus equities. The
+        // rule was previously unfireable, while the IPS told the client the opposite.
+        XCTAssertEqual(e.findings.filter { $0.severity == .hard }.count, 5)
+        XCTAssertTrue(e.findings.contains { $0.ruleId == "liquidity_floor" && $0.severity == .hard },
+                      "the spending ladder must not be satisfied by equities")
         XCTAssertEqual(e.findings.filter { $0.severity == .soft }.count, 12)
         XCTAssertEqual(e.household.goals.filter { $0.kind == .spending }.count, 1)
     }

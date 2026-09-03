@@ -16,7 +16,7 @@ struct RiskScaleTab: View {
 
     var body: some View {
         Card("Risk is a dial, not a number") {
-            Note("Your allocation is a function of how much drawdown you can stomach. Below is the same plan across the risk spectrum — each rung is the solver's output at that tolerance, holding your funded ratio and capacity fixed. Your CAPACITY (what the situation can afford) caps every rung: you can't dial past it. No market forecast is used.")
+            Note("Your allocation is a function of how much drawdown you can stomach. Below is the same plan across the risk spectrum — each rung is the solver's output at that tolerance, priced as if the plan actually held that much equity. Your CAPACITY (what the situation can afford) caps every rung: you can't dial past it. No market forecast is used.")
             if let rp = eval.riskProfile {
                 LedgerRow("Capacity — what you CAN hold", Fmt.pctBps(rp.capacityEquityBps), color: Theme.ink)
                 LedgerRow("Tolerance — what you'll STOMACH", Fmt.pctBps(rp.toleranceImpliedEquityBps), color: Theme.ink)

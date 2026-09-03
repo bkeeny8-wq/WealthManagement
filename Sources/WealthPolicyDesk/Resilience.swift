@@ -57,7 +57,8 @@ public extension Engine {
          [-0.10, 0.24, 0.11, -0.08, 0.04, 0.14, 0.19, -0.15, -0.26, 0.37, 0.24, -0.07, 0.07, 0.19, 0.33, -0.05, 0.22, 0.23, 0.06, 0.32]),
     ]
 
-    static func resilience(_ h: Household, tax: TaxParameterSet, rr: RequiredReturn, asOf: IsoDate, annualTaxUsd: [Int: Usd]) -> ResilienceAnalysis {
+    static func resilience(_ h: Household, tax: TaxParameterSet, rr: RequiredReturn, asOf: IsoDate,
+                           policy: InvestmentPolicy, annualTaxUsd: [Int: Usd]) -> ResilienceAnalysis {
         guard let primary = h.primary else { return .empty }
         let primaryAge0 = age(birthDate: primary.birthDate, asOf: asOf)
         let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
@@ -65,7 +66,25 @@ public extension Engine {
         let r = rr.requiredRealReturnBps.frac
         let floor = max(0, h.legacyFloorUsd)
         let (spend, other) = outflowComponents(h, asOf: asOf, annualTaxUsd: annualTaxUsd)
-        let equityShare = A > 0 ? min(1.0, h.positions.filter { isEquity($0) }.reduce(0) { $0 + $1.marketValueUsd } / A) : 0.6
+        // Severity is scaled by the equity share of the PLAN, not of today's holdings.
+        // Reading it off current positions meant an all-cash household "survived 3 of 3"
+        // while the identical plan run at its own target did not — the stress measured
+        // where the client happens to be sitting rather than the policy they are adopting.
+        let growthBps = policy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
+        let equityShare = min(1.0, max(0.0, Double(growthBps + altEquityEquivalentBps(policy)) / 10_000.0))
+
+        // The stress pattern begins at RETIREMENT, not in plan year 1. A household ten
+        // years from retiring was being handed "a 37% drawdown in the very first year",
+        // which is not the sequence risk the card names; before the pattern starts, and
+        // after it runs out, the corpus simply earns the required return.
+        let saveYears = householdSaveYears(h, asOf: asOf)
+        func stressPath(_ seq: (name: String, detail: String, returns: [Double]), _ mean: Double) -> (Int) -> Double {
+            { t in
+                let k = t - 1 - saveYears
+                guard k >= 0, k < seq.returns.count else { return r }
+                return r + (seq.returns[k] - mean) * equityShare
+            }
+        }
 
         // Run the corpus at a per-year return, scaling the spending component by `mult`.
         func run(_ ret: (Int) -> Double, mult: Double = 1) -> (terminal: Usd, depletion: Int?) {
@@ -87,7 +106,7 @@ public extension Engine {
         // Sequence stress: the required return, re-centered into each bad order.
         let stresses = stressSequences.map { seq -> SequenceStress in
             let mean = seq.returns.reduce(0, +) / Double(seq.returns.count)
-            let (term, dep) = run { t in r + (seq.returns[(t - 1) % seq.returns.count] - mean) * equityShare }
+            let (term, dep) = run(stressPath(seq, mean))
             return SequenceStress(name: seq.name, detail: seq.detail, survives: dep == nil, meetsFloor: dep == nil && term >= floor,
                                   terminalBalanceUsd: term, depletionAge: dep.map { primaryAge0 + $0 })
         }
@@ -95,13 +114,12 @@ public extension Engine {
         // Max safe spend: bisect the spending multiplier that just survives the worst stress.
         let worst = stressSequences.min { a, b in
             let ma = a.returns.reduce(0, +) / Double(a.returns.count), mb = b.returns.reduce(0, +) / Double(b.returns.count)
-            return run({ t in r + (a.returns[(t - 1) % a.returns.count] - ma) * equityShare }).terminal
-                 < run({ t in r + (b.returns[(t - 1) % b.returns.count] - mb) * equityShare }).terminal
+            return run(stressPath(a, ma)).terminal < run(stressPath(b, mb)).terminal
         }
         var maxMult = 1.0
         if let w = worst {
             let mean = w.returns.reduce(0, +) / Double(w.returns.count)
-            let ret: (Int) -> Double = { t in r + (w.returns[(t - 1) % w.returns.count] - mean) * equityShare }
+            let ret = stressPath(w, mean)   // same retirement-offset path the stresses use
             var lo = 0.0, hi = 3.0
             for _ in 0..<40 {
                 let mid = (lo + hi) / 2

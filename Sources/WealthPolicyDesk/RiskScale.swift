@@ -32,7 +32,7 @@ public extension Engine {
         let cap = riskCapacityBps(h, fundedRatioBps: fundedRatioBps)
         // The drawdown of the solver's portfolio at each equity ceiling — computed
         // once and reused, so every rung reads its tolerance off the same frontier.
-        let ddCurve = drawdownByCeiling(h, fundedRatioBps: fundedRatioBps, ladder: ladder)
+        let ddCurve = drawdownByCeiling(h, ladder: ladder)
         let altTotal = Seed.legacyPolicy.altBudgets.reduce(0) { $0 + $1.targetBps }
         let base: [(String, Bps)] = [("Defensive", 1500), ("Conservative", 2000), ("Moderate", 3000), ("Growth", 4000), ("Aggressive", 5000)]
         let clientDd = h.statedToleranceMaxDrawdownBps

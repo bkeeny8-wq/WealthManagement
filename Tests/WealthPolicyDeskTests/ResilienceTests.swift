@@ -11,7 +11,10 @@ final class ResilienceTests: XCTestCase {
     private func analysis() -> ResilienceAnalysis {
         let h = Seed.sampleHousehold
         let rr = Engine.requiredReturn(h, asOf: asOf)
-        return Engine.resilience(h, tax: Seed.tax2026, rr: rr, asOf: asOf, annualTaxUsd: [:])
+        // Stress severity is scaled by the DERIVED policy's equity share, so use the same
+        // policy `evaluate` does rather than the seed base.
+        let policy = Engine.evaluate(h).legacyPolicy
+        return Engine.resilience(h, tax: Seed.tax2026, rr: rr, asOf: asOf, policy: policy, annualTaxUsd: [:])
     }
 
     func testTerminalBalanceRisesWithTheRealizedReturn() {
