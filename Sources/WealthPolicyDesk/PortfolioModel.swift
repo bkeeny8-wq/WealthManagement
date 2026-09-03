@@ -18,6 +18,41 @@ import Foundation
 // MARK: - Ticker → sleeve classification
 
 public extension Seed {
+
+    /// Widely-held funds mapped to the sleeve whose exposure they actually carry. A dated
+    /// convenience table to VERIFY, not an endorsement: it exists so a real brokerage
+    /// statement classifies instead of arriving as a page of "classify by hand".
+    /// Deliberately excludes anything already covered by a sleeve instrument or the
+    /// value/growth style ladder, so this never shadows the model's own mapping.
+    static let commonFundSleeves: [String: String] = [
+        // US total market / large blend
+        "VTI": "us_large_core", "ITOT": "us_large_core", "SCHB": "us_large_core",
+        "SPY": "us_large_core", "FXAIX": "us_large_core", "VFIAX": "us_large_core",
+        "VTSAX": "us_large_core", "SWPPX": "us_large_core", "IWB": "us_large_core",
+        // Dividend / low-vol large blend
+        "SCHD": "us_large_core", "VYM": "us_large_core", "DGRO": "us_large_core", "NOBL": "us_large_core",
+        // US mid / small
+        "IWM": "us_mid_small", "VXF": "us_mid_small", "IJS": "us_mid_small", "VTWO": "us_mid_small",
+        // International developed
+        "VXUS": "intl_developed", "IEFA": "intl_developed", "IXUS": "intl_developed",
+        "SCHF": "intl_developed", "EFA": "intl_developed", "VTIAX": "intl_developed",
+        // Emerging
+        "IEMG": "emerging", "SCHE": "emerging", "SPEM": "emerging",
+        // Real assets
+        "SCHH": "real_assets", "IYR": "real_assets", "XLRE": "real_assets", "VNQI": "real_assets",
+        // Core fixed income
+        "AGG": "fixed_income_liquid", "SCHZ": "fixed_income_liquid", "IUSB": "fixed_income_liquid",
+        "FXNAX": "fixed_income_liquid", "VBTLX": "fixed_income_liquid", "BNDX": "fixed_income_liquid",
+        "VCIT": "fixed_income_liquid", "VCSH": "fixed_income_liquid", "LQD": "fixed_income_liquid",
+        // Inflation-linked
+        "TIP": "tips", "STIP": "tips", "SCHP": "tips",
+        // Credit
+        "USHY": "credit_hy", "SJNK": "credit_hy", "SHYG": "credit_hy",
+        // Cash and money markets — the row every statement has and the model had no home for
+        "VMFXX": "cash", "SPAXX": "cash", "SWVXX": "cash", "FDRXX": "cash",
+        "VUSXX": "cash", "SGOV": "cash", "BIL": "cash", "SHV": "cash", "USFR": "cash",
+    ]
+
     /// Best-guess policy sleeve for an arbitrary held ticker. Exact instrument match first
     /// (covers every ETF the model itself uses), then the value/growth style ETFs, then a
     /// sector SPDR → the sector-tilt sleeve, then fixed-income/commodity heuristics, then a
@@ -39,6 +74,10 @@ public extension Seed {
         if Engine.fiTickers.contains(t) { return "fixed_income_liquid" }
         if Engine.muniTickers.contains(t) { return "fixed_income_liquid" }
         if Engine.commodityTickers.contains(t) { return "commodities" }
+        // 5. the common market: the funds a real statement is actually full of. The model
+        //    only knew its OWN instruments, so a client holding VTI, SPY, SCHD or a money
+        //    market fell to "classify by hand" — which is most of a typical book.
+        if let s = commonFundSleeves[t] { return s }
         // 5. a single stock inherits its sector's home: a sector name → the sector tilt,
         //    otherwise US large core (a large-cap equity by default).
         if sector != nil { return "us_large_core" }
@@ -120,7 +159,14 @@ public extension Engine {
             var action: HoldingAction = .keep
             var rationale = ""
             var altLabel: String? = nil
-            if p.isConcentrated {
+            if !Engine.isSellable(p, treatment: treatment) {
+                // The client already DECLARED what happens to this lot — hold it to step-up,
+                // gift it, leave it to charity. Telling them to unwind it, and then in the
+                // same card to hold it for the step-up, was the desk arguing with itself.
+                action = .keep
+                rationale = "Held per the plan for this position (\(p.disposition.label.lowercased()))"
+                    + (p.isConcentrated ? " — concentrated, so revisit that earmark if the exposure is uncomfortable." : ".")
+            } else if p.isConcentrated {
                 action = .unwind
                 rationale = "Concentrated single-name risk. Diversify into \(sleeve?.label ?? "the core policy sleeves") on a tax-aware schedule."
             } else if let fn = Engine.altFunction(ofTicker: p.ticker.uppercased()) {
@@ -140,7 +186,13 @@ public extension Engine {
             } else if sleeveId == nil {
                 action = .review
                 rationale = "No clean policy sleeve for \(p.ticker) — classify it by hand or treat it as a satellite."
-            } else if let sl = sleeve, prefersShelter(sl), treatment == .taxable {
+            } else if let sl = sleeve, prefersShelter(sl), treatment == .taxable,
+                      !Engine.muniTickers.contains(p.ticker.uppercased()),
+                      h.accounts.contains(where: { $0.treatment != .taxable }) {
+                // Two guards. A municipal fund belongs in taxable — its whole point is
+                // tax-exempt interest, which is wasted inside a shelter, so "relocate this
+                // muni out of taxable" is backwards. And there is nowhere to relocate TO
+                // unless the household actually holds a sheltered account.
                 action = .relocate
                 rationale = "\(sl.label) is tax-inefficient in a taxable account — hold it in a tax-deferred/Roth account instead."
             } else if let r = row, r.driftBps >= r.innerBandBps {

@@ -95,11 +95,19 @@ public extension Engine {
     /// the risk profile of the app's real menu for this household. Sweeps the
     /// forecast-free solver (alts a fixed budget, bonds the residual) and prices the
     /// risk of each rung. Uses only volatilities/correlations — never return forecasts.
-    static func drawdownByCeiling(_ h: Household, fundedRatioBps: Bps, ladder: LadderPlan) -> [(ceilingBps: Bps, drawdownBps: Bps)] {
+    ///
+    /// The sweep deliberately runs at the funded FLOOR so the funded-status glide is
+    /// neutral (t = 0) and each rung genuinely holds its ceiling. Sweeping at the
+    /// household's actual funded ratio conflated two separate questions: an overfunded
+    /// household glides to the 30% derisk floor at EVERY ceiling, which flattened the
+    /// curve, so "the highest ceiling within the stated drawdown" returned 95% for any
+    /// overfunded client no matter how little loss they said they could take. How much
+    /// of the allowed ceiling to actually use is the glide's job, applied afterwards.
+    static func drawdownByCeiling(_ h: Household, ladder: LadderPlan) -> [(ceilingBps: Bps, drawdownBps: Bps)] {
         var out: [(ceilingBps: Bps, drawdownBps: Bps)] = []
         var e = 1500
         while e <= 9500 {
-            let pol = resolveTargets(h, base: Seed.legacyPolicy, fundedRatioBps: fundedRatioBps, equityCeilingBps: e, ladder: ladder)
+            let pol = resolveTargets(h, base: Seed.legacyPolicy, fundedRatioBps: fundedFloorBps, equityCeilingBps: e, ladder: ladder)
             let vol = portfolioVolBps(sleeves: pol.sleeves.map { (id: $0.id, bps: $0.targetBps) },
                                       alts: pol.altBudgets.map { (fn: $0.fn, bps: $0.targetBps) })
             out.append((e, modeledDrawdownBps(volBps: vol)))
@@ -118,7 +126,7 @@ public extension Engine {
         curve.filter { $0.drawdownBps <= maxDrawdownBps }.map { $0.ceilingBps }.max() ?? (curve.first?.ceilingBps ?? 3000)
     }
 
-    static func toleranceEquityBps(_ h: Household, fundedRatioBps: Bps, ladder: LadderPlan, maxDrawdownBps: Bps) -> Bps {
-        toleranceEquityBps(fromCurve: drawdownByCeiling(h, fundedRatioBps: fundedRatioBps, ladder: ladder), maxDrawdownBps: maxDrawdownBps)
+    static func toleranceEquityBps(_ h: Household, ladder: LadderPlan, maxDrawdownBps: Bps) -> Bps {
+        toleranceEquityBps(fromCurve: drawdownByCeiling(h, ladder: ladder), maxDrawdownBps: maxDrawdownBps)
     }
 }

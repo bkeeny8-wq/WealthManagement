@@ -300,12 +300,36 @@ public enum Seed {
         estate: EstateParameters(lifetimeExemptionUsd: 15_000_000, portabilityAvailable: true, topRateBps: 4000, annualGiftExclusionUsd: 19_000, inflationIndexed: true),
         niitThreshold: [.single: 200_000, .mfj: 250_000, .mfs: 125_000, .hoh: 200_000],
         niitRateBps: 380,
+        // IRMAA bands by FILING STATUS (2026 estimates — verify). Single/HoH sit at about
+        // half the MFJ thresholds; MFS has its own compressed two-step schedule that jumps
+        // almost straight to the top surcharge. Applying one table to everyone understated
+        // the surcharge for every unmarried filer.
         irmaaTiers: [
-            .init(magiOverUsd: 212_000, monthlySurchargeUsd: 74),
-            .init(magiOverUsd: 266_000, monthlySurchargeUsd: 185),
-            .init(magiOverUsd: 334_000, monthlySurchargeUsd: 296),
-            .init(magiOverUsd: 400_000, monthlySurchargeUsd: 407),
-            .init(magiOverUsd: 750_000, monthlySurchargeUsd: 443),
+            .mfj: [
+                .init(magiOverUsd: 212_000, monthlySurchargeUsd: 74),
+                .init(magiOverUsd: 266_000, monthlySurchargeUsd: 185),
+                .init(magiOverUsd: 334_000, monthlySurchargeUsd: 296),
+                .init(magiOverUsd: 400_000, monthlySurchargeUsd: 407),
+                .init(magiOverUsd: 750_000, monthlySurchargeUsd: 443),
+            ],
+            .single: [
+                .init(magiOverUsd: 106_000, monthlySurchargeUsd: 74),
+                .init(magiOverUsd: 133_000, monthlySurchargeUsd: 185),
+                .init(magiOverUsd: 167_000, monthlySurchargeUsd: 296),
+                .init(magiOverUsd: 200_000, monthlySurchargeUsd: 407),
+                .init(magiOverUsd: 500_000, monthlySurchargeUsd: 443),
+            ],
+            .hoh: [
+                .init(magiOverUsd: 106_000, monthlySurchargeUsd: 74),
+                .init(magiOverUsd: 133_000, monthlySurchargeUsd: 185),
+                .init(magiOverUsd: 167_000, monthlySurchargeUsd: 296),
+                .init(magiOverUsd: 200_000, monthlySurchargeUsd: 407),
+                .init(magiOverUsd: 500_000, monthlySurchargeUsd: 443),
+            ],
+            .mfs: [
+                .init(magiOverUsd: 106_000, monthlySurchargeUsd: 407),
+                .init(magiOverUsd: 394_000, monthlySurchargeUsd: 443),
+            ],
         ],
         rmdStartAge: 73, bracketIndexation: "chained_cpi",
         scheduledChanges: [
@@ -401,4 +425,77 @@ public enum Seed {
             annualSavingsUsd: 80_000, legacyFloorUsd: 1_000_000, statedToleranceMaxDrawdownBps: 3000,
             protection: protection, equityComp: equityComp)
     }()
+
+    // MARK: - State tax profiles
+    /// Effective state income and property tax rates, keyed by two-letter code. A dated,
+    /// teaching-grade snapshot to VERIFY (≈2026) — these drive only the SALT/itemization
+    /// estimate behind the muni-crossover and paydown comparisons, never a filed return.
+    /// Replaces a hardcoded New Jersey profile that was applied to every household.
+    public static let stateTaxProfiles: [StateTaxProfile] = [
+        .init(code: "AL", name: "Alabama", incomeRate: 0.0500, propertyRate: 0.0040),
+        .init(code: "AK", name: "Alaska", incomeRate: 0.0000, propertyRate: 0.0104),
+        .init(code: "AZ", name: "Arizona", incomeRate: 0.0250, propertyRate: 0.0060),
+        .init(code: "AR", name: "Arkansas", incomeRate: 0.0490, propertyRate: 0.0062),
+        .init(code: "CA", name: "California", incomeRate: 0.0930, propertyRate: 0.0071),
+        .init(code: "CO", name: "Colorado", incomeRate: 0.0440, propertyRate: 0.0049),
+        .init(code: "CT", name: "Connecticut", incomeRate: 0.0699, propertyRate: 0.0179),
+        .init(code: "DE", name: "Delaware", incomeRate: 0.0660, propertyRate: 0.0055),
+        .init(code: "DC", name: "District of Columbia", incomeRate: 0.0895, propertyRate: 0.0057),
+        .init(code: "FL", name: "Florida", incomeRate: 0.0000, propertyRate: 0.0080),
+        .init(code: "GA", name: "Georgia", incomeRate: 0.0539, propertyRate: 0.0083),
+        .init(code: "HI", name: "Hawaii", incomeRate: 0.0825, propertyRate: 0.0028),
+        .init(code: "ID", name: "Idaho", incomeRate: 0.0580, propertyRate: 0.0063),
+        .init(code: "IL", name: "Illinois", incomeRate: 0.0495, propertyRate: 0.0208),
+        .init(code: "IN", name: "Indiana", incomeRate: 0.0300, propertyRate: 0.0084),
+        .init(code: "IA", name: "Iowa", incomeRate: 0.0380, propertyRate: 0.0140),
+        .init(code: "KS", name: "Kansas", incomeRate: 0.0570, propertyRate: 0.0134),
+        .init(code: "KY", name: "Kentucky", incomeRate: 0.0400, propertyRate: 0.0080),
+        .init(code: "LA", name: "Louisiana", incomeRate: 0.0425, propertyRate: 0.0055),
+        .init(code: "ME", name: "Maine", incomeRate: 0.0715, propertyRate: 0.0124),
+        .init(code: "MD", name: "Maryland", incomeRate: 0.0575, propertyRate: 0.0105),
+        .init(code: "MA", name: "Massachusetts", incomeRate: 0.0500, propertyRate: 0.0104),
+        .init(code: "MI", name: "Michigan", incomeRate: 0.0425, propertyRate: 0.0138),
+        .init(code: "MN", name: "Minnesota", incomeRate: 0.0985, propertyRate: 0.0102),
+        .init(code: "MS", name: "Mississippi", incomeRate: 0.0470, propertyRate: 0.0065),
+        .init(code: "MO", name: "Missouri", incomeRate: 0.0480, propertyRate: 0.0093),
+        .init(code: "MT", name: "Montana", incomeRate: 0.0590, propertyRate: 0.0074),
+        .init(code: "NE", name: "Nebraska", incomeRate: 0.0520, propertyRate: 0.0154),
+        .init(code: "NV", name: "Nevada", incomeRate: 0.0000, propertyRate: 0.0053),
+        .init(code: "NH", name: "New Hampshire", incomeRate: 0.0000, propertyRate: 0.0177),
+        .init(code: "NJ", name: "New Jersey", incomeRate: 0.0637, propertyRate: 0.0189),
+        .init(code: "NM", name: "New Mexico", incomeRate: 0.0490, propertyRate: 0.0067),
+        .init(code: "NY", name: "New York", incomeRate: 0.0685, propertyRate: 0.0164),
+        .init(code: "NC", name: "North Carolina", incomeRate: 0.0450, propertyRate: 0.0073),
+        .init(code: "ND", name: "North Dakota", incomeRate: 0.0225, propertyRate: 0.0098),
+        .init(code: "OH", name: "Ohio", incomeRate: 0.0350, propertyRate: 0.0141),
+        .init(code: "OK", name: "Oklahoma", incomeRate: 0.0475, propertyRate: 0.0089),
+        .init(code: "OR", name: "Oregon", incomeRate: 0.0990, propertyRate: 0.0093),
+        .init(code: "PA", name: "Pennsylvania", incomeRate: 0.0307, propertyRate: 0.0135),
+        .init(code: "RI", name: "Rhode Island", incomeRate: 0.0599, propertyRate: 0.0135),
+        .init(code: "SC", name: "South Carolina", incomeRate: 0.0640, propertyRate: 0.0053),
+        .init(code: "SD", name: "South Dakota", incomeRate: 0.0000, propertyRate: 0.0114),
+        .init(code: "TN", name: "Tennessee", incomeRate: 0.0000, propertyRate: 0.0064),
+        .init(code: "TX", name: "Texas", incomeRate: 0.0000, propertyRate: 0.0158),
+        .init(code: "UT", name: "Utah", incomeRate: 0.0455, propertyRate: 0.0057),
+        .init(code: "VT", name: "Vermont", incomeRate: 0.0875, propertyRate: 0.0159),
+        .init(code: "VA", name: "Virginia", incomeRate: 0.0575, propertyRate: 0.0080),
+        .init(code: "WA", name: "Washington", incomeRate: 0.0000, propertyRate: 0.0087),
+        .init(code: "WV", name: "West Virginia", incomeRate: 0.0512, propertyRate: 0.0055),
+        .init(code: "WI", name: "Wisconsin", incomeRate: 0.0765, propertyRate: 0.0151),
+        .init(code: "WY", name: "Wyoming", incomeRate: 0.0000, propertyRate: 0.0056),
+    ]
+
+    /// The US-median-ish fallback for an unrecognized or blank state.
+    public static let stateTaxProfileFallback = StateTaxProfile(code: "US", name: "Unspecified", incomeRate: 0.0450, propertyRate: 0.0110)
+
+    /// Look up a profile by two-letter code or full name (case- and space-insensitive).
+    /// The intake stores a code, but plans saved before the state picker may hold free text.
+    public static func stateTaxProfile(for raw: String) -> StateTaxProfile {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !s.isEmpty else { return stateTaxProfileFallback }
+        if let m = stateTaxProfiles.first(where: { $0.code == s }) { return m }
+        if let m = stateTaxProfiles.first(where: { $0.name.uppercased() == s }) { return m }
+        return stateTaxProfileFallback
+    }
+
 }

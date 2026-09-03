@@ -108,7 +108,7 @@ struct AllocationTab: View {
             LedgerRow("Ladder size", Fmt.usd(l.ladderSizeUsd), color: Theme.asset)
             LedgerRow("Rebalance reserve", Fmt.usd(l.rebalanceReserveUsd), color: Theme.asset)
             LedgerRow("Required daily-liquid", Fmt.usd(l.requiredLiquidUsd), color: Theme.ink, bold: true)
-            LedgerRow("Available daily-liquid", Fmt.usd(l.availableDailyLiquidUsd), color: l.covered ? Theme.asset : Theme.debt, bold: true)
+            LedgerRow("Available cash + fixed income", Fmt.usd(l.availableDefensiveUsd), color: l.covered ? Theme.asset : Theme.debt, bold: true)
             Note(l.covered ? "Covered: daily-liquid assets exceed the ladder + reserve + a year of outflows." : "SHORT: daily-liquid assets do not cover the floor.", icon: l.covered ? "checkmark.circle" : "exclamationmark.triangle", color: l.covered ? Theme.asset : Theme.debt)
         }
     }

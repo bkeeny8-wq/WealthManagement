@@ -13,10 +13,23 @@ extension Engine {
 
     // MARK: - Allocation (current vs target; the emergent "what it looks like")
 
+    /// The sleeve a position COUNTS TOWARD: its assigned sleeve, or the one its ticker
+    /// classifies to. Itemized held-away positions deliberately carry no `sleeveId` — they
+    /// are real lots rather than policy proxies — but they are still real dollars sitting in
+    /// a real sleeve. Excluding them from the numerator while `portfolioValueUsd` counted
+    /// them in the denominator made every sleeve read underweight, so the desk advised
+    /// adding to sleeves the client was already overweight in.
+    ///
+    /// This is a read-only attribution. The stored `sleeveId` stays nil, which is what marks
+    /// a holding as advisor-entered for the Portfolio tab and the concentration rules.
+    static func effectiveSleeveId(_ p: Position) -> String? {
+        p.sleeveId ?? Seed.sleeveId(forTicker: p.ticker, sector: p.effectiveSector)
+    }
+
     public static func resolveAllocation(_ h: Household, policy: InvestmentPolicy, strategic: InvestmentPolicy? = nil) -> [AllocationRow] {
         let total = max(1, h.portfolioValueUsd)
         return policy.sleeves.map { s in
-            let current = h.positions.filter { $0.sleeveId == s.id }.reduce(0) { $0 + $1.marketValueUsd }
+            let current = h.positions.filter { effectiveSleeveId($0) == s.id }.reduce(0) { $0 + $1.marketValueUsd }
             let currentBps = (current / total).bps
             let drift = currentBps - s.targetBps
             let inner = s.bandBps
@@ -71,12 +84,17 @@ extension Engine {
         let magi = estimatedMagi(h, asOf: asOf)
         let homeValue = h.externalAssets.filter { $0.kind == .homeEquity }.reduce(0) { $0 + $1.valueUsd }
             + h.liabilities.filter { $0.kind == .mortgagePrimary }.reduce(0) { $0 + $1.balanceUsd }
-        let stateIncomeTax = magi * 0.06          // NJ-ish effective state rate
-        let propertyTax = homeValue * 0.018        // NJ property tax is high
+        // State tax comes from the household's OWN state, not a hardcoded New Jersey profile,
+        // and charitable giving from what the client actually entered. Both were constants,
+        // which meant a Texan with no state income tax and no giving was still analysed as a
+        // high-tax itemizer — driving the SALT, muni-crossover and paydown verdicts wrong.
+        let profile = Seed.stateTaxProfile(for: h.stateOfResidence)
+        let stateIncomeTax = magi * profile.incomeRate
+        let propertyTax = homeValue * profile.propertyRate
         let mortgageInterest = h.liabilities.filter { $0.kind == .mortgagePrimary }.reduce(0.0) { $0 + $1.balanceUsd * $1.rateBps.frac }
         return ItemizationInput(taxYear: year(asOf), filingStatus: h.filingStatus, magiUsd: magi,
                                 stateIncomeTaxUsd: stateIncomeTax, propertyTaxUsd: propertyTax,
-                                mortgageInterestUsd: mortgageInterest, charitableUsd: 20_000)
+                                mortgageInterestUsd: mortgageInterest, charitableUsd: max(0, h.estate.annualGivingUsd))
     }
 
     public static func analyzeItemization(_ input: ItemizationInput, tax: TaxParameterSet) -> ItemizationAnalysis {
@@ -165,8 +183,8 @@ extension Engine {
         let years = policy.ladder.yearsCovered
         guard years > 0, let spending = h.goals.first(where: { $0.kind == .spending }) else {
             let reserve = policy.ladder.rebalanceReserveBps.frac * h.portfolioValueUsd
-            let daily = dailyLiquidUsd(h)
-            return LadderPlan(yearsCovered: 0, netAnnualOutflowUsd: 0, ladderSizeUsd: 0, rebalanceReserveUsd: reserve, twelveMonthFloorUsd: 0, requiredLiquidUsd: reserve, availableDailyLiquidUsd: daily, covered: daily >= reserve)
+            let defensive = defensiveLiquidUsd(h)
+            return LadderPlan(yearsCovered: 0, netAnnualOutflowUsd: 0, ladderSizeUsd: 0, rebalanceReserveUsd: reserve, twelveMonthFloorUsd: 0, requiredLiquidUsd: reserve, availableDefensiveUsd: defensive, covered: defensive >= reserve)
         }
         // Pre-fund only GENUINELY near-term outflows — those within the ladder's
         // horizon (`years`) measured from today. Using `prefix(years)` grabbed the
@@ -184,14 +202,24 @@ extension Engine {
         let reserve = policy.ladder.rebalanceReserveBps.frac * h.portfolioValueUsd
         let floor = netAnnual
         let required = ladderSize + reserve + floor
-        let daily = dailyLiquidUsd(h)
+        let defensive = defensiveLiquidUsd(h)
         return LadderPlan(yearsCovered: years, netAnnualOutflowUsd: netAnnual, ladderSizeUsd: ladderSize,
                           rebalanceReserveUsd: reserve, twelveMonthFloorUsd: floor, requiredLiquidUsd: required,
-                          availableDailyLiquidUsd: daily, covered: daily >= required)
+                          availableDefensiveUsd: defensive, covered: defensive >= required)
     }
 
+    /// Sellable-today assets. Used for CAPITAL CALLS, where the question really is "could
+    /// this be raised on demand" and equities legitimately count.
     static func dailyLiquidUsd(_ h: Household) -> Usd {
         h.positions.filter { $0.ticker != "PCRED" && $0.ticker != "PE" }.reduce(0) { $0 + $1.marketValueUsd }
+    }
+
+    /// Cash and fixed income — what can fund near-term spending WITHOUT selling growth.
+    /// The spending ladder previously counted every non-private position, so the hard
+    /// `liquidity_floor` rule was satisfied by equities and never fired, while the IPS
+    /// told the client the opposite: that several years of spending sit in short bonds.
+    static func defensiveLiquidUsd(_ h: Household) -> Usd {
+        h.positions.filter { isFixedIncome($0) || sleeveRole($0) == .cash }.reduce(0) { $0 + $1.marketValueUsd }
     }
 
     // MARK: - Muni crossover
@@ -288,7 +316,7 @@ extension Engine {
         if !lad.covered {
             out.append(Finding(ruleId: "liquidity_floor", module: .policy, severity: .hard,
                                title: "Liquidity floor not covered",
-                               detail: "Daily-liquid assets (\(Fmt.usdShort(lad.availableDailyLiquidUsd))) fall short of the ladder + reserve + 12 months of outflows (\(Fmt.usdShort(lad.requiredLiquidUsd)))."))
+                               detail: "Cash and fixed income (\(Fmt.usdShort(lad.availableDefensiveUsd))) fall short of the ladder + reserve + 12 months of outflows (\(Fmt.usdShort(lad.requiredLiquidUsd))). Funding near-term spending from equities is the sequence risk the ladder exists to avoid."))
         }
         let unfunded = h.liabilities.filter { $0.kind == .unfundedCommitment }.reduce(0) { $0 + $1.balanceUsd }
         if unfunded > 0 {
