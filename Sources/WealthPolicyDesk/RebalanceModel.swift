@@ -89,7 +89,7 @@ public extension Engine {
         // Built and consumed in policy.sleeves order so a plan reproduces exactly. ---
         var gaps: [RebalanceSleeveGap] = []
         for s in policy.sleeves {
-            let currentUsd = h.positions.filter { $0.sleeveId == s.id }.reduce(0) { $0 + $1.marketValueUsd }
+            let currentUsd = h.positions.filter { effectiveSleeveId($0) == s.id }.reduce(0) { $0 + $1.marketValueUsd }
             let currentBps = (currentUsd / total).bps
             let drift = currentBps - s.targetBps
             let outer = Int(Double(s.bandBps) * reb.outerBandMultiplier)
@@ -118,7 +118,7 @@ public extension Engine {
 
         for gap in gaps where gap.traded && gap.gapUsd < 0 {
             var raise = -gap.gapUsd * correction
-            let all = h.positions.filter { $0.sleeveId == gap.sleeveId }
+            let all = h.positions.filter { effectiveSleeveId($0) == gap.sleeveId }
             heldOutUsd += all.filter { !isSellable($0, treatment: h.treatment(of: $0)) }.reduce(0) { $0 + $1.marketValueUsd }
             let candidates = all.filter { isSellable($0, treatment: h.treatment(of: $0)) }
                 .sorted { sellRank($0, treatment: h.treatment(of: $0)) < sellRank($1, treatment: h.treatment(of: $1)) }

@@ -59,8 +59,17 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     /// The household of record: the synthesized household with every committed move
     /// applied in order, carrying the committed tactical tilts so the engine can
     /// deviate the tactical allocation. This is what the desk and exports evaluate.
+    /// The plan of record: the intake-built household with the equity STYLE applied first,
+    /// then committed moves replayed, then the remaining driver overrides.
+    ///
+    /// Ordering matters. The style re-flavors synthesized proxies (VOO becomes VUG when
+    /// large cap is set to growth), and a committed move is matched by (account, ticker).
+    /// Replaying moves BEFORE the re-flavor meant every trade staged against the styled
+    /// ticker silently found nothing to sell and vanished. Applying the style up front
+    /// means moves are replayed against the tickers the advisor actually saw.
     public func household() -> Household {
-        var h = intake.buildHousehold().applying(committedActions)
+        var h = intake.buildHousehold().withEquityStyle(driverOverrides.usEquityStyle ?? USEquityStyleTilt())
+        h = h.applying(committedActions)
         h.tacticalTilts = committedTilts
         return h.withDriverOverrides(driverOverrides)
     }
@@ -68,7 +77,13 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     /// Per-move replay status against the freshly synthesized household — flags a
     /// committed move an intake edit has since orphaned (sold holding gone) or
     /// clamped (sold holding shrank below the recorded amount).
-    public func committedStatuses() -> [CommittedMoveStatus] { intake.buildHousehold().replayStatuses(committedActions) }
+    /// Replay must see the same tickers `household()` does, or a move against a styled
+    /// proxy is reported as orphaned when it is actually fine.
+    public func committedStatuses() -> [CommittedMoveStatus] {
+        intake.buildHousehold()
+            .withEquityStyle(driverOverrides.usEquityStyle ?? USEquityStyleTilt())
+            .replayStatuses(committedActions)
+    }
 
     /// Best available display name: the CRM name, else the primary adult, else a placeholder.
     public var displayName: String {

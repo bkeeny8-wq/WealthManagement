@@ -13,10 +13,23 @@ extension Engine {
 
     // MARK: - Allocation (current vs target; the emergent "what it looks like")
 
+    /// The sleeve a position COUNTS TOWARD: its assigned sleeve, or the one its ticker
+    /// classifies to. Itemized held-away positions deliberately carry no `sleeveId` — they
+    /// are real lots rather than policy proxies — but they are still real dollars sitting in
+    /// a real sleeve. Excluding them from the numerator while `portfolioValueUsd` counted
+    /// them in the denominator made every sleeve read underweight, so the desk advised
+    /// adding to sleeves the client was already overweight in.
+    ///
+    /// This is a read-only attribution. The stored `sleeveId` stays nil, which is what marks
+    /// a holding as advisor-entered for the Portfolio tab and the concentration rules.
+    static func effectiveSleeveId(_ p: Position) -> String? {
+        p.sleeveId ?? Seed.sleeveId(forTicker: p.ticker, sector: p.effectiveSector)
+    }
+
     public static func resolveAllocation(_ h: Household, policy: InvestmentPolicy, strategic: InvestmentPolicy? = nil) -> [AllocationRow] {
         let total = max(1, h.portfolioValueUsd)
         return policy.sleeves.map { s in
-            let current = h.positions.filter { $0.sleeveId == s.id }.reduce(0) { $0 + $1.marketValueUsd }
+            let current = h.positions.filter { effectiveSleeveId($0) == s.id }.reduce(0) { $0 + $1.marketValueUsd }
             let currentBps = (current / total).bps
             let drift = currentBps - s.targetBps
             let inner = s.bandBps
