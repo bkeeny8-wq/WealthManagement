@@ -19,6 +19,9 @@ func dismissKeyboard() {
     #endif
 }
 
+/// Today as an ISO date. Reading the clock is a VIEW-layer act: the value is stamped once
+/// onto a client record and thereafter travels as stored data, so the engine remains a pure
+/// function of its input and a delivered plan still reproduces.
 // MARK: - Root (public entry point)
 
 public struct RootView: View {
@@ -126,7 +129,7 @@ public struct RootView: View {
             book[i].intake = builtIntake; book[i].practice = builtPractice; book[i].touch()
             id = editId
         } else {
-            let rec = ClientRecord(intake: builtIntake, practice: builtPractice)
+            let rec = ClientRecord(intake: builtIntake, practice: builtPractice, planAsOf: todayIsoDate(Date()))
             book.append(rec); id = rec.id
         }
         BookStore.save(book)
@@ -211,6 +214,10 @@ public struct RootView: View {
             return
         }
         book[i].driverOverrides.merge(staged)
+        // A review is the moment the plan is re-drawn, so advance its as-of date. Ages,
+        // horizons and save-years all move with it — which is what makes the annual review
+        // cycle mean anything.
+        book[i].planAsOf = todayIsoDate(Date())
         let hh = book[i].household()
         book[i].reviews.append(IPSReview.from(Engine.evaluate(hh), overrides: book[i].driverOverrides, at: Date(),
                                               note: note, confirmedSections: confirmed))

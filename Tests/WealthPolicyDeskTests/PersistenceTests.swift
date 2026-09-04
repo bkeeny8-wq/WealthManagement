@@ -43,7 +43,8 @@ final class PersistenceTests: XCTestCase {
         IPSReview(id: "review-1", createdAt: d1, note: "what changed this year",
                   confirmedSections: ["return", "risk", "allocation"],
                   requiredRealReturnBps: 456, fundedRatioBps: 6313, equityCeilingBps: 6000,
-                  afterTaxNetWorthUsd: 2_893_928, goalCount: 3, overrides: populatedOverrides())
+                  afterTaxNetWorthUsd: 2_893_928, goalCount: 3, overrides: populatedOverrides(),
+                  planAsOf: "2027-04-09")   // non-default ⇒ teeth for the plan-date write
     }
 
     private func populatedTilt() -> TacticalTiltAction {
@@ -140,6 +141,7 @@ final class PersistenceTests: XCTestCase {
     private func populatedRecord() -> ClientRecord {
         var r = ClientRecord(id: uuid(6), intake: populatedIntake(), practice: populatedPractice())
         r.updatedAt = d2; r.archived = true
+        r.planAsOf = "2028-02-29"     // non-default ⇒ a dropped encode reverts to the pinned date
         r.actions = [populatedAction()]; r.tilts = [populatedTilt()]
         r.driverOverrides = populatedOverrides(); r.reviews = [populatedReview()]
         return r

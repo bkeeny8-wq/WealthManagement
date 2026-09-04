@@ -171,6 +171,17 @@ public struct CommittedMoveStatus: Identifiable, Hashable, Sendable {
 
 // MARK: - Realized-gain tax preview (pure)
 
+/// Today, as the plan's IsoDate. The ONLY clock read in the module, and deliberately
+/// not callable without one: `now` has no default, so no engine routine can pick up the
+/// wall clock by omission. The view layer passes `Date()` when it stamps a new client
+/// record or saves a review; everything downstream reads the stored date instead.
+public func todayIsoDate(_ now: Date) -> IsoDate {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone.current
+    let c = cal.dateComponents([.year, .month, .day], from: now)
+    return String(format: "%04d-%02d-%02d", c.year ?? 2026, c.month ?? 1, c.day ?? 1)
+}
+
 public extension Engine {
     static let planningAsOf: IsoDate = "2026-08-11"
 

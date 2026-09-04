@@ -29,9 +29,14 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     public var driverOverrides: HouseholdOverrides = HouseholdOverrides()
     /// Dated IPS snapshots — the year-over-year review history.
     public var reviews: [IPSReview] = []
+    /// The date this client's plan is drawn as of. Stamped once when the record is created
+    /// (in the view layer, where reading a clock is fine) and re-stamped when a review is
+    /// saved, so the plan can AGE. Records written before this field existed decode to the
+    /// pinned planning date, which is exactly how they were evaluated at the time.
+    public var planAsOf: IsoDate = Engine.planningAsOf
 
-    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = [], tilts: [TacticalTiltAction] = [], driverOverrides: HouseholdOverrides = HouseholdOverrides(), reviews: [IPSReview] = []) {
-        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions; self.tilts = tilts; self.driverOverrides = driverOverrides; self.reviews = reviews
+    public init(id: UUID = UUID(), intake: IntakeModel, practice: PracticeMetadata, updatedAt: Date = Date(), archived: Bool = false, actions: [PlannedAction] = [], tilts: [TacticalTiltAction] = [], driverOverrides: HouseholdOverrides = HouseholdOverrides(), reviews: [IPSReview] = [], planAsOf: IsoDate = Engine.planningAsOf) {
+        self.id = id; self.intake = intake; self.practice = practice; self.updatedAt = updatedAt; self.archived = archived; self.actions = actions; self.tilts = tilts; self.driverOverrides = driverOverrides; self.reviews = reviews; self.planAsOf = planAsOf
     }
 
     /// Forward-compatible decode: a missing/renamed field never drops the record.
@@ -46,6 +51,7 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
         tilts = ((try? c.decodeIfPresent([TacticalTiltAction].self, forKey: .tilts)) ?? nil) ?? []
         driverOverrides = ((try? c.decodeIfPresent(HouseholdOverrides.self, forKey: .driverOverrides)) ?? nil) ?? HouseholdOverrides()
         reviews = ((try? c.decodeIfPresent([IPSReview].self, forKey: .reviews)) ?? nil) ?? []
+        planAsOf = ((try? c.decodeIfPresent(IsoDate.self, forKey: .planAsOf)) ?? nil) ?? Engine.planningAsOf
         if intake.adults.isEmpty { intake.adults = [IntakeAdult()] }   // invariant: ≥1 adult
     }
 
@@ -68,7 +74,7 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     /// ticker silently found nothing to sell and vanished. Applying the style up front
     /// means moves are replayed against the tickers the advisor actually saw.
     public func household() -> Household {
-        var h = intake.buildHousehold().withEquityStyle(driverOverrides.usEquityStyle ?? USEquityStyleTilt())
+        var h = intake.buildHousehold(asOf: planAsOf).withEquityStyle(driverOverrides.usEquityStyle ?? USEquityStyleTilt())
         h = h.applying(committedActions)
         h.tacticalTilts = committedTilts
         return h.withDriverOverrides(driverOverrides)
@@ -80,7 +86,7 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
     /// Replay must see the same tickers `household()` does, or a move against a styled
     /// proxy is reported as orphaned when it is actually fine.
     public func committedStatuses() -> [CommittedMoveStatus] {
-        intake.buildHousehold()
+        intake.buildHousehold(asOf: planAsOf)
             .withEquityStyle(driverOverrides.usEquityStyle ?? USEquityStyleTilt())
             .replayStatuses(committedActions)
     }

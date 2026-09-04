@@ -684,8 +684,12 @@ public extension IntakeModel {
     /// mapping replaces the 2× rule once the frontier lands.
     var impliedEquityCeilingBps: Bps { min(10000, effectiveMaxDrawdownBps * 2) }
 
-    func buildHousehold() -> Household {
-        let yr = Self.currentYear
+    /// Build the engine household as of a given date. The date is a PARAMETER rather than
+    /// a compile-time constant so a client onboarded after the pinned planning date is aged
+    /// correctly, and so an annual review can advance time. It defaults to the pinned date,
+    /// which keeps the seeded sample and every existing caller byte-identical.
+    func buildHousehold(asOf: IsoDate = Engine.planningAsOf) -> Household {
+        let yr = Engine.year(asOf)
         let primaryAge = max(0, yr - (adults.first?.birthYear ?? 1975))
         let retireStartYear = max(1, retirementStartAge - primaryAge)
         let horizon = max(retireStartYear + 1, planToAge - primaryAge)
@@ -935,7 +939,7 @@ public extension IntakeModel {
             }
         }
 
-        return Household(
+        var h = Household(
             id: "hh_custom", name: adults.first?.name.isEmpty == false ? "\(adults[0].name)'s plan" : "Your plan",
             filingStatus: filingStatus, stateOfResidence: state, people: people, humanCapital: humanCapital,
             deferredComp: deferredComp, incomeProfile: incomeProfile, socialSecurity: ssProfiles, goals: goals,
@@ -944,6 +948,8 @@ public extension IntakeModel {
             statedToleranceMaxDrawdownBps: effectiveTolerance,
             transitionGainBudgetUsd: annualGainBudgetUsd, transitionAnnualRealizedGainUsd: realizedGain,
             permanentHoldPolicy: permanentHoldPolicy, estate: estateInputs, protection: protectionProfile, equityComp: equityMechanics)
+        h.planAsOf = asOf          // travels with the plan, so evaluate() ages it correctly
+        return h
     }
 
     /// (Disposition, holdToStepUp, drawsTaxableGainBudget) for a held-away plan.

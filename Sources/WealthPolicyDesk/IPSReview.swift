@@ -23,14 +23,19 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
     public var afterTaxNetWorthUsd: Usd
     public var goalCount: Int
     public var overrides: HouseholdOverrides
+    /// The date the plan was drawn as of when this snapshot was taken. `createdAt` records
+    /// when the review happened; this records what the engine treated as "now", which is
+    /// what a reader needs to reproduce the figures above.
+    public var planAsOf: IsoDate = Engine.planningAsOf
 
     public init(id: String = UUID().uuidString, createdAt: Date, note: String = "", confirmedSections: [String] = [],
                 requiredRealReturnBps: Bps, fundedRatioBps: Bps, equityCeilingBps: Bps,
-                afterTaxNetWorthUsd: Usd, goalCount: Int, overrides: HouseholdOverrides = HouseholdOverrides()) {
+                afterTaxNetWorthUsd: Usd, goalCount: Int, overrides: HouseholdOverrides = HouseholdOverrides(),
+                planAsOf: IsoDate = Engine.planningAsOf) {
         self.id = id; self.createdAt = createdAt; self.note = note; self.confirmedSections = confirmedSections
         self.requiredRealReturnBps = requiredRealReturnBps; self.fundedRatioBps = fundedRatioBps
         self.equityCeilingBps = equityCeilingBps; self.afterTaxNetWorthUsd = afterTaxNetWorthUsd
-        self.goalCount = goalCount; self.overrides = overrides
+        self.goalCount = goalCount; self.overrides = overrides; self.planAsOf = planAsOf
     }
 
     /// Forward/backward-compatible decode: a missing field never drops the record.
@@ -46,6 +51,7 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
         afterTaxNetWorthUsd = ((try? c.decodeIfPresent(Usd.self, forKey: .afterTaxNetWorthUsd)) ?? nil) ?? 0
         goalCount = ((try? c.decodeIfPresent(Int.self, forKey: .goalCount)) ?? nil) ?? 0
         overrides = ((try? c.decodeIfPresent(HouseholdOverrides.self, forKey: .overrides)) ?? nil) ?? HouseholdOverrides()
+        planAsOf = ((try? c.decodeIfPresent(IsoDate.self, forKey: .planAsOf)) ?? nil) ?? Engine.planningAsOf
     }
 
     /// Snapshot the headline figures from an evaluated plan.
@@ -57,6 +63,6 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
                   equityCeilingBps: e.riskProfile?.bindingEquityBps ?? 0,
                   afterTaxNetWorthUsd: e.balanceSheet.afterTaxNetWorthUsd,
                   goalCount: e.household.goals.filter { $0.kind == .spending }.count,
-                  overrides: overrides)
+                  overrides: overrides, planAsOf: e.asOf)
     }
 }

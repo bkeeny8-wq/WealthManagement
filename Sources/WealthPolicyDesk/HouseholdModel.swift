@@ -410,6 +410,13 @@ public struct Household: Identifiable, Sendable, Hashable {
     /// Defaulted to neutral (cap-weighted blend), so no construction site needs to change.
     public var equityStyle: USEquityStyleTilt = USEquityStyleTilt()
 
+    /// The date this plan is drawn as of — every age, horizon and save-year derives from it.
+    /// It travels WITH the household so the engine stays a pure function of its input: the
+    /// date is stored data stamped once in the view layer, never a clock read inside the
+    /// engine, so a delivered plan still reproduces exactly. Defaulted to the app's pinned
+    /// planning date, which keeps the seeded sample and every existing call site unchanged.
+    public var planAsOf: IsoDate = Engine.planningAsOf
+
     /// Transition: annual realized-gain budget (0 = not set), the currently
     /// scheduled annual realized gain from unwinding held-away positions, and
     /// the policy for positions that will never be sold.

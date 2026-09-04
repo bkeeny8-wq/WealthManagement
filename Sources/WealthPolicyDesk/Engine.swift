@@ -176,7 +176,12 @@ public enum Engine {
 
     // MARK: top-level entry point
 
-    public static func evaluate(_ input: Household, asOf: IsoDate = Engine.planningAsOf) -> Evaluation {
+    /// Evaluate a household. `asOf` defaults to the household's OWN plan date rather than a
+    /// global constant, so a client onboarded today is aged against today and an annual
+    /// review can advance time. Pass `asOf` explicitly only to re-run a plan as of some
+    /// other date (a what-if, or reproducing an old review).
+    public static func evaluate(_ input: Household, asOf explicitAsOf: IsoDate? = nil) -> Evaluation {
+        let asOf = explicitAsOf ?? input.planAsOf
         // For a couple, step retirement spending down to the survivor share after the first
         // death. Applied once here so every downstream read (required return, funded ratio,
         // decumulation, and the IPS display) sees one consistent schedule.
