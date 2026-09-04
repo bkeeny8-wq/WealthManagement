@@ -44,6 +44,18 @@ public extension Seed {
         "AGG": "fixed_income_liquid", "SCHZ": "fixed_income_liquid", "IUSB": "fixed_income_liquid",
         "FXNAX": "fixed_income_liquid", "VBTLX": "fixed_income_liquid", "BNDX": "fixed_income_liquid",
         "VCIT": "fixed_income_liquid", "VCSH": "fixed_income_liquid", "LQD": "fixed_income_liquid",
+        "IGSB": "fixed_income_liquid", "IGIB": "fixed_income_liquid", "SPAB": "fixed_income_liquid",
+        // Treasuries by maturity. Absent from the map, these fell through to the ticker
+        // allowlist and — because `isEquity` is that allowlist's negation — a retiree's
+        // entire Treasury book classified as EQUITY, reporting $0 of defensive assets
+        // against a near-term spending requirement it in fact more than covered.
+        "SHY": "fixed_income_liquid", "IEI": "fixed_income_liquid", "IEF": "fixed_income_liquid",
+        "TLH": "fixed_income_liquid", "GOVT": "fixed_income_liquid", "SCHO": "fixed_income_liquid",
+        "SCHR": "fixed_income_liquid", "VGSH": "fixed_income_liquid", "VGIT": "fixed_income_liquid",
+        "VGLT": "fixed_income_liquid", "EDV": "fixed_income_liquid", "SPTL": "fixed_income_liquid",
+        // Broad-maturity bond funds
+        "BSV": "fixed_income_liquid", "BIV": "fixed_income_liquid", "BLV": "fixed_income_liquid",
+        "SPTS": "fixed_income_liquid", "SPTI": "fixed_income_liquid",
         // Inflation-linked
         "TIP": "tips", "STIP": "tips", "SCHP": "tips",
         // Credit
@@ -51,6 +63,7 @@ public extension Seed {
         // Cash and money markets — the row every statement has and the model had no home for
         "VMFXX": "cash", "SPAXX": "cash", "SWVXX": "cash", "FDRXX": "cash",
         "VUSXX": "cash", "SGOV": "cash", "BIL": "cash", "SHV": "cash", "USFR": "cash",
+        "SPRXX": "cash", "SNSXX": "cash", "SWPXX": "cash", "VMRXX": "cash", "TBIL": "cash",
     ]
 
     /// Best-guess policy sleeve for an arbitrary held ticker. Exact instrument match first

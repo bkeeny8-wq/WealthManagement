@@ -219,7 +219,7 @@ extension Engine {
     /// `liquidity_floor` rule was satisfied by equities and never fired, while the IPS
     /// told the client the opposite: that several years of spending sit in short bonds.
     static func defensiveLiquidUsd(_ h: Household) -> Usd {
-        h.positions.filter { isFixedIncome($0) || sleeveRole($0) == .cash }.reduce(0) { $0 + $1.marketValueUsd }
+        h.positions.filter { isFixedIncome($0) }.reduce(0) { $0 + $1.marketValueUsd }
     }
 
     // MARK: - Muni crossover

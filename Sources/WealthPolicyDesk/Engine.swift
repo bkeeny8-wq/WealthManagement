@@ -616,8 +616,14 @@ public enum Engine {
 
     /// The asset-class role of a held position, via its sleeve mapping (nil = an
     /// unclassified / held-away lot, which falls back to ticker heuristics).
+    /// The policy role of a holding, resolving the ticker when no sleeve id is STORED.
+    /// Intake writes every itemized held-away holding with `sleeveId: nil`, so reading the
+    /// stored id alone sent all of them to the ticker allowlists below — which made one
+    /// evaluation contradict itself: the allocation table classified a held-away bond fund
+    /// as fixed income (it resolves the ticker) while the ladder reported $0 of defensive
+    /// assets and raised a hard liquidity finding against the same book.
     static func sleeveRole(_ p: Position) -> AssetRole? {
-        guard let sid = p.sleeveId else { return nil }
+        guard let sid = effectiveSleeveId(p) else { return nil }
         return Seed.legacyPolicy.sleeve(sid)?.role
     }
     static func isRealDiversifier(_ p: Position) -> Bool {
@@ -629,6 +635,12 @@ public enum Engine {
         return fiTickers.contains(p.ticker)
     }
     static func isIlliquidAlt(_ p: Position) -> Bool { p.ticker == "PCRED" || p.ticker == "PE" }
+    /// A ticker that resolves to no sleeve at all falls through to equity DELIBERATELY.
+    /// That is the conservative direction for a planning tool — an unrecognized symbol
+    /// counts against the risk ceiling rather than silently vanishing from it — and it is
+    /// safe only because `sleeveRole` now resolves tickers, so the mainstream bond and
+    /// money-market funds that used to land here no longer do. Do not "fix" this into
+    /// returning false for unknowns without also deciding where that value IS counted.
     static func isEquity(_ p: Position) -> Bool {
         if let r = sleeveRole(p) { return r == .growth }
         return !isFixedIncome(p) && !isIlliquidAlt(p) && !isRealDiversifier(p) && p.ticker != "BUFR"
