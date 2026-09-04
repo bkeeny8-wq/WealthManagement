@@ -119,8 +119,8 @@ public extension Engine {
         for gap in gaps where gap.traded && gap.gapUsd < 0 {
             var raise = -gap.gapUsd * correction
             let all = h.positions.filter { effectiveSleeveId($0) == gap.sleeveId }
-            heldOutUsd += all.filter { !isSellable($0, treatment: h.treatment(of: $0)) }.reduce(0) { $0 + $1.marketValueUsd }
-            let candidates = all.filter { isSellable($0, treatment: h.treatment(of: $0)) }
+            heldOutUsd += all.filter { !isSellable($0) }.reduce(0) { $0 + $1.marketValueUsd }
+            let candidates = all.filter { isSellable($0) }
                 .sorted { sellRank($0, treatment: h.treatment(of: $0)) < sellRank($1, treatment: h.treatment(of: $1)) }
             for p in candidates {
                 if raise <= 1 { break }
@@ -209,7 +209,7 @@ public extension Engine {
             warnings.append("Sells raised \(Fmt.usdShort(excessCash)) more than the underweight buys absorb — the surplus lands in the cash sleeve until the next underweight opens up.")
         }
         if heldOutUsd > total / 1000 {
-            warnings.append("\(Fmt.usdShort(heldOutUsd)) sits in step-up / gift / charitable lots held out of selling by their disposition — an overweight sleeve can stay overweight by design.")
+            warnings.append("\(Fmt.usdShort(heldOutUsd)) sits in step-up / gift lots and held-to-maturity ladder rungs that are excluded from selling — an overweight sleeve can stay overweight by design.")
         }
         if trades.isEmpty {
             warnings.append("Every sleeve is inside its no-trade band. Nothing to rebalance — the bands are doing their job.")
@@ -227,18 +227,41 @@ public extension Engine {
 
     // MARK: - helpers
 
-    /// A position may be sold only if no terminal disposition earmarks it to be held.
+    /// A position may be sold only if nothing earmarks it to be held.
     ///
-    /// `charitableAtDeath` is the exception: routing an IRA to charity is a BENEFICIARY
-    /// designation on the account, not a lock on the instrument inside it, so a sheltered
-    /// position carrying it rebalances freely. In a taxable account the same disposition
-    /// does earmark the specific low-basis lot, so it still holds.
-    static func isSellable(_ p: Position, treatment: AccountTaxTreatment) -> Bool {
+    /// The LADDER layer is held to maturity by construction — it is the liability-matching
+    /// bond ladder that funds near-term spending, sized by the liquidity floor. Selling it
+    /// to fund an equity rebalance defeats the thing it exists for, and because sheltered
+    /// lots rank ahead of every taxable lot it is exactly what the sell ladder reached for
+    /// first: the sample raised an $171,270 breach by selling 57% of its own $300,000
+    /// ladder, in the same evaluation that raised a hard `liquidity_floor` finding.
+    ///
+    /// `charitableAtDeath` is NOT a lock anywhere. Routing an account to charity is a
+    /// beneficiary designation, not an instruction about the instruments inside it, and
+    /// intake stamps it on EVERY taxable position when the client names taxable as their
+    /// bequest source — which froze the entire taxable book and left the plan unfundable.
+    /// The preference for keeping a low-basis lot earmarked to charity is a RANKING
+    /// preference, and `sellRank` already sells the lowest-gain lots first. The genuine
+    /// locks are `holdToStepUp` and `giftDuringLife`.
+    static func isSellable(_ p: Position) -> Bool {
         if p.holdToStepUp { return false }
+        if p.layer == .ladder { return false }
         switch p.disposition {
         case .holdToStepUp, .giftDuringLife: return false
-        case .charitableAtDeath: return treatment == .taxDeferred
-        case .stepUpThenSell, .consume: return true
+        case .charitableAtDeath, .stepUpThenSell, .consume: return true
+        }
+    }
+
+    /// The client has DECLARED an endpoint for this lot — hold it to step-up, gift it, or
+    /// leave it to charity. Deliberately NOT the same question as `isSellable`, which asks
+    /// whether a rebalance may trade the lot: an account routed to charity rebalances freely
+    /// inside, but the desk should still lead with the earmark rather than telling the client
+    /// to unwind a position they have already decided the fate of.
+    static func hasTerminalEarmark(_ p: Position) -> Bool {
+        if p.holdToStepUp { return true }
+        switch p.disposition {
+        case .holdToStepUp, .giftDuringLife, .charitableAtDeath: return true
+        case .stepUpThenSell, .consume: return false
         }
     }
 

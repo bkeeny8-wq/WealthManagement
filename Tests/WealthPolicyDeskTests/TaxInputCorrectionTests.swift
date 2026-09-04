@@ -107,25 +107,27 @@ final class TaxInputCorrectionTests: XCTestCase {
                                     "the spouse's final working year must be taxed, not ignored")
     }
 
-    // MARK: - An IRA earmarked to charity still rebalances
+    // MARK: - An account earmarked to charity still rebalances
 
     /// `charitableAtDeath` is a beneficiary designation on the ACCOUNT, not a lock on the
-    /// instrument. Treating it as unsellable made every tax-deferred holding untouchable,
-    /// so rebalance could never trade inside an IRA.
-    func testCharitableAtDeathIsSellableOnlyInsideAShelteredAccount() {
+    /// instrument inside it. Treating it as unsellable made every tax-deferred holding
+    /// untouchable, so rebalance could never trade inside an IRA — and the taxable mirror
+    /// was worse: intake stamps the disposition on EVERY taxable position when the client
+    /// names taxable as their bequest source, which froze the whole taxable book.
+    func testCharitableAtDeathIsSellableInEveryAccountType() {
         let p = Position(id: "x", accountId: "a", ticker: "BND", sleeveId: "fixed_income_liquid",
                          marketValueUsd: 100_000, costBasisUsd: 90_000, layer: .strategic,
                          disposition: .charitableAtDeath, holdToStepUp: false)
-        XCTAssertTrue(Engine.isSellable(p, treatment: .taxDeferred), "an IRA routed to charity still rebalances")
-        XCTAssertFalse(Engine.isSellable(p, treatment: .taxable), "in taxable it earmarks the specific low-basis lot")
+        XCTAssertTrue(Engine.isSellable(p), "routing an account to charity is not an instrument lock")
+        XCTAssertTrue(Engine.hasTerminalEarmark(p),
+                      "but the desk still leads with the earmark rather than telling the client to unwind")
     }
 
     func testStepUpEarmarksStillHoldEverywhere() {
         let p = Position(id: "y", accountId: "a", ticker: "VOO", sleeveId: "us_large_core",
                          marketValueUsd: 100_000, costBasisUsd: 10_000, layer: .strategic,
                          disposition: .holdToStepUp, holdToStepUp: true)
-        for t in AccountTaxTreatment.allCases {
-            XCTAssertFalse(Engine.isSellable(p, treatment: t), "a step-up earmark holds in \(t)")
-        }
+        XCTAssertFalse(Engine.isSellable(p), "a step-up earmark is a genuine lock")
+        XCTAssertTrue(Engine.hasTerminalEarmark(p))
     }
 }

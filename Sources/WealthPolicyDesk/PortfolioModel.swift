@@ -159,7 +159,12 @@ public extension Engine {
             var action: HoldingAction = .keep
             var rationale = ""
             var altLabel: String? = nil
-            if !Engine.isSellable(p, treatment: treatment) {
+            if p.layer == .ladder {
+                // A ladder rung funds a dated liability and is held to maturity — the
+                // rebalancer will not sell it, so the desk must not suggest trimming it.
+                action = .keep
+                rationale = "Held to maturity as a rung of the liquidity ladder — this is the money the near-term spending is matched against."
+            } else if Engine.hasTerminalEarmark(p) {
                 // The client already DECLARED what happens to this lot — hold it to step-up,
                 // gift it, leave it to charity. Telling them to unwind it, and then in the
                 // same card to hold it for the step-up, was the desk arguing with itself.
