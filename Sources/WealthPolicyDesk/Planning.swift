@@ -230,7 +230,11 @@ public extension Engine {
         let tax = Seed.tax2026
         let filing = h.filingStatus
         let stdDed = tax.standardDeduction[filing] ?? 0
-        let wages = h.humanCapital.reduce(0) { $0 + $1.annualIncomeUsd }
+        // The SAME wage rule the projection uses — retirement-gated, dependents excluded.
+        // Summing every `humanCapital` row reported a retired couple's income as $470,000
+        // and counted an earning dependent, so this preview quoted a 15%/20% + NIIT stack
+        // where the projection it claims to mirror implied 0%/15%.
+        let wages = wagesAtPlanYear(h, year: 0, asOf: asOf)
         let pension = pensionAnnual(h, year: 0)
         var rmd: Usd = 0
         if let primary = h.primary {

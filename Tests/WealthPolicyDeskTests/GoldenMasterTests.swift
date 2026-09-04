@@ -7,24 +7,33 @@ import XCTest
 /// required-return / funded figures re-captured after the couples-spending model
 /// (survivor drop + save-until-later-retirement).
 ///
-/// Re-captured again after the tax-input corrections (461 → 465, funded 6252 → 6228).
-/// All three drivers RAISE lifetime tax, so the old figures were flattered:
-///   1. Itemization no longer claims a fabricated $20,000/yr charitable deduction. The
-///      Harrisons give $0, so that deduction was pure invention; charity now reads from
-///      `estate.annualGivingUsd`. This is the dominant driver.
-///   2. State tax comes from the household's own state profile (NJ 6.37%/1.89%) instead
-///      of a hardcoded 6%/1.8% "NJ-ish" constant applied to every client.
-///   3. Susan's final working year is now taxed: the projection starts at Robert's
-///      retirement, and she works one year past it, which the loop previously ignored.
-/// RMDs also correctly begin at 75 rather than 73 (Robert, born 1963 — SECURE 2.0),
-/// which pushes the other way but is outweighed by the three above.
+/// Re-captured after the tax-input corrections (461 → 465, funded 6252 → 6228) and again
+/// after wage cash conservation (465 → 479, pre-tax 403 → 423, funded 6228 → 6264).
+///
+/// Each move below is MEASURED by reverting that driver alone, not inferred. An earlier
+/// version of this comment credited the itemization corrections; reverting them moves
+/// nothing, because `itemizationInput` feeds only the itemization, muni-crossover and
+/// paydown outputs and never reaches the required-return solve.
+///
+/// 461 → 465 / 6252 → 6228:
+///   • Susan's final working year is taxed (+5 bps rr, −25 bps funded) — dominant.
+///   • RMDs begin at 75, not 73 (Robert, born 1963 — SECURE 2.0): −1 bp / +1 bp.
+///   • Itemization state profile and real charitable giving: 0 bps. Inert to these figures.
+///
+/// 465 → 479 / 6228 → 6264:
+///   • Savings are capped at the wages that fund them (+21 bps rr). `householdSaveYears`
+///     books savings through the LATER retirement — plan-year 3 for Susan — but she stops
+///     earning at plan-year 2, so the recursion was crediting one phantom savings year.
+///   • A working year's tax is settled from that year's wages before the portfolio
+///     (−7 bps rr). The recursion now reads `portfolioTaxUsd`, not the headline tax.
+///   • Funded ratio rises with rr because the goal liabilities are discounted at it.
 final class GoldenMasterTests: XCTestCase {
 
     func testHarrisonsHeadlineFigures() {
         let e = Engine.evaluate(Seed.sampleHousehold)
-        XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 465)
-        XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 403)
-        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6228)
+        XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 479)
+        XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 423)
+        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6264)
         XCTAssertEqual(e.balanceSheet.afterTaxNetWorthUsd, 2_893_928, accuracy: 0.5)
         XCTAssertEqual(e.balanceSheet.grossNetWorthUsd, 3_105_000, accuracy: 0.5)
         XCTAssertEqual(e.netFixedIncomeUsd, -120_000, accuracy: 0.5)

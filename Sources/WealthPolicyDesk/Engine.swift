@@ -194,7 +194,7 @@ public enum Engine {
         let baseDecum = decumulation(h, tax: tax, rr: rrPre, asOf: asOf)
         let y0 = year(asOf)
         var taxByYear: [Int: Usd] = [:]
-        for yr in baseDecum.years { taxByYear[yr.year - y0] = yr.federalTaxUsd + yr.irmaaUsd }
+        for yr in baseDecum.years { taxByYear[yr.year - y0] = yr.portfolioTaxUsd }
         var rr = requiredReturn(h, asOf: asOf, annualTaxUsd: taxByYear)
         rr.requiredRealReturnPreTaxBps = rrPre.requiredRealReturnBps
         let bs = balanceSheet(h, tax: tax, asOf: asOf, rr: rr)
@@ -293,6 +293,22 @@ public enum Engine {
 
     /// Years the household keeps saving — until the LATER of the two adults' retirements
     /// (a couple keeps saving while EITHER still earns), not just the primary's.
+    /// Wages earned in plan-year `t` by adults who have not yet reached their expected
+    /// retirement age. Dependents never count, and an adult stops earning the year they
+    /// retire. Every site that needs "what does this household earn in year t" reads this
+    /// one function: the decumulation projection, the required-return recursion, the
+    /// resilience solve, and the realized-gain preview. They used to disagree — summing
+    /// every `humanCapital` row with no filter reported a retired couple's income as
+    /// $470,000 and counted an earning dependent — which put the sell preview in a
+    /// different bracket from the projection it claims to mirror.
+    public static func wagesAtPlanYear(_ h: Household, year t: Int, asOf: IsoDate) -> Usd {
+        h.people.reduce(0.0) { acc, p in
+            guard p.role != .dependent,
+                  age(birthDate: p.birthDate, asOf: asOf) + t < p.expectedRetirementAge else { return acc }
+            return acc + (h.humanCapital.first { $0.personId == p.id }?.annualIncomeUsd ?? 0)
+        }
+    }
+
     public static func householdSaveYears(_ h: Household, asOf: IsoDate) -> Int {
         let adults = h.people.filter { $0.role == .primary || $0.role == .spouse }
         return adults.map { max(0, $0.expectedRetirementAge - age(birthDate: $0.birthDate, asOf: asOf)) }.max() ?? 0
@@ -315,13 +331,11 @@ public enum Engine {
         let startT = primaryRetiredNow ? 0 : 1
 
         // Real cashflows by year, net of external income, plus the decumulation tax.
-        // KNOWN APPROXIMATION (couples with staggered retirement): `annualTaxUsd` is keyed
-        // to the primary's drawdown frame, while savings run to the LATER retirement
-        // (householdSaveYears). In an overlap year (primary retired, spouse still earning)
-        // both a savings inflow and a decumulation tax are booked; the tax slightly
-        // overstates the true withdrawal because it ignores the still-earning spouse's
-        // wages. Bounded to ≈ the tax on one household's overlap wages — small, and left as
-        // a deliberate simplification until decumulation models overlap-year wages.
+        // `annualTaxUsd` carries only the tax the PORTFOLIO pays: decumulation settles a
+        // working year's tax out of that year's wages first, so a household does not get
+        // worse the more it earns. The savings inflow is capped at the same year's wages
+        // for the mirror reason — a stated savings rate booked in a year with no wages
+        // credits money that does not exist.
         func netOutflow(_ t: Int, deferYears: Int, scaleDownBps: Bps) -> Usd {
             var out: Usd = annualTaxUsd[t] ?? 0
             for g in h.goals where g.kind == .spending || g.kind == .reserve {
@@ -336,7 +350,7 @@ public enum Engine {
             // External income offsets. Savings occur in working years 1…saveYears — never
             // year 0 (today's draw), so a retired household never books a phantom saving.
             var inflow: Usd = 0
-            if t >= 1 && t <= saveYears { inflow += h.annualSavingsUsd }
+            if t >= 1 && t <= saveYears { inflow += min(h.annualSavingsUsd, wagesAtPlanYear(h, year: t, asOf: asOf)) }
             inflow += socialSecurityAnnual(h, year: t, asOf: asOf)
             inflow += pensionAnnual(h, year: t)
             inflow += homeEquityOffset(h, year: t)

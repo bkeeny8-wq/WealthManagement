@@ -152,7 +152,7 @@ public extension Engine {
                     s += o.amountUsd * (o.inflationLinked ? pow(1 + excess, Double(max(0, t - 1))) : 1.0)
                 }
             }
-            var inflow: Usd = (t <= saveYears ? h.annualSavingsUsd : 0)
+            var inflow: Usd = t <= saveYears ? min(h.annualSavingsUsd, Engine.wagesAtPlanYear(h, year: t, asOf: asOf)) : 0
             inflow += socialSecurityAnnual(h, year: t, asOf: asOf) + pensionAnnual(h, year: t) + homeEquityOffset(h, year: t)
             spend.append(s)
             other.append((annualTaxUsd[t] ?? 0) - inflow)

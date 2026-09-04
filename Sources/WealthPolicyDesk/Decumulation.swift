@@ -25,12 +25,19 @@ public struct DecumulationYear: Identifiable, Sendable, Hashable {
     public var deferredWithdrawalUsd: Usd  // discretionary, on top of the RMD
     public var rothWithdrawalUsd: Usd
     public var rothConversionUsd: Usd      // tax-deferred → Roth, voluntarily taxed this year
-    public var ordinaryIncomeUsd: Usd      // RMD + deferred draws + pension + taxable SS + conversion
+    public var wagesUsd: Usd               // still-working adults' earnings that year
+    public var ordinaryIncomeUsd: Usd      // wages + RMD + deferred draws + pension + taxable SS + conversion
     public var capitalGainsUsd: Usd
     public var ssTaxableUsd: Usd
     public var taxableIncomeUsd: Usd       // ordinary taxable income after the standard deduction
     public var federalTaxUsd: Usd
     public var irmaaUsd: Usd
+    /// The part of (federal tax + IRMAA) the PORTFOLIO actually paid. A working year settles
+    /// its tax out of that year's wages first, so this sits below the headline tax whenever an
+    /// adult is still earning. The required-return and resilience recursions read this, not the
+    /// headline — charging the portfolio for tax on wages it never received made a plan get
+    /// worse the more the household earned.
+    public var portfolioTaxUsd: Usd
     public var marginalRateBps: Bps
     public var magiUsd: Usd
     public var endTaxableUsd: Usd
@@ -129,11 +136,7 @@ public extension Engine {
             // PRIMARY's retirement, so a younger spouse is often still earning — ignoring
             // that income made the pre-RMD years look empty, understated Social-Security
             // taxation, and handed the Roth optimizer a phantom low bracket to fill.
-            let wages = adults.reduce(0.0) { acc, p in
-                let ageAtT = age(birthDate: p.birthDate, asOf: asOf) + t
-                guard ageAtT < p.expectedRetirementAge else { return acc }
-                return acc + (h.humanCapital.first { $0.personId == p.id }?.annualIncomeUsd ?? 0)
-            }
+            let wages = wagesAtPlanYear(h, year: t, asOf: asOf)
             // RMD: the whole tax-deferred balance divided by the IRS Uniform Lifetime factor.
             let rmd = ageNow >= rmdAge ? deferred / uniformLifetimeDivisor(ageNow) : 0
             if rmd > 0 && firstRmdAge == 0 { firstRmdAge = ageNow }
@@ -146,8 +149,16 @@ public extension Engine {
             if need > 0 { wTaxable = min(taxable, need); taxable -= wTaxable; need -= wTaxable }
             if need > 0 { wDeferred = min(deferred, need); deferred -= wDeferred; need -= wDeferred }
             if need > 0 { wRoth = min(roth, need); roth -= wRoth; need -= wRoth }
-            // Forced RMD cash beyond what spending consumed doesn't vanish — it's reinvested taxable.
-            taxable += max(0, rmd - max(0, spend - ss - pension - wages))
+            // Cash conservation. Guaranteed income covers spending first; wages and the forced
+            // RMD cover what is left. Whatever the RMD leaves over is reinvested in taxable, and
+            // whatever the WAGES leave over is saved at the rate the household actually reports —
+            // the surplus above that rate is the working year's living costs, which the
+            // retirement-spending goal does not describe. Wages used to be netted against
+            // spending and taxed but credited nowhere: the tax on them was debited from the
+            // portfolio while the cash itself vanished, so a plan got worse as the client earned.
+            let unmetBySafeIncome = max(0, spend - ss - pension)
+            var wagesLeft = max(0, wages - unmetBySafeIncome)
+            taxable += max(0, rmd - max(0, unmetBySafeIncome - wages))
 
             // Income and federal tax.
             let capGains = wTaxable * taxableGainFrac
@@ -177,19 +188,32 @@ public extension Engine {
             lifetimeTax += federalTax; lifetimeIrmaa += irmaa
             // Conservation: the year's tax is actually paid from the portfolio (taxable → deferred → Roth),
             // so the balances that roll forward — and the RMDs they drive — are genuinely after-tax.
+            // A working year settles its own tax out of that year's wages before the portfolio
+            // is touched. Split it whether or not THIS pass debits balances: the first pass
+            // runs with `debitTax: false` purely to feed the required-return recursion, and
+            // that recursion reads `portfolioTaxUsd` — computing it inside the debit branch
+            // fed the second pass an all-zero series and silently turned the after-tax solve
+            // back into the pre-tax one.
+            var due = federalTax + irmaa
+            let payW = min(wagesLeft, due); wagesLeft -= payW; due -= payW
+            let portfolioTax = due
             if debitTax {
-                var due = federalTax + irmaa
                 let payT = min(taxable, due); taxable -= payT; due -= payT
                 let payD = min(deferred, due); deferred -= payD; due -= payD
                 roth = max(0, roth - due)
             }
+            // What the wages leave after spending and tax is saved, at the reported rate.
+            // Only past `accumYears`: the accumulation block above already compounded the
+            // savings for plan-years 1...accumYears, and this loop's FIRST year is t ==
+            // accumYears — crediting there would book that year's saving twice.
+            if t > accumYears { taxable += min(h.annualSavingsUsd, wagesLeft) }
 
             years.append(DecumulationYear(
                 year: startYear + t, age: ageNow, spendingNeedUsd: spend, guaranteedIncomeUsd: ss + pension,
                 rmdUsd: rmd, taxableWithdrawalUsd: wTaxable, deferredWithdrawalUsd: wDeferred, rothWithdrawalUsd: wRoth,
-                rothConversionUsd: conversion,
+                rothConversionUsd: conversion, wagesUsd: wages,
                 ordinaryIncomeUsd: ordinaryIncome, capitalGainsUsd: capGains, ssTaxableUsd: ssTaxable,
-                taxableIncomeUsd: ordinaryTaxable, federalTaxUsd: federalTax, irmaaUsd: irmaa,
+                taxableIncomeUsd: ordinaryTaxable, federalTaxUsd: federalTax, irmaaUsd: irmaa, portfolioTaxUsd: portfolioTax,
                 marginalRateBps: marginalOrdinaryRateBps(taxableIncome: ordinaryTaxable, filing: filing, tax: tax),
                 magiUsd: magi, endTaxableUsd: taxable, endDeferredUsd: deferred, endRothUsd: roth))
 

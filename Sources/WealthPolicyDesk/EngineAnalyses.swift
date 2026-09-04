@@ -74,9 +74,9 @@ extension Engine {
     // MARK: - Itemization / SALT window
 
     public static func estimatedMagi(_ h: Household, asOf: IsoDate) -> Usd {
-        // While earning: wages. (A retired household would use portfolio draw +
-        // SS taxable portion; the sample is pre-retirement.)
-        let wages = h.humanCapital.reduce(0) { $0 + $1.annualIncomeUsd }
+        // While earning: wages, on the same retirement-gated rule the projection uses.
+        // (A retired household falls through to its spending draw below.)
+        let wages = wagesAtPlanYear(h, year: 0, asOf: asOf)
         return wages > 0 ? wages : h.goals.first { $0.kind == .spending }?.outflows.first?.amountUsd ?? 0
     }
 
