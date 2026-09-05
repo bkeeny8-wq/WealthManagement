@@ -50,11 +50,45 @@ final class ResilienceAndLiquidityTests: XCTestCase {
         XCTAssertGreaterThan(Engine.evaluate(rich).balanceSheet.fundedRatioBps, Engine.fundedFloorBps,
                              "fixture check: the scaled household is overfunded, which used to flatten the curve")
 
-        let a = Engine.toleranceEquityBps(Seed.sampleHousehold, ladder: poorLadder, maxDrawdownBps: 2000)
-        let b = Engine.toleranceEquityBps(rich, ladder: richLadder, maxDrawdownBps: 2000)
-        XCTAssertLessThan(b, 9500, "an overfunded household must not read as 95% equity")
-        XCTAssertLessThanOrEqual(abs(a - b), 500,
-                                 "funded status must not move the tolerance ceiling more than the cash-floor effect (got \(a) vs \(b))")
+        // Swept, not probed at one rung. At 2000 bps the reverted code returns 3250 vs 3000
+        // — inside any sane tolerance — so a single-level check passes while the defect is
+        // live everywhere above it. At 2500 the same revert gives 4750 vs 9500.
+        for level in stride(from: 1500, through: 5000, by: 250) {
+            let a = Engine.toleranceEquityBps(Seed.sampleHousehold, ladder: poorLadder, maxDrawdownBps: level)
+            let b = Engine.toleranceEquityBps(rich, ladder: richLadder, maxDrawdownBps: level)
+            XCTAssertLessThan(b, 9500, "at \(level) bps an overfunded household must not read as 95% equity")
+            // A gap remains legitimate: the 10x household's forced cash floor is far
+            // smaller as a SHARE, so its plateau starts a few rungs higher. What must not
+            // happen is the old behaviour, where funded status moved the answer 3000 → 9500.
+            XCTAssertLessThanOrEqual(abs(a - b), 1000,
+                                     "at \(level) bps funded status moved the ceiling beyond the cash-floor effect (\(a) vs \(b))")
+        }
+    }
+
+    /// Above the plateau, extra ceiling buys no extra risk — so it must not be reported as
+    /// extra equity. The solver clamps realized equity at `sleeveBudget − cashFloor`, and
+    /// taking the highest qualifying ceiling turned that flat tail into a cliff: 3600 bps
+    /// of stated tolerance mapped to 7500 while 3700 mapped to 9500, printing "95% equity"
+    /// verbatim in the IPS for every tolerance above it.
+    func testStatedToleranceMapsSmoothlyWithNoCliffAtThePlateau() {
+        let h = Seed.sampleHousehold
+        let ladder = Engine.evaluate(h).ladder
+        let curve = Engine.drawdownByCeiling(h, ladder: ladder)
+
+        let plateau = curve.filter { $0.drawdownBps == curve.map({ $0.drawdownBps }).max()! }
+        XCTAssertGreaterThan(plateau.count, 1, "fixture check: the sweep does plateau at the top")
+
+        var previous: Int? = nil
+        for level in stride(from: 1500, through: 6000, by: 100) {
+            let e = Engine.toleranceEquityBps(fromCurve: curve, maxDrawdownBps: level)
+            defer { previous = e }
+            guard let previous else { continue }
+            XCTAssertGreaterThanOrEqual(e, previous, "the mapping must be monotonic in stated tolerance")
+            XCTAssertLessThanOrEqual(e - previous, 500,
+                                     "a 100 bps change in stated tolerance jumped the ceiling \(previous) → \(e)")
+            XCTAssertLessThanOrEqual(e, plateau.first!.ceilingBps,
+                                     "no tolerance may report more ceiling than the plateau actually builds")
+        }
     }
 
     // MARK: - The spending ladder is defensive assets, not everything

@@ -116,14 +116,26 @@ public extension Engine {
         return out
     }
 
-    /// The highest equity ceiling whose modeled drawdown stays within the stated
-    /// limit — the frontier-derived replacement for the flat 2× rule. It reads the
-    /// drawdown off the diversified portfolio the solver would actually build, so a
-    /// mix whose "defensive" half carries credit/commodity/alt risk earns a lower
-    /// ceiling than the naive equity-only rule. Falls back to the most-defensive
-    /// ceiling when even that exceeds the limit (nothing lower can be built).
+    /// The equity ceiling that buys all the risk the stated drawdown limit allows — the
+    /// frontier-derived replacement for the flat 2× rule. It reads the drawdown off the
+    /// diversified portfolio the solver would actually build, so a mix whose "defensive"
+    /// half carries credit/commodity/alt risk earns a lower ceiling than the naive
+    /// equity-only rule. Falls back to the most-defensive ceiling when even that exceeds
+    /// the limit (nothing lower can be built).
+    ///
+    /// The LOWEST ceiling attaining the highest qualifying drawdown, not simply the
+    /// highest qualifying ceiling. The solver clamps realized equity at
+    /// `sleeveBudget − cashFloor`, so the curve PLATEAUS: on the sample every request from
+    /// 7750 up builds the identical 6886 bps portfolio at a 3603 bps drawdown. Taking the
+    /// maximum therefore returned the top of the sweep the moment the stated tolerance
+    /// cleared the plateau — 3600 bps mapped to 7500 while 3700 mapped to 9500, and every
+    /// tolerance above that printed "95% equity" verbatim in the client's IPS. Requesting
+    /// more than the plateau buys nothing, so reporting more than the plateau is a fiction.
     static func toleranceEquityBps(fromCurve curve: [(ceilingBps: Bps, drawdownBps: Bps)], maxDrawdownBps: Bps) -> Bps {
-        curve.filter { $0.drawdownBps <= maxDrawdownBps }.map { $0.ceilingBps }.max() ?? (curve.first?.ceilingBps ?? 3000)
+        let fallback = curve.first?.ceilingBps ?? 3000
+        let qualifying = curve.filter { $0.drawdownBps <= maxDrawdownBps }
+        guard let peak = qualifying.map({ $0.drawdownBps }).max() else { return fallback }
+        return qualifying.filter { $0.drawdownBps == peak }.map { $0.ceilingBps }.min() ?? fallback
     }
 
     static func toleranceEquityBps(_ h: Household, ladder: LadderPlan, maxDrawdownBps: Bps) -> Bps {
