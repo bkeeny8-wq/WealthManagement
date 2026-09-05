@@ -16,6 +16,25 @@ final class DecumulationTests: XCTestCase {
         Engine.decumulation(h, tax: tax, rr: rr, asOf: asOf, conversionToBracketTopBps: target, debitTax: true)
     }
 
+    /// This household's own RMD age, which is what the projection gates on. `tax.rmdStartAge`
+    /// is the seeded FALLBACK (73) and is two years early for a 1960-or-later primary —
+    /// asserting against it both understates the RMD age and rejects legal conversions.
+    private var rmdAge: Int {
+        Engine.rmdStartAge(birthDate: h.primary!.birthDate, default: tax.rmdStartAge)
+    }
+
+    /// The sample's deferred balance drains before RMDs ever begin, so it cannot exercise
+    /// the boundary at all. This variant reaches ages 73–75 with the account still funded.
+    private func deepDeferredPlan(conversionTo target: Bps? = nil) -> DecumulationPlan {
+        var big = h
+        big.positions = big.positions.map { p in
+            guard big.treatment(of: p) == .taxDeferred else { return p }
+            var q = p; q.marketValueUsd *= 20; q.costBasisUsd *= 20; return q
+        }
+        return Engine.decumulation(big, tax: tax, rr: Engine.requiredReturn(big, asOf: asOf), asOf: asOf,
+                                   conversionToBracketTopBps: target, debitTax: true)
+    }
+
     // MARK: - Bucket conservation
 
     func testNoAccountBucketGoesNegative() {
@@ -35,7 +54,7 @@ final class DecumulationTests: XCTestCase {
         let p = plan()
         let firstRmdYear = p.years.first { $0.rmdUsd > 0 }
         if let f = firstRmdYear {
-            XCTAssertGreaterThanOrEqual(f.age, tax.rmdStartAge, "an RMD before the statutory age")
+            XCTAssertGreaterThanOrEqual(f.age, rmdAge, "an RMD before this client's statutory age")
             XCTAssertEqual(p.firstRmdAge, f.age, "firstRmdAge must name the first RMD year")
         } else {
             XCTAssertEqual(p.firstRmdAge, 0, "no RMD year ⇒ firstRmdAge is 0")
@@ -52,8 +71,28 @@ final class DecumulationTests: XCTestCase {
 
     func testConversionsHappenOnlyInThePreRmdWindow() {
         for y in plan(conversionTo: 2400).years where y.rothConversionUsd > 0.5 {
-            XCTAssertLessThan(y.age, tax.rmdStartAge, "a conversion after RMDs begin")
+            XCTAssertLessThan(y.age, rmdAge, "a conversion after RMDs begin")
         }
+    }
+
+    /// The boundary the sample cannot reach. Its deferred balance drains by the late
+    /// sixties, so reverting the conversion gate to the seeded fallback age left the whole
+    /// suite green — this fixture keeps the account funded through the real boundary.
+    func testTheConversionWindowExtendsToTheClientsOwnRmdAge() {
+        XCTAssertEqual(rmdAge, 75, "fixture check: the sample's primary was born in 1963")
+        let ages = deepDeferredPlan(conversionTo: 2400).years
+            .filter { $0.rothConversionUsd > 0.5 }.map(\.age)
+        guard let last = ages.max() else { return XCTFail("fixture check: expected conversions") }
+        XCTAssertEqual(last, rmdAge - 1, "the two highest-value conversion years, 73 and 74, must be usable")
+        XCTAssertGreaterThan(last, tax.rmdStartAge - 1,
+                             "gating on the seeded fallback would stop converting at 72")
+    }
+
+    /// And RMDs must actually begin at 75 in that fixture — the other half of the same
+    /// boundary, which no test reached while the account drained early.
+    func testRmdsBeginAtTheClientsOwnAgeWhenTheAccountSurvivesToReachThem() {
+        let p = deepDeferredPlan()
+        XCTAssertEqual(p.firstRmdAge, rmdAge, "a 1963-born primary's first RMD is at 75, not 73")
     }
 
     // MARK: - The optimizer

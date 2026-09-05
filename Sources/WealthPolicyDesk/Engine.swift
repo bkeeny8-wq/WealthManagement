@@ -187,7 +187,19 @@ public enum Engine {
         // decumulation, and the IPS display) sees one consistent schedule.
         let h = input.withSurvivorSpending(asOf: asOf)
         let tax = Seed.tax2026
-        let policy = Seed.policy(h.goals.first { $0.kind == .spending }?.policyId ?? "spending-glide")
+        var policy = Seed.policy(h.goals.first { $0.kind == .spending }?.policyId ?? "spending-glide")
+        // The Roth-conversion window belongs to THIS client, not the firm. The seeded
+        // default (62–73) predates SECURE 2.0, while the projection converts from the
+        // primary's retirement until the year before their own RMDs begin — ages 65–74 for
+        // a 1960-or-later primary. Anyone whose window is open today was born in 1960 or
+        // later, so the client-facing figure was wrong for the entire live cohort, and it
+        // truncated the two highest-value conversion years. Report what the engine does.
+        if let primary = h.primary {
+            let toAge = rmdStartAge(birthDate: primary.birthDate, default: tax.rmdStartAge) - 1
+            policy.withdrawal.conversionWindow = toAge >= primary.expectedRetirementAge
+                ? (fromAge: primary.expectedRetirementAge, toAge: toAge)
+                : nil     // retiring at or past RMD age leaves no window to report
+        }
         // Two-pass, after-tax required return: solve pre-tax, project the decumulation tax
         // at that return, then re-solve so the corpus also funds those taxes.
         let rrPre = requiredReturn(h, asOf: asOf)
