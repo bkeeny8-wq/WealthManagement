@@ -123,6 +123,12 @@ public extension Engine {
             else { deferred += fvSavings }
         }
 
+        // The muni share of the taxable book, fixed at the plan date and applied to the
+        // running balance — the projection does not track instruments, only buckets.
+        let muniMv = taxablePos.filter { Engine.muniTickers.contains($0.ticker.uppercased()) }
+            .reduce(0) { $0 + $1.marketValueUsd }
+        let muniShareOfTaxable = taxableMv > 0 ? muniMv / taxableMv : 0
+
         let startYear = year(asOf)
         let adults = h.people.filter { $0.role != .dependent }
         var years: [DecumulationYear] = []
@@ -184,7 +190,14 @@ public extension Engine {
             let niit = niitTax(magi: magi, netInvestmentIncome: capGains, filing: filing, tax: tax)
             let federalTax = ordinaryTax + ltcgTax + niit
             let medicareCount = adults.filter { age(birthDate: $0.birthDate, asOf: asOf) + t >= 65 }.count
-            let irmaa = irmaaAnnual(magi: magi, medicareCount: medicareCount, filing: filing, tiers: tax.irmaaTiers)
+            // IRMAA MAGI is AGI PLUS tax-exempt interest — municipal income is explicitly
+            // added back. It stays out of NIIT and the SALT phase-down band, which is why
+            // the two are easy to conflate, but a retiree at $205,000 with $10,000 of muni
+            // interest reads as safely under the $200,000 step when they have in fact
+            // cleared it. Estimated from the muni share of the taxable book, which shrinks
+            // with the balance as the projection draws it down.
+            let irmaaMagi = magi + taxable * muniShareOfTaxable * Engine.assumedMuniYieldBps.frac
+            let irmaa = irmaaAnnual(magi: irmaaMagi, medicareCount: medicareCount, filing: filing, tiers: tax.irmaaTiers)
             lifetimeTax += federalTax; lifetimeIrmaa += irmaa
             // Conservation: the year's tax is actually paid from the portfolio (taxable → deferred → Roth),
             // so the balances that roll forward — and the RMDs they drive — are genuinely after-tax.
@@ -301,7 +314,15 @@ public extension Engine {
         for tier in band.sorted(by: { $0.magiOverUsd < $1.magiOverUsd }) where magi > tier.magiOverUsd {
             monthly = tier.monthlySurchargeUsd
         }
-        return monthly * 12 * Double(medicareCount)
+        // The surcharge is per enrolled person, but `magi` here is a HOUSEHOLD figure and
+        // only the joint schedule is a household schedule. For a single or
+        // married-filing-separately return the bands apply to ONE person's income, so
+        // multiplying a combined-MAGI surcharge by two adults invented a bill that is not
+        // owed: a two-adult MFS household at $150,000 was charged $9,768/yr where the truth
+        // is between $0 and $4,884. IRMAA is debited from the portfolio every year, so it
+        // moved RMDs, lifetime tax and the chosen Roth-conversion target with it.
+        let heads = filing == .mfj ? medicareCount : min(1, medicareCount)
+        return monthly * 12 * Double(heads)
     }
 
     /// IRS Uniform Lifetime Table (2022+) divisor; flat outside the tabulated range.

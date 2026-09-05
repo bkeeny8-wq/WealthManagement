@@ -145,6 +145,10 @@ public enum Engine {
     // signal; this catches unclassified legacy holdings).
     static let fiTickers: Set<String> = ["BND", "MUB", "SCHP", "AGG", "TLT", "BIL", "VTIP", "GOVT", "HYG", "JNK", "EMB", "SGOV"]
     static let muniTickers: Set<String> = ["MUB", "VTEB", "TFI"]
+    /// Assumed municipal yield. A labelled dial to VERIFY, not a forecast: it prices the
+    /// muni-crossover comparison and the tax-exempt interest added back into IRMAA MAGI.
+    /// Both read this one constant so they cannot drift apart.
+    static let assumedMuniYieldBps: Bps = 340
     static let commodityTickers: Set<String> = ["DBC", "GLD", "IAU", "PDBC"]
 
     // Reference safe real rate (TIPS-like), used for funded ratio and PVs. An
@@ -226,7 +230,7 @@ public enum Engine {
         let alts = resolveAltSizing(h, policy: derivedPolicy)
         let item = analyzeItemization(itemizationInput(for: h, asOf: asOf), tax: tax)
         let disp = dispositions(h, tax: tax)
-        let mc = muniCrossover(h, tax: tax, muniYieldBps: 340, treasuryYieldBps: 430, corporateYieldBps: 520)
+        let mc = muniCrossover(h, tax: tax, muniYieldBps: assumedMuniYieldBps, treasuryYieldBps: 430, corporateYieldBps: 520)
         let pays = h.liabilities.filter { $0.isFixedIncomeOffset }.map { paydown($0, household: h, tax: tax) }
         let decum = rothStrategy(h, tax: tax, rr: rr, asOf: asOf)
         let findings = evaluateConstraints(h, policy: derivedPolicy, tax: tax, asOf: asOf,

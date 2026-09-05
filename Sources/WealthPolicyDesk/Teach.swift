@@ -71,7 +71,7 @@ public enum Teach {
         case "salt":
             return BlockHelp(
                 what: "Whether the household itemizes, the SALT deduction after any phase-down, and the marginal value of the next dollar of mortgage interest.",
-                moves: "In the current window a high-tax-state homeowner is SALT-capped on state and property tax alone, making mortgage interest fully incremental. Muni interest stays out of MAGI, dodging the phase-down band, IRMAA and NIIT.",
+                moves: "In the current window a high-tax-state homeowner is SALT-capped on state and property tax alone, making mortgage interest fully incremental. Muni interest dodges the SALT phase-down band and NIIT, but it is ADDED BACK for IRMAA and for the taxable-Social-Security formula, so it is not free of every MAGI test.",
                 watch: "Inside the phase-down band each extra dollar of income also erodes the deduction, so the effective marginal rate is higher than the bracket. Mind the 2030 SALT reversion.")
         case "disposition":
             return BlockHelp(

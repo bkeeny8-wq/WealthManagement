@@ -48,13 +48,10 @@ final class TaxInputCorrectionTests: XCTestCase {
         XCTAssertEqual(two, one * 2, accuracy: 0.01, "the surcharge is per enrolled person")
     }
 
-    /// Every filing status must resolve to a band; a missing key silently reported $0.
-    func testEveryFilingStatusHasAnIrmaaSchedule() {
-        for f in FilingStatus.allCases {
-            XCTAssertGreaterThan(Engine.irmaaAnnual(magi: 1_000_000, medicareCount: 1, filing: f, tiers: Seed.tax2026.irmaaTiers), 0,
-                                 "\(f) has no IRMAA schedule, so a top-band MAGI reads as no surcharge")
-        }
-    }
+    // A stronger version of the old "every filing status has a schedule" check lives in
+    // IrmaaTests. Asserting that a top-band MAGI produces SOME surcharge is satisfied by the
+    // `?? tiers[.single]` fallback, so a dropped schedule passed it while under-reporting by
+    // 55%; IrmaaTests asserts the key is present and that the bands actually differ.
 
     // MARK: - State tax profile
 
