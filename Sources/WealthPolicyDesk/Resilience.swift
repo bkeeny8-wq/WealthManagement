@@ -73,14 +73,28 @@ public extension Engine {
         let growthBps = policy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
         let equityShare = min(1.0, max(0.0, Double(growthBps + altEquityEquivalentBps(policy)) / 10_000.0))
 
-        // The stress pattern begins at RETIREMENT, not in plan year 1. A household ten
-        // years from retiring was being handed "a 37% drawdown in the very first year",
-        // which is not the sequence risk the card names; before the pattern starts, and
-        // after it runs out, the corpus simply earns the required return.
-        let saveYears = householdSaveYears(h, asOf: asOf)
+        // The stress pattern begins in the first year the plan actually DRAWS on the corpus.
+        // Sequence risk is the risk that bad returns arrive while you are withdrawing, so
+        // the anchor has to be the first withdrawal — not `householdSaveYears`, which is the
+        // LATER of two retirements. For a couple with a much younger working spouse those
+        // differ by many years: net withdrawals ran for eighteen years before the shock
+        // landed, while the card described "a 37% drawdown in the very first year of
+        // retirement". Anchoring on the draw also removes a silent no-op — when saving ran
+        // past the horizon the offset pushed the whole pattern off the end and every stress
+        // returned the unshocked path, reporting "survives 3 of 3" for a plan that does not.
+        // Before the pattern starts, and after it runs out, the corpus earns the required
+        // return.
+        // Specifically the first RETIREMENT-spending year. Not any year with a net outflow:
+        // a one-off reserve or purchase goal in plan year 1 is not the household drawing
+        // down, and anchoring on it put the shock back in year 1 for an accumulator — the
+        // very thing the offset exists to prevent. Clamped inside the horizon so the pattern
+        // can always land somewhere in the plan.
+        let firstSpendYear = h.goals.filter { $0.kind == .spending }
+            .flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
+        let shockOffset = min(max(0, (firstSpendYear ?? 1) - 1), horizon - 1)
         func stressPath(_ seq: (name: String, detail: String, returns: [Double]), _ mean: Double) -> (Int) -> Double {
             { t in
-                let k = t - 1 - saveYears
+                let k = t - 1 - shockOffset
                 guard k >= 0, k < seq.returns.count else { return r }
                 return r + (seq.returns[k] - mean) * equityShare
             }
