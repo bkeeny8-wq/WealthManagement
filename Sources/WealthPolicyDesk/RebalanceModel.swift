@@ -115,6 +115,13 @@ public extension Engine {
         var netRealizedGain: Usd = 0
         var totalST: Usd = 0, totalLT: Usd = 0
         var heldOutUsd: Usd = 0
+        /// Cash raised, BY ACCOUNT. Money cannot move between accounts: proceeds from a sale
+        /// in one spouse's IRA cannot buy anything in the other's, and nothing in a
+        /// retirement account can fund a taxable purchase without a distribution. The plan
+        /// used to raise one pooled figure and place each buy wherever the sleeve's location
+        /// preference pointed, so it routinely proposed funding a purchase with money that
+        /// could never legally reach the account it was buying in.
+        var proceedsByAccount: [String: Usd] = [:]
 
         for gap in gaps where gap.traded && gap.gapUsd < 0 {
             var raise = -gap.gapUsd * correction
@@ -146,6 +153,7 @@ public extension Engine {
                 let (stSlice, ltSlice) = (t == .taxable) ? p.realizedGainSplit(sellUsd: sellUsd, asOf: asOf) : (0, 0)
                 let taxableGain = stSlice + ltSlice
                 totalSells += sellUsd; netRealizedGain += taxableGain; totalST += stSlice; totalLT += ltSlice
+                proceedsByAccount[p.accountId, default: 0] += sellUsd
                 trades.append(RebalanceTrade(id: "sell-\(p.id)", side: .sell, ticker: p.ticker,
                     accountId: p.accountId, accountLabel: h.account(p.accountId)?.label ?? p.accountId,
                     treatment: t, sleeveId: gap.sleeveId, sleeveLabel: gap.label, amountUsd: sellUsd,
@@ -155,22 +163,60 @@ public extension Engine {
             }
         }
 
-        // --- Buys: fund underweight, out-of-band sleeves, scaled to what the sells raised ---
+        // --- Buys: funded from the proceeds of the SAME account, best-located sleeve first ---
+        //
+        // Asset location still drives WHICH sleeve a given account prefers to hold — bonds
+        // in the IRA, equities in taxable — but it cannot conjure cash across an account
+        // boundary. So each account spends only what it raised, on the underweight sleeves
+        // it is the best home for. What no account can fund stays a funding gap, which is
+        // the honest answer: close it with new contributions.
         let desiredBuys = gaps.filter { $0.traded && $0.gapUsd > 0 }.reduce(0) { $0 + $1.gapUsd * correction }
-        let scale = desiredBuys > 0 ? min(1.0, totalSells / desiredBuys) : 0
+        var remainingBySleeve: [String: Usd] = [:]
+        for gap in gaps where gap.traded && gap.gapUsd > 0 { remainingBySleeve[gap.sleeveId] = gap.gapUsd * correction }
         var totalBuys: Usd = 0
-        for gap in gaps where gap.traded && gap.gapUsd > 0 {
-            guard let sleeve = policy.sleeve(gap.sleeveId) else { continue }
-            let buyUsd = gap.gapUsd * correction * scale
-            if buyUsd < reb.minTradeUsd { continue }
-            let ticker = styledBuyTicker(for: sleeve, style: h.equityStyle)
-            let acct = preferredAccount(for: sleeve, accounts: h.accounts)
-            totalBuys += buyUsd
-            trades.append(RebalanceTrade(id: "buy-\(gap.sleeveId)", side: .buy, ticker: ticker,
-                accountId: acct?.id ?? "", accountLabel: acct?.label ?? "any account",
-                treatment: acct?.treatment ?? .taxable, sleeveId: gap.sleeveId,
-                sleeveLabel: gap.label, amountUsd: buyUsd, realizedGainUsd: 0,
-                rationale: buyRationale(sleeve, ticker: ticker)))
+        var buysByAccountSleeve: [String: [String: Usd]] = [:]   // account → sleeve → usd
+
+        for accountId in proceedsByAccount.keys.sorted() {
+            guard var cash = proceedsByAccount[accountId], cash >= reb.minTradeUsd,
+                  let account = h.account(accountId) else { continue }
+            // The sleeves this account still needs to fund, ordered by how well it houses
+            // them: a sleeve that names this treatment first is a better home than one that
+            // merely tolerates it.
+            let ranked = gaps.filter { $0.traded && (remainingBySleeve[$0.sleeveId] ?? 0) > 0 }
+                .compactMap { gap -> (gap: RebalanceSleeveGap, rank: Int)? in
+                    guard let sleeve = policy.sleeve(gap.sleeveId) else { return nil }
+                    let rank = sleeve.locationPreference.firstIndex(of: account.treatment)
+                        ?? sleeve.locationPreference.count
+                    return (gap, rank)
+                }
+                .sorted { ($0.rank, $0.gap.sleeveId) < ($1.rank, $1.gap.sleeveId) }
+
+            for (gap, _) in ranked {
+                guard cash >= reb.minTradeUsd else { break }
+                let want = remainingBySleeve[gap.sleeveId] ?? 0
+                let spend = min(cash, want)
+                guard spend >= reb.minTradeUsd else { continue }
+                cash -= spend
+                remainingBySleeve[gap.sleeveId] = Usd(want - spend)
+                buysByAccountSleeve[accountId, default: [:]][gap.sleeveId, default: 0] += spend
+                totalBuys += spend
+            }
+            proceedsByAccount[accountId] = cash    // whatever is left is idle cash in THIS account
+        }
+
+        for accountId in buysByAccountSleeve.keys.sorted() {
+            guard let account = h.account(accountId) else { continue }
+            for sleeveId in (buysByAccountSleeve[accountId] ?? [:]).keys.sorted() {
+                guard let sleeve = policy.sleeve(sleeveId),
+                      let gap = gaps.first(where: { $0.sleeveId == sleeveId }),
+                      let buyUsd = buysByAccountSleeve[accountId]?[sleeveId] else { continue }
+                let ticker = styledBuyTicker(for: sleeve, style: h.equityStyle)
+                trades.append(RebalanceTrade(id: "buy-\(accountId)-\(sleeveId)", side: .buy, ticker: ticker,
+                    accountId: accountId, accountLabel: account.label,
+                    treatment: account.treatment, sleeveId: sleeveId,
+                    sleeveLabel: gap.label, amountUsd: buyUsd, realizedGainUsd: 0,
+                    rationale: buyRationale(sleeve, ticker: ticker) + " Funded from this account's own sales."))
+            }
         }
 
         // Wash sale: a harvested LOSS whose security the plan also BUYS (within the 31-day
@@ -203,7 +249,7 @@ public extension Engine {
             warnings.append("Selling stopped at the \(Fmt.usdShort(budgetCap)) net realized-gain budget. The rest of the rebalance is deferred — carry it to next tax year, or fund it from losses or new cash.")
         }
         if fundingGap > total / 1000 {
-            warnings.append("Underweight sleeves need \(Fmt.usdShort(desiredBuys)) but the sells raised \(Fmt.usdShort(totalSells)); buys are scaled to \(Fmt.pct(scale)). Close the rest with new contributions.")
+            warnings.append("Underweight sleeves need \(Fmt.usdShort(desiredBuys)) but only \(Fmt.usdShort(totalBuys)) could be funded from the accounts that raised cash. Money cannot move between accounts, so a sleeve best held in an account with nothing to sell stays underweight until a new contribution lands there.")
         }
         if excessCash > total / 1000 {
             warnings.append("Sells raised \(Fmt.usdShort(excessCash)) more than the underweight buys absorb — the surplus lands in the cash sleeve until the next underweight opens up.")
