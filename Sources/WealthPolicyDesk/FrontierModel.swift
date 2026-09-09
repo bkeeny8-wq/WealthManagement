@@ -51,7 +51,6 @@ public extension Engine {
     static func frontier(_ eval: Evaluation, cme: CapitalMarketSet) -> FrontierChart {
         let base = Seed.legacyPolicy
         let growthIds = Set(base.sleeves.filter { $0.role == .growth }.map { $0.id })
-        let fundedRatio = eval.balanceSheet.fundedRatioBps
         let ladder = eval.ladder
         let h = eval.household
 
@@ -69,8 +68,17 @@ public extension Engine {
 
         // The real menu: the solver's own portfolio at each equity ceiling (alts a
         // fixed budget, bonds the residual — no ballooning).
+        //
+        // Swept at the funded FLOOR, so the funded-status glide is neutral (t = 0) and each
+        // rung genuinely holds its ceiling — the same basis `drawdownByCeiling` uses, and
+        // for the same reason. Sweeping at the household's ACTUAL funded ratio pinned every
+        // point of an overfunded household's curve at the 30% derisk floor: the chart
+        // plotted a menu topping out at 30% equity underneath a quoted ceiling of 60%, and
+        // `minDrawdownBps`, `hasTolerableBand` and the reachable-vs-needed verdict were all
+        // read off that degenerate curve. How much of the allowed ceiling to actually use is
+        // the glide's job, and it stays applied to the `target` and `current` points below.
         func solved(equityCeiling e: Int, kind: FrontierPoint.Kind) -> FrontierPoint {
-            let pol = resolveTargets(h, base: base, fundedRatioBps: fundedRatio, equityCeilingBps: e, ladder: ladder)
+            let pol = resolveTargets(h, base: base, fundedRatioBps: fundedFloorBps, equityCeilingBps: e, ladder: ladder)
             return price(sleeves: pol.sleeves.map { (id: $0.id, label: $0.label, bps: $0.targetBps) },
                          alts: pol.altBudgets.map { (fn: $0.fn, bps: $0.targetBps) }, kind: kind)
         }
