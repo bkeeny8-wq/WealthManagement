@@ -104,8 +104,58 @@ public extension Engine {
 
         // Bucket balances and the taxable account's blended gain fraction.
         var taxable = h.value(in: .taxable)
-        var deferred = h.value(in: .taxDeferred)
         var roth = h.value(in: .taxFree)
+
+        // Tax-deferred money is POOLED for spending, but RMDs are not a household event:
+        // each account's required beginning age follows ITS OWNER's birth year and its
+        // divisor follows that owner's age. Gating the whole pool on the primary started a
+        // spouse's 401(k) distributing on his schedule — with a primary of 75 and a spouse
+        // of 73 holding the whole pool, the engine reported the first RMD in a year she
+        // turns 82, and the optimiser recommended conversions through years she was already
+        // taking distributions. Joint and unowned accounts fall to the primary.
+        var deferredBuckets: [(ownerAge0: Int, rmdAge: Int, balance: Usd)] = {
+            var byOwner: [String: Usd] = [:]
+            for p in h.positions(in: .taxDeferred) {
+                let owner = h.account(p.accountId)?.ownership.ownerPersonId
+                let person = h.people.first { $0.id == owner && $0.role != .dependent } ?? primary
+                byOwner[person.id, default: 0] += p.marketValueUsd
+            }
+            return byOwner.compactMap { id, bal in
+                guard let person = h.people.first(where: { $0.id == id }) else { return nil }
+                return (age(birthDate: person.birthDate, asOf: asOf),
+                        rmdStartAge(birthDate: person.birthDate, default: tax.rmdStartAge), bal)
+            }.sorted { $0.ownerAge0 > $1.ownerAge0 }   // deterministic order; oldest owner first
+        }()
+        func deferredTotal() -> Usd { deferredBuckets.reduce(0) { $0 + $1.balance } }
+        /// Draw `amount` from the deferred pool pro-rata across owners, returning what was
+        /// actually available. Spending, conversions and tax all drain through here so the
+        /// per-owner split stays consistent with the pooled total.
+        @discardableResult
+        func drainDeferred(_ amount: Usd) -> Usd {
+            let total = deferredTotal()
+            guard total > 0, amount > 0 else { return 0 }
+            let take = min(amount, total)
+            for i in deferredBuckets.indices {
+                deferredBuckets[i].balance -= take * (deferredBuckets[i].balance / total)
+            }
+            return take
+        }
+        func growDeferred(_ factor: Double) {
+            for i in deferredBuckets.indices { deferredBuckets[i].balance *= factor }
+        }
+        func addDeferred(_ amount: Usd) {
+            guard amount > 0 else { return }
+            let total = deferredTotal()
+            if total > 0 {
+                for i in deferredBuckets.indices {
+                    deferredBuckets[i].balance += amount * (deferredBuckets[i].balance / total)
+                }
+            } else if !deferredBuckets.isEmpty {
+                deferredBuckets[0].balance += amount
+            } else {
+                deferredBuckets = [(primaryAge0, rmdAge, amount)]
+            }
+        }
         let taxablePos = h.positions(in: .taxable)
         let taxableMv = taxablePos.reduce(0) { $0 + $1.marketValueUsd }
         let taxableGainFrac = taxableMv > 0 ? taxablePos.reduce(0) { $0 + max(0, $1.unrealizedGainUsd) } / taxableMv : 0
@@ -116,11 +166,15 @@ public extension Engine {
         let accumYears = firstAge - primaryAge0
         if accumYears > 0 {
             let g = pow(1 + r, Double(accumYears))
-            taxable *= g; deferred *= g; roth *= g
+            taxable *= g; roth *= g; growDeferred(g)
             let fvSavings = r > 0 ? h.annualSavingsUsd * (g - 1) / r : h.annualSavingsUsd * Double(accumYears)
-            let bal = taxable + deferred + roth
-            if bal > 0 { taxable += fvSavings * taxable / bal; deferred += fvSavings * deferred / bal; roth += fvSavings * roth / bal }
-            else { deferred += fvSavings }
+            let deferredNow = deferredTotal()
+            let bal = taxable + deferredNow + roth
+            if bal > 0 {
+                taxable += fvSavings * taxable / bal
+                roth += fvSavings * roth / bal
+                addDeferred(fvSavings * deferredNow / bal)
+            } else { addDeferred(fvSavings) }
         }
 
         // The muni share of the taxable book, fixed at the plan date and applied to the
@@ -143,17 +197,24 @@ public extension Engine {
             // that income made the pre-RMD years look empty, understated Social-Security
             // taxation, and handed the Roth optimizer a phantom low bracket to fill.
             let wages = wagesAtPlanYear(h, year: t, asOf: asOf)
-            // RMD: the whole tax-deferred balance divided by the IRS Uniform Lifetime factor.
-            let rmd = ageNow >= rmdAge ? deferred / uniformLifetimeDivisor(ageNow) : 0
+            // RMD: each owner's own balance, on their own required beginning age, divided by
+            // the IRS Uniform Lifetime factor for THEIR age.
+            var rmd: Usd = 0
+            for i in deferredBuckets.indices {
+                let ownerAge = deferredBuckets[i].ownerAge0 + t
+                guard ownerAge >= deferredBuckets[i].rmdAge, deferredBuckets[i].balance > 0 else { continue }
+                let amount = deferredBuckets[i].balance / uniformLifetimeDivisor(ownerAge)
+                deferredBuckets[i].balance -= amount           // the RMD leaves the account (as income)
+                rmd += amount
+            }
             if rmd > 0 && firstRmdAge == 0 { firstRmdAge = ageNow }
-            deferred -= rmd                                    // the RMD leaves the account (as income)
 
             // Discretionary need beyond guaranteed income and the forced RMD.
             let spend = retirementSpendingOutflow(h, year: t)
             var need = max(0, spend - ss - pension - wages - rmd)
             var wTaxable: Usd = 0, wDeferred: Usd = 0, wRoth: Usd = 0
             if need > 0 { wTaxable = min(taxable, need); taxable -= wTaxable; need -= wTaxable }
-            if need > 0 { wDeferred = min(deferred, need); deferred -= wDeferred; need -= wDeferred }
+            if need > 0 { wDeferred = drainDeferred(need); need -= wDeferred }
             if need > 0 { wRoth = min(roth, need); roth -= wRoth; need -= wRoth }
             // Cash conservation. Guaranteed income covers spending first; wages and the forced
             // RMD cover what is left. Whatever the RMD leaves over is reinvested in taxable, and
@@ -172,12 +233,16 @@ public extension Engine {
             // Roth conversion: in the pre-RMD window, fill ordinary income up to the top
             // of the target bracket (tax-deferred → Roth, taxed now at the low rate).
             var conversion: Usd = 0
-            if let topBps = conversionToBracketTopBps, ageNow < rmdAge, deferred > 0 {
+            // The window closes when the FIRST owner's RMDs begin — recommending conversions
+            // in a year any part of the pool is already distributing is the error the
+            // per-owner split exists to prevent.
+            if let topBps = conversionToBracketTopBps, deferredTotal() > 0,
+               !deferredBuckets.contains(where: { $0.ownerAge0 + t >= $0.rmdAge }) {
                 let ceiling = bracketTopTaxable(topBps, filing: filing, tax: tax)
                 let ssEst = taxableSocialSecurity(ss: ss, otherIncome: ordinaryExSS + capGains, filing: filing)
                 let preTaxable = max(0, ordinaryExSS + ssEst - stdDed)
-                conversion = min(max(0, ceiling - preTaxable), deferred)
-                deferred -= conversion; roth += conversion; ordinaryExSS += conversion
+                conversion = drainDeferred(max(0, ceiling - preTaxable))
+                roth += conversion; ordinaryExSS += conversion
             }
             let ssTaxable = taxableSocialSecurity(ss: ss, otherIncome: ordinaryExSS + capGains, filing: filing)
             let ordinaryIncome = ordinaryExSS + ssTaxable
@@ -212,7 +277,7 @@ public extension Engine {
             let portfolioTax = due
             if debitTax {
                 let payT = min(taxable, due); taxable -= payT; due -= payT
-                let payD = min(deferred, due); deferred -= payD; due -= payD
+                let payD = drainDeferred(due); due -= payD
                 roth = max(0, roth - due)
             }
             // What the wages leave after spending and tax is saved, at the reported rate.
@@ -228,10 +293,10 @@ public extension Engine {
                 ordinaryIncomeUsd: ordinaryIncome, capitalGainsUsd: capGains, ssTaxableUsd: ssTaxable,
                 taxableIncomeUsd: ordinaryTaxable, federalTaxUsd: federalTax, irmaaUsd: irmaa, portfolioTaxUsd: portfolioTax,
                 marginalRateBps: marginalOrdinaryRateBps(taxableIncome: ordinaryTaxable, filing: filing, tax: tax),
-                magiUsd: magi, endTaxableUsd: taxable, endDeferredUsd: deferred, endRothUsd: roth))
+                magiUsd: magi, endTaxableUsd: taxable, endDeferredUsd: deferredTotal(), endRothUsd: roth))
 
             // Grow the surviving balances into next year.
-            taxable *= (1 + r); deferred *= (1 + r); roth *= (1 + r)
+            taxable *= (1 + r); roth *= (1 + r); growDeferred(1 + r)
         }
         return DecumulationPlan(years: years, lifetimeFederalTaxUsd: lifetimeTax, lifetimeIrmaaUsd: lifetimeIrmaa,
                                 firstRmdAge: firstRmdAge, peakMarginalRateBps: years.map { $0.marginalRateBps }.max() ?? 0)

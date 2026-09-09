@@ -27,13 +27,18 @@ import XCTest
 ///   • A working year's tax is settled from that year's wages before the portfolio
 ///     (−7 bps rr). The recursion now reads `portfolioTaxUsd`, not the headline tax.
 ///   • Funded ratio rises with rr because the goal liabilities are discounted at it.
+///
+/// 6264 → 6262: RMDs follow each ACCOUNT OWNER's own required age rather than the
+/// primary's. Susan (b. 1965) is younger than Robert (b. 1963), so her 401(k) begins
+/// distributing two years after his IRA instead of alongside it, moving the tax series
+/// slightly. Required return is unchanged at 479.
 final class GoldenMasterTests: XCTestCase {
 
     func testHarrisonsHeadlineFigures() {
         let e = Engine.evaluate(Seed.sampleHousehold)
         XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 479)
         XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 423)
-        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6264)
+        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6262)
         XCTAssertEqual(e.balanceSheet.afterTaxNetWorthUsd, 2_893_928, accuracy: 0.5)
         XCTAssertEqual(e.balanceSheet.grossNetWorthUsd, 3_105_000, accuracy: 0.5)
         XCTAssertEqual(e.netFixedIncomeUsd, -120_000, accuracy: 0.5)
