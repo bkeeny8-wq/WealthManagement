@@ -121,6 +121,12 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
     public var sector: Sector? = nil
     public var employerStockUsd: Usd = 0
     public var deferredCashUsd: Usd = 0
+    /// Retirement accounts are INDIVIDUALLY owned — there is no such thing as a joint IRA.
+    /// Holding them per adult is what lets each account distribute on its own owner's RMD
+    /// schedule, honour that owner's beneficiary designation, and be traded without
+    /// pretending a wife's 401(k) can fund a purchase in her husband's IRA.
+    public var traditionalUsd: Usd = 0
+    public var rothUsd: Usd = 0
     public init() {}
 
     /// Defaults-first decode, matching IntakeModel's own decoder. Synthesized Codable
@@ -141,6 +147,8 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
         if let v = (try? c.decodeIfPresent(IncomeCharacter.self, forKey: .incomeCharacter)) ?? nil { incomeCharacter = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .employerStockUsd)) ?? nil { employerStockUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .deferredCashUsd)) ?? nil { deferredCashUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .traditionalUsd)) ?? nil { traditionalUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .rothUsd)) ?? nil { rothUsd = v }
         sector = (try? c.decodeIfPresent(Sector.self, forKey: .sector)) ?? nil
     }
 }
@@ -411,8 +419,29 @@ public struct IntakeModel: Codable, Hashable {
 
     // 4 — accounts & holdings
     public var taxableUsd: Usd = 200_000
-    public var traditionalUsd: Usd = 300_000
-    public var rothUsd: Usd = 50_000
+    /// Household totals, computed over the adults who actually own the accounts.
+    ///
+    /// Reading gives the sum. ASSIGNING puts the whole balance on the primary and clears the
+    /// others, which is exactly what the model did before retirement money was owned — so
+    /// every existing call site, and every plan saved under the old shape, keeps its meaning.
+    public var traditionalUsd: Usd {
+        get { adults.reduce(0) { $0 + $1.traditionalUsd } }
+        set { assignToPrimary(newValue, \.traditionalUsd) }
+    }
+    public var rothUsd: Usd {
+        get { adults.reduce(0) { $0 + $1.rothUsd } }
+        set { assignToPrimary(newValue, \.rothUsd) }
+    }
+    /// The keys these balances were stored under when they were household totals on the
+    /// model rather than per-adult. Read-only: they are migrated on load and never written
+    /// again, so the adults' own values stay the single source of truth.
+    private enum LegacyBalanceKeys: String, CodingKey { case traditionalUsd, rothUsd }
+
+    private mutating func assignToPrimary(_ value: Usd, _ key: WritableKeyPath<IntakeAdult, Usd>) {
+        if adults.isEmpty { adults = [IntakeAdult()] }
+        adults[0][keyPath: key] = value
+        for i in adults.indices.dropFirst() { adults[i][keyPath: key] = 0 }
+    }
     /// Titling of the taxable account. nil = auto-derive (community property in CP states
     /// for a couple, else joint; individual for a single filer). Drives the death step-up.
     public var taxableTitling: OwnershipKind? = nil
@@ -533,8 +562,16 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .annualSavingsUsd)) ?? nil { annualSavingsUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .emergencyReserveUsd)) ?? nil { emergencyReserveUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .taxableUsd)) ?? nil { taxableUsd = v }
-        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .traditionalUsd)) ?? nil { traditionalUsd = v }
-        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .rothUsd)) ?? nil { rothUsd = v }
+        // Legacy shape: these were household totals stored on the model, with every
+        // retirement dollar implicitly the primary's. Adopt them onto the primary — but only
+        // when the adults carry none themselves, or a newer per-adult split would be
+        // flattened back onto one person on every load.
+        if let lc = try? decoder.container(keyedBy: LegacyBalanceKeys.self) {
+            if let v = (try? lc.decodeIfPresent(Usd.self, forKey: .traditionalUsd)) ?? nil,
+               adults.allSatisfy({ $0.traditionalUsd == 0 }) { traditionalUsd = v }
+            if let v = (try? lc.decodeIfPresent(Usd.self, forKey: .rothUsd)) ?? nil,
+               adults.allSatisfy({ $0.rothUsd == 0 }) { rothUsd = v }
+        }
         if let v = (try? c.decodeIfPresent(OwnershipKind.self, forKey: .taxableTitling)) ?? nil { taxableTitling = v }
         if let v = (try? c.decodeIfPresent(Double.self, forKey: .taxableUnrealizedGainPct)) ?? nil { taxableUnrealizedGainPct = v }
         if let v = (try? c.decodeIfPresent(Double.self, forKey: .currentEquityPct)) ?? nil { currentEquityPct = v }
@@ -840,13 +877,23 @@ public extension IntakeModel {
         }
         // Titling: the client's explicit choice wins, else the state/filing default
         // (community property in the nine CP states for a couple, else joint; individual
-        // for a single filer). Retirement accounts are always individually owned.
+        // for a single filer). Retirement accounts are always individually owned, so they
+        // take their owner directly rather than this titling.
         let titling = taxableTitling ?? autoTaxableTitling
         let taxableOwnership = AccountOwnership(kind: titling, ownerPersonId: titling == .individual ? "p_0" : nil)
-        let individualPrimary = AccountOwnership(kind: .individual, ownerPersonId: "p_0")
         addAccount("acct_taxable", "Taxable brokerage", .taxable, taxableUsd, taxableOwnership)
-        addAccount("acct_trad", "Traditional (IRA/401k)", .taxDeferred, traditionalUsd, individualPrimary)
-        addAccount("acct_roth", "Roth", .taxFree, rothUsd, individualPrimary)
+        // One retirement account per OWNER, not one per household. There is no such thing as
+        // a joint IRA, and the difference is not cosmetic: each account distributes on its
+        // own owner's RMD age, carries its own beneficiary designation, and cannot fund a
+        // purchase in the other spouse's account. The primary keeps the original account ids
+        // so committed moves recorded against them still replay.
+        for (i, a) in adults.enumerated() {
+            let suffix = i == 0 ? "" : "_\(i)"
+            let who = a.name.isEmpty ? (i == 0 ? "Primary" : "Spouse") : a.name
+            let owner = AccountOwnership(kind: .individual, ownerPersonId: "p_\(i)")
+            addAccount("acct_trad\(suffix)", "\(who) traditional (IRA/401k)", .taxDeferred, a.traditionalUsd, owner)
+            addAccount("acct_roth\(suffix)", "\(who) Roth", .taxFree, a.rothUsd, owner)
+        }
 
         // Liabilities.
         var liabilities: [Liability] = []

@@ -587,8 +587,25 @@ struct IntakeWizard: View {
         VStack(spacing: 14) {
             Card("Account balances", help: Teach.help("balanceSheet")) {
                 MoneyField(label: "Taxable brokerage", value: $intake.taxableUsd)
-                MoneyField(label: "Traditional (IRA / 401k)", value: $intake.traditionalUsd)
-                MoneyField(label: "Roth", value: $intake.rothUsd)
+                // Retirement accounts are individually owned, so they are entered per person
+                // once there are two adults. Each one distributes on ITS OWNER's RMD age,
+                // which for a couple with an age gap is years apart — and a wife's 401(k)
+                // cannot fund a purchase in her husband's IRA.
+                if intake.adults.count > 1 {
+                    ForEach(Array(intake.adults.enumerated()), id: \.element.id) { i, adult in
+                        let who = adult.name.isEmpty ? (i == 0 ? "Primary" : "Spouse") : adult.name
+                        MoneyField(label: "\(who) — traditional (IRA / 401k)",
+                                   value: Binding(get: { intake.adults[i].traditionalUsd },
+                                                  set: { intake.adults[i].traditionalUsd = $0 }))
+                        MoneyField(label: "\(who) — Roth",
+                                   value: Binding(get: { intake.adults[i].rothUsd },
+                                                  set: { intake.adults[i].rothUsd = $0 }))
+                    }
+                    Note("Whose account each balance sits in matters: required distributions start on that owner's own schedule, not the household's.")
+                } else {
+                    MoneyField(label: "Traditional (IRA / 401k)", value: $intake.traditionalUsd)
+                    MoneyField(label: "Roth", value: $intake.rothUsd)
+                }
                 if intake.adults.count > 1 {
                     FieldLabel("Taxable account titling") {
                         ChoiceChips([(OwnershipKind.jointWROS, "Joint"), (.communityProperty, "Community prop."), (.individual, "Individual"), (.revocableTrust, "Trust")],
