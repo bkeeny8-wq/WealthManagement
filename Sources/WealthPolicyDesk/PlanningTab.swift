@@ -108,7 +108,8 @@ struct PlanningTab: View {
         guard let sleeve = c.tiltSleeveId, !exactlyStaged(c), !sleeveOccupied(c) else { return }
         let dev = c.proposedDeviationBps(maxSingleBps: tiltBudget.maxSingleSectorDeviationBps)
         let review = Calendar.current.date(byAdding: .month, value: 6, to: Date())
-        stagedTilts.append(TacticalTiltAction(sleeveId: sleeve, deviationBps: dev, sourceName: c.name, thesis: c.thesis, reviewDate: review, status: .staged))
+        stagedTilts.append(TacticalTiltAction(sleeveId: sleeve, deviationBps: dev, sourceName: c.name,
+                                             ticker: c.ticker, thesis: c.thesis, reviewDate: review, status: .staged))
     }
 
     // MARK: intro

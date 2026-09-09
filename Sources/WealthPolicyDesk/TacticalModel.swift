@@ -141,13 +141,21 @@ public struct TacticalTiltAction: Codable, Identifiable, Hashable, Sendable {
     public var sleeveId: String
     public var deviationBps: Bps          // signed (overweight +, underweight −)
     public var sourceName: String         // the sentiment candidate it came from
+    /// The instrument the tilt is actually expressed in — XLE for an energy overweight.
+    /// Without it the tilt only moved the SLEEVE's weight, and the rebalancer funded that
+    /// sleeve with its PRIMARY instrument: an advisor who staged "overweight Energy", wrote
+    /// an energy thesis and committed it was handed a trade ticket to buy XLK, technology.
+    /// Empty means "no instrument named" and the sleeve's primary is used, which is the
+    /// pre-existing behaviour for tilts recorded before this field existed.
+    public var ticker: String
     public var thesis: String
     public var reviewDate: Date?
     public var status: Status
 
-    public init(id: UUID = UUID(), createdAt: Date = Date(), sleeveId: String, deviationBps: Bps, sourceName: String, thesis: String, reviewDate: Date? = nil, status: Status = .staged) {
+    public init(id: UUID = UUID(), createdAt: Date = Date(), sleeveId: String, deviationBps: Bps, sourceName: String, ticker: String = "", thesis: String, reviewDate: Date? = nil, status: Status = .staged) {
         self.id = id; self.createdAt = createdAt; self.sleeveId = sleeveId; self.deviationBps = deviationBps
-        self.sourceName = sourceName; self.thesis = thesis; self.reviewDate = reviewDate; self.status = status
+        self.sourceName = sourceName; self.ticker = ticker; self.thesis = thesis
+        self.reviewDate = reviewDate; self.status = status
     }
 
     /// Forward-compatible decode: a missing/renamed field never drops the tilt.
@@ -157,6 +165,7 @@ public struct TacticalTiltAction: Codable, Identifiable, Hashable, Sendable {
         createdAt = ((try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? nil) ?? Date()
         sleeveId = ((try? c.decodeIfPresent(String.self, forKey: .sleeveId)) ?? nil) ?? ""
         deviationBps = ((try? c.decodeIfPresent(Bps.self, forKey: .deviationBps)) ?? nil) ?? 0
+        ticker = ((try? c.decodeIfPresent(String.self, forKey: .ticker)) ?? nil) ?? ""
         sourceName = ((try? c.decodeIfPresent(String.self, forKey: .sourceName)) ?? nil) ?? ""
         thesis = ((try? c.decodeIfPresent(String.self, forKey: .thesis)) ?? nil) ?? ""
         reviewDate = (try? c.decodeIfPresent(Date.self, forKey: .reviewDate)) ?? nil

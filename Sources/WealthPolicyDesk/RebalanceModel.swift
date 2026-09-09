@@ -210,7 +210,7 @@ public extension Engine {
                 guard let sleeve = policy.sleeve(sleeveId),
                       let gap = gaps.first(where: { $0.sleeveId == sleeveId }),
                       let buyUsd = buysByAccountSleeve[accountId]?[sleeveId] else { continue }
-                let ticker = styledBuyTicker(for: sleeve, style: h.equityStyle)
+                let ticker = buyTicker(for: sleeve, household: h, style: h.equityStyle)
                 trades.append(RebalanceTrade(id: "buy-\(accountId)-\(sleeveId)", side: .buy, ticker: ticker,
                     accountId: accountId, accountLabel: account.label,
                     treatment: account.treatment, sleeveId: sleeveId,
@@ -327,6 +327,22 @@ public extension Engine {
         let primary = sleeve.primaryTicker
         guard let bucket = USSizeBucket.bucket(forTicker: primary) else { return primary }
         return bucket.ticker(for: style.style(for: bucket))
+    }
+
+    /// The instrument to BUY for a sleeve, honouring a committed tactical tilt's own choice.
+    ///
+    /// A tilt is a call on a specific exposure — "overweight energy" — and it names the ETF
+    /// that expresses it. The sleeve merely houses that call: `us_sector_tilt` lists all
+    /// eleven Select Sector SPDRs and its PRIMARY is XLK. Funding a tilted sleeve with the
+    /// sleeve's primary therefore handed an advisor who staged an energy overweight, wrote an
+    /// energy thesis and committed it a ticket to buy technology. The ticker must be one the
+    /// sleeve actually lists, so a stale or hand-edited tilt cannot buy something off-policy.
+    static func buyTicker(for sleeve: Sleeve, household h: Household, style: USEquityStyleTilt) -> String {
+        let tilted = h.tacticalTilts.first { tilt in
+            guard tilt.status == .committed, tilt.sleeveId == sleeve.id, !tilt.ticker.isEmpty else { return false }
+            return sleeve.instruments.contains { $0.ticker.uppercased() == tilt.ticker.uppercased() }
+        }
+        return tilted?.ticker ?? styledBuyTicker(for: sleeve, style: style)
     }
 
     private static func preferredAccount(for sleeve: Sleeve, accounts: [Account]) -> Account? {

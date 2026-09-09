@@ -50,7 +50,8 @@ final class PersistenceTests: XCTestCase {
     private func populatedTilt() -> TacticalTiltAction {
         // status: .staged, NOT the decoder's ?? .committed fallback — so a dropped status key is caught.
         TacticalTiltAction(id: uuid(1), createdAt: d1, sleeveId: "us_sector_tilt", deviationBps: 300,
-                           sourceName: "Energy", thesis: "real-asset convexity", reviewDate: d2, status: .staged)
+                           sourceName: "Energy", ticker: "XLE",   // non-default ⇒ teeth for the instrument write
+                           thesis: "real-asset convexity", reviewDate: d2, status: .staged)
     }
 
     private func populatedAction() -> PlannedAction {
