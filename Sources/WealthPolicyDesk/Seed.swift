@@ -143,7 +143,7 @@ public enum Seed {
     static let policyConstraints: [PolicyRule] = [
         .init(id: "smoothed_marks_guard", severity: .hard, description: "No wrapper with returnsAreSmoothed may enter a projection without a volatilityOverrideBps or an unsmoothed series. Otherwise the optimizer allocates 60% to private credit."),
         .init(id: "step_up_violation", severity: .hard, description: "No taxable sale of a lot earmarked to a holdToStepUp claim. Over 30+ years the difference between 0 and 100bps of annual tax drag dwarfs any tilt."),
-        .init(id: "liquidity_floor", severity: .hard, description: "Daily-liquid assets must cover the ladder plus rebalanceReserve plus 12 months of outflows. Illiquid alts can only ever fund long-horizon claims."),
+        .init(id: "liquidity_floor", severity: .hard, description: "Cash and fixed income must cover the ladder plus rebalanceReserve plus 12 months of outflows. Equities do not count — selling them into a drawdown is the sequence risk the ladder exists to avoid."),
         .init(id: "outcome_period_display", severity: .hard, description: "Any wrapper with hasOutcomePeriod must display REMAINING buffer and cap computed from current NAV vs. period reference price."),
         .init(id: "note_issuer_concentration", severity: .hard, description: "No single note issuer above 5% of household, inclusive of other credit exposure to that name."),
         .init(id: "capital_call_coverage", severity: .hard, description: "Unfunded commitments are a liability. Liquid assets must cover the full remaining call schedule."),

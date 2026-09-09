@@ -13,6 +13,10 @@ import SwiftUI
 struct PlanSummaryTab: View {
     let eval: Evaluation
     var clientHeader: ClientProfileHeader? = nil
+    /// True while the desk carries uncommitted moves, tilts or driver edits. An export is a
+    /// document of record, so it is blocked in that state — the same gate the Policy
+    /// Statement already applied to saving a review.
+    var hasStagedMoves: Bool = false
     @State private var share: SharePayload? = nil
 
     private var bs: BalanceSheetView { eval.balanceSheet }
@@ -167,7 +171,23 @@ struct PlanSummaryTab: View {
 
     // MARK: - Export (screen-only chrome, never part of printBlocks)
 
+    /// Gated on staged moves for the same reason the Policy Statement's is: `printBlocks`
+    /// renders the on-screen (what-if) evaluation, so an export taken with moves staged
+    /// disagrees with the CSV export of the same client taken moments later.
+    @ViewBuilder
     private var exportBar: some View {
+        if hasStagedMoves {
+            VStack(spacing: 3) {
+                Label("Export as PDF", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                    .background(Theme.rule.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+                    .foregroundStyle(Theme.muted)
+                Text("Commit or discard staged moves first — an export must be the plan of record")
+                    .font(.system(size: 9.5)).foregroundStyle(Theme.muted)
+            }
+            .padding(.top, 6)
+        } else {
         Button {
             let name = clientHeader?.title ?? eval.household.name
             if let url = PlanSummaryPDF.render(blocks: printBlocks, fileName: PlanSummaryPDF.fileName(for: name, kind: .planSummary)) {
@@ -183,6 +203,7 @@ struct PlanSummaryTab: View {
         }
         .padding(.top, 6)
         .sheet(item: $share) { payload in ShareSheet(items: [payload.url]) }
+        }
     }
 
     // The two or three concrete moves, drawn from the analysis.

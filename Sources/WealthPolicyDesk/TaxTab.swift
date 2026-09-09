@@ -30,8 +30,17 @@ struct TaxTab: View {
             if it.inPhaseDownBand {
                 LedgerRow("In phase-down band", "eff. \(Fmt.pctBps(it.effectiveMarginalRateInBandBps))", color: Theme.debt, bold: true)
             }
-            if let y = it.yearsUntilSaltReversion {
-                Note("SALT cap capped on state + property tax alone, so mortgage interest is fully incremental. The cap reverts in \(y) years (2030) — a reason to keep the mortgage through the window, the opposite of default advice.")
+            // Gated on the HOUSEHOLD, not just the parameter set. `yearsUntilSaltReversion`
+            // is a property of the tax law, so this fired for anyone — including a household
+            // the very row above says does not itemize. The old hardcoded state profile made
+            // every homeowner max out SALT, which kept the branch unreachable; reading the
+            // client's real state and giving made it reachable, and a Texas household with a
+            // small mortgage was told to keep it "through the window" ten lines under a
+            // headline saying the deduction is worth nothing to them.
+            if let y = it.yearsUntilSaltReversion, it.itemizes, it.marginalValueOfMortgageInterestBps > 0 {
+                Note("SALT is capped on state + property tax alone, so mortgage interest is fully incremental. The cap reverts in \(y) years (2030) — a reason to keep the mortgage through the window, the opposite of default advice.")
+            } else if it.yearsUntilSaltReversion != nil, !it.itemizes {
+                Note("Not itemizing, so the SALT cap and the mortgage-interest deduction are both worth nothing here. The 2030 reversion only matters if deductions later exceed the standard deduction.", icon: "info.circle", color: Theme.muted)
             }
         }
 

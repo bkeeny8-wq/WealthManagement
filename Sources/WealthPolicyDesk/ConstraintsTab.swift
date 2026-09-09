@@ -10,7 +10,7 @@ struct ConstraintsTab: View {
     // discrimination is visible — a silent rule is the system working.
     private static let notableChecks: [(id: String, label: String)] = [
         ("muni_in_sheltered_account", "Munis kept out of sheltered accounts"),
-        ("liquidity_floor", "Daily-liquid assets cover the floor"),
+        ("liquidity_floor", "Cash and fixed income cover the floor"),
         ("capital_call_coverage", "Liquid assets cover capital calls"),
         ("estate_liquidity", "No estate-tax liquidity shortfall"),
         ("step_up_sale", "No step-up lot in the tactical layer"),

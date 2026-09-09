@@ -216,7 +216,8 @@ struct DeskView: View {
                                                   canPersist: canPersist,
                                                   hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty,
                                                   reviewNote: $reviewNote, confirmed: $reviewConfirmed)
-        case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader)
+        case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader,
+                                              hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty || !draftOverrides.isEmpty)
         case .portfolio:      PortfolioTab(eval: e, holdings: currentHoldings, canEdit: canPersist, onApply: onUpdateHoldings)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)

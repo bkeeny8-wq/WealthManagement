@@ -87,7 +87,7 @@ public enum Teach {
             return BlockHelp(
                 what: "Years of net outflows pre-funded by a bond ladder. Length is an OUTPUT of the funded-liability gap — spending need less Social Security, pension and other income — not a risk-tolerance conversation.",
                 moves: "A client needing income does not need coupons yielding that number; they need cash on known dates. Building the portfolio to YIELD the number rather than FUND it is how you reach for credit risk.",
-                watch: "A separate liquid reserve exists purely for rebalancing ammunition. Daily-liquid assets must still cover the ladder, the reserve, and a year of outflows.")
+                watch: "A separate liquid reserve exists purely for rebalancing ammunition. Cash and fixed income must cover the ladder, the reserve, and a year of outflows — equities are not a funding source for near-term spending.")
         case "paydown":
             return BlockHelp(
                 what: "Pay down debt or invest? Paying down debt is buying a bond yielding the after-tax debt rate, with zero credit and zero duration risk.",

@@ -242,7 +242,7 @@ struct PolicyStatementTab: View {
     }
 
     private var liquidityText: String {
-        let cover = ladder.covered ? "Current daily-liquid assets satisfy this requirement." : "Current daily-liquid assets fall short of this requirement and should be replenished."
+        let cover = ladder.covered ? "Current cash and fixed income satisfy this requirement." : "Current cash and fixed income fall short of this requirement and should be replenished."
         let hasSpending = ladder.requiredLiquidUsd > ladder.rebalanceReserveUsd
         let body = hasSpending
             ? "The portfolio must keep at least \(Fmt.usd(ladder.requiredLiquidUsd)) readily liquid — covering the household's near-term spending ladder, a rebalancing reserve of \(Fmt.usd(ladder.rebalanceReserveUsd)), and roughly twelve months of outflows — held in the cash and short-duration sleeves."
@@ -514,19 +514,44 @@ struct PolicyStatementTab: View {
 
     // MARK: - Export (screen-only, not part of printBlocks)
 
+    /// Gated on the SAME condition as saving a review. `printBlocks` renders the evaluation
+    /// on screen, which includes staged moves and draft overrides — so with a $500k sell
+    /// staged, the exported IPS carried a required return and funded ratio computed WITH the
+    /// sale while "Export record (CSV)" carried the figure without it. Two documents for one
+    /// client, minutes apart, disagreeing. Saving a review was already blocked here; the PDF
+    /// buttons carried no such gate.
+    /// Draft driver edits count too, even though a review SAVE is deliberately allowed with
+    /// them pending — a review captures the overrides, whereas the CSV export reads the
+    /// SAVED ones, so an unsaved edit would put the two documents out of step.
+    private var exportBlocked: Bool { hasStagedMoves || !(draftOverrides?.wrappedValue.isEmpty ?? true) }
+
+    @ViewBuilder
     private var exportBar: some View {
-        Button {
-            if let url = PlanSummaryPDF.render(blocks: printBlocks, fileName: PlanSummaryPDF.fileName(for: clientName)) {
-                share = SharePayload(url: url)
+        if exportBlocked {
+            VStack(spacing: 3) {
+                Label("Export as PDF", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                    .background(Theme.rule.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+                    .foregroundStyle(Theme.muted)
+                Text("Commit or discard staged moves first — an export must be the plan of record")
+                    .font(.system(size: 9.5)).foregroundStyle(Theme.muted)
             }
-        } label: {
-            Label("Export as PDF", systemImage: "square.and.arrow.up")
-                .font(.system(size: 15, weight: .semibold))
-                .frame(maxWidth: .infinity).padding(.vertical, 13)
-                .background(Theme.accent, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
+            .padding(.top, 6)
+        } else {
+            Button {
+                if let url = PlanSummaryPDF.render(blocks: printBlocks, fileName: PlanSummaryPDF.fileName(for: clientName)) {
+                    share = SharePayload(url: url)
+                }
+            } label: {
+                Label("Export as PDF", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                    .background(Theme.accent, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
+            }
+            .padding(.top, 6)
+            .sheet(item: $share) { payload in ShareSheet(items: [payload.url]) }
         }
-        .padding(.top, 6)
-        .sheet(item: $share) { payload in ShareSheet(items: [payload.url]) }
     }
 
     // MARK: - Prose helpers

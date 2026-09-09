@@ -107,9 +107,9 @@ struct AllocationTab: View {
             LedgerRow("Net annual outflow", Fmt.usd(l.netAnnualOutflowUsd), color: Theme.ink)
             LedgerRow("Ladder size", Fmt.usd(l.ladderSizeUsd), color: Theme.asset)
             LedgerRow("Rebalance reserve", Fmt.usd(l.rebalanceReserveUsd), color: Theme.asset)
-            LedgerRow("Required daily-liquid", Fmt.usd(l.requiredLiquidUsd), color: Theme.ink, bold: true)
+            LedgerRow("Required cash + fixed income", Fmt.usd(l.requiredLiquidUsd), color: Theme.ink, bold: true)
             LedgerRow("Available cash + fixed income", Fmt.usd(l.availableDefensiveUsd), color: l.covered ? Theme.asset : Theme.debt, bold: true)
-            Note(l.covered ? "Covered: daily-liquid assets exceed the ladder + reserve + a year of outflows." : "SHORT: daily-liquid assets do not cover the floor.", icon: l.covered ? "checkmark.circle" : "exclamationmark.triangle", color: l.covered ? Theme.asset : Theme.debt)
+            Note(l.covered ? "Covered: cash and fixed income exceed the ladder + reserve + a year of outflows." : "SHORT: cash and fixed income do not cover the ladder + reserve + a year of outflows. Equities cannot fund near-term spending — selling them into a drawdown is the sequence risk the ladder exists to avoid.", icon: l.covered ? "checkmark.circle" : "exclamationmark.triangle", color: l.covered ? Theme.asset : Theme.debt)
         }
     }
 
