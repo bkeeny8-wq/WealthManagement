@@ -390,7 +390,6 @@ public extension Engine {
         return monthly * 12 * Double(heads)
     }
 
-    /// IRS Uniform Lifetime Table (2022+) divisor; flat outside the tabulated range.
     /// The required beginning age for RMDs, which SECURE 2.0 makes a function of BIRTH YEAR,
     /// not a single scalar: 73 for those born 1951–1959, 75 for anyone born 1960 or later.
     /// (Born before 1951 the age was 72 and has already passed.) `tax.rmdStartAge` remains the
@@ -404,6 +403,7 @@ public extension Engine {
         return 72
     }
 
+    /// IRS Uniform Lifetime Table (2022+) divisor; flat outside the tabulated range.
     static func uniformLifetimeDivisor(_ age: Int) -> Double {
         let t: [Int: Double] = [72: 27.4, 73: 26.5, 74: 25.5, 75: 24.6, 76: 23.7, 77: 22.9, 78: 22.0, 79: 21.1,
                                 80: 20.2, 81: 19.4, 82: 18.5, 83: 17.7, 84: 16.8, 85: 16.0, 86: 15.2, 87: 14.4,

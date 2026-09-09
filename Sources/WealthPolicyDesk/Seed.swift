@@ -490,12 +490,49 @@ public enum Seed {
 
     /// Look up a profile by two-letter code or full name (case- and space-insensitive).
     /// The intake stores a code, but plans saved before the state picker may hold free text.
+    /// Canonical form of a free-text state: upper-cased, punctuation stripped, and internal
+    /// runs of whitespace squashed. Legacy plans stored the state as free text, so "N.J.",
+    /// "New  Jersey" and "new jersey" all have to reach the same profile — trimming only the
+    /// ENDS left the first two falling through to the generic US profile while the intake
+    /// picker resolved them differently again, so one record could show three answers for
+    /// one household.
+    public static func canonicalStateKey(_ raw: String) -> String {
+        raw.uppercased()
+            .unicodeScalars
+            .map { CharacterSet.letters.contains($0) ? Character($0) : " " }
+            .reduce(into: "") { $0.append($1) }
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+    }
+
+    /// The state's code ("NJ") for any free-text spelling, or nil when nothing matches.
+    /// One resolver, so the tax profile and the intake picker cannot disagree.
+    public static func stateCode(for raw: String) -> String? {
+        let s = canonicalStateKey(raw)
+        guard !s.isEmpty else { return nil }
+        if let m = stateProfileIndex[s] { return m.code }
+        // "NEW JERSEY" spelled without spaces, or a stray "STATE OF" prefix.
+        let squashed = s.replacingOccurrences(of: " ", with: "")
+        if let m = stateProfileIndex.first(where: { $0.key.replacingOccurrences(of: " ", with: "") == squashed }) {
+            return m.value.code
+        }
+        return nil
+    }
+
+    /// code → profile and NAME → profile in one map, so a lookup is a single hash hit.
+    private static let stateProfileIndex: [String: StateTaxProfile] = {
+        var m: [String: StateTaxProfile] = [:]
+        for p in stateTaxProfiles {
+            m[canonicalStateKey(p.code)] = p
+            m[canonicalStateKey(p.name)] = p
+        }
+        return m
+    }()
+
     public static func stateTaxProfile(for raw: String) -> StateTaxProfile {
-        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !s.isEmpty else { return stateTaxProfileFallback }
-        if let m = stateTaxProfiles.first(where: { $0.code == s }) { return m }
-        if let m = stateTaxProfiles.first(where: { $0.name.uppercased() == s }) { return m }
-        return stateTaxProfileFallback
+        guard let code = stateCode(for: raw),
+              let m = stateTaxProfiles.first(where: { $0.code == code }) else { return stateTaxProfileFallback }
+        return m
     }
 
 }

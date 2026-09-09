@@ -45,7 +45,7 @@ struct DecumulationTab: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Grid(alignment: .trailing, horizontalSpacing: 15, verticalSpacing: 7) {
                         GridRow {
-                            head("AGE", .leading); head("SPEND"); head("SS + PENS"); head("RMD")
+                            head("AGE", .leading); head("SPEND"); head("SS + PENS"); head("WAGES"); head("RMD")
                             head("CONV"); head("ORD. INC"); head("FED TAX"); head("MARG"); head("IRMAA")
                         }
                         .overlay(Rectangle().frame(height: 1).foregroundStyle(Theme.rule), alignment: .bottom)
@@ -55,6 +55,7 @@ struct DecumulationTab: View {
                                     .gridColumnAlignment(.leading)
                                 num(y.spendingNeedUsd, Theme.ink)
                                 num(y.guaranteedIncomeUsd, Theme.asset)
+                                num(y.wagesUsd, y.wagesUsd > 0 ? Theme.asset : Theme.muted)
                                 num(y.rmdUsd, y.rmdUsd > 0 ? Theme.accent : Theme.muted)
                                 num(y.rothConversionUsd, y.rothConversionUsd > 0 ? Theme.asset : Theme.muted)
                                 num(y.ordinaryIncomeUsd, Theme.ink)
@@ -67,7 +68,7 @@ struct DecumulationTab: View {
                     }
                     .padding(.top, 2)
                 }
-                Note("Ordinary income folds the RMD, discretionary tax-deferred draws, pension, any Roth conversion, and the taxable portion of Social Security. Watch the marginal rate and IRMAA step up the year RMDs begin (age \(plan.firstRmdAge > 0 ? String(plan.firstRmdAge) : "—")).", icon: "arrow.up.right")
+                Note("Ordinary income folds wages still being earned, the RMD, discretionary tax-deferred draws, pension, any Roth conversion, and the taxable portion of Social Security. Watch the marginal rate and IRMAA step up the year RMDs begin (age \(plan.firstRmdAge > 0 ? String(plan.firstRmdAge) : "—")).", icon: "arrow.up.right")
             }
         }
     }

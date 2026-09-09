@@ -255,6 +255,13 @@ public struct RootView: View {
         return intake.buildHousehold()
     }
 
+    /// The per-client CRM record, built by the SAME method the roster export uses, so the
+    /// two menus cannot disagree. See `ClientRecord.exportRecord()`.
+    private func exportRecord(_ intake: IntakeModel) -> CRMExportRecord? {
+        guard let id = activeId, let rec = book.first(where: { $0.id == id }) else { return nil }
+        return rec.exportRecord()
+    }
+
     private var exportJSON: String? {
         guard let intake else { return nil }
         let eval = Engine.evaluate(exportHousehold(intake))
@@ -1176,11 +1183,11 @@ enum USStates {
     /// Normalize any stored value (2-letter code, full name, mixed case, or legacy free
     /// text) to a canonical code that always matches an option — so the wheel never shows
     /// "—" and can never silently commit the first row over an unmatched value.
+    /// One resolver shared with the tax profile, so the wheel, the IPS prose and the tax
+    /// treatment can never name three different states for one legacy record. An
+    /// unrecognised string resolves to nothing rather than silently selecting California.
     static func code(for raw: String) -> String {
-        let up = raw.trimmingCharacters(in: .whitespaces).uppercased()
-        if options.contains(where: { $0.0 == up }) { return up }
-        if let m = options.first(where: { $0.1.uppercased() == up }) { return m.0 }
-        return "CA"
+        Seed.stateCode(for: raw) ?? ""
     }
 }
 

@@ -91,6 +91,19 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
             .replayStatuses(committedActions)
     }
 
+    /// The single CRM export record for this client, evaluated on the plan of record.
+    ///
+    /// Both export paths — the per-client menu in the roster and the whole-book NDJSON/CSV —
+    /// must produce this exact record, or the same client leaves the device with two
+    /// different required returns depending on which menu the advisor used. That agreement
+    /// used to live only inside a `private` helper on a SwiftUI View, where no test could
+    /// reach it: reverting that helper to `intake.buildHousehold().applying(...)` silently
+    /// dropped the driver overrides and the equity-style re-flavour, and the suite stayed
+    /// green.
+    public func exportRecord() -> CRMExportRecord {
+        practice.exportRecord(intake: intake, evaluation: Engine.evaluate(household()))
+    }
+
     /// Best available display name: the CRM name, else the primary adult, else a placeholder.
     public var displayName: String {
         if !practice.clientName.isEmpty { return practice.clientName }
@@ -159,9 +172,7 @@ public enum BookStore {
 /// header plus one row per client. Both are computed from a fresh evaluation, so
 /// the planning-flag columns reflect the canonical plan, not any live what-ifs.
 public enum BookExport {
-    private static func record(_ rec: ClientRecord) -> CRMExportRecord {
-        rec.practice.exportRecord(intake: rec.intake, evaluation: Engine.evaluate(rec.household()))
-    }
+    private static func record(_ rec: ClientRecord) -> CRMExportRecord { rec.exportRecord() }
 
     public static func ndjson(_ book: [ClientRecord]) -> String {
         let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]; enc.dateEncodingStrategy = .iso8601

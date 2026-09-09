@@ -65,7 +65,18 @@ public struct EstateParameters: Sendable, Hashable {
 public struct StateTaxProfile: Sendable, Hashable {
     public var code: String
     public var name: String
+    /// The state's TOP MARGINAL income-tax rate, used as a proxy in two places that want
+    /// different things. For the muni crossover it is the right kind of number — that
+    /// comparison is about the next dollar of interest income — though it is the top bracket
+    /// rather than the bracket this household actually sits in. For SALT it is the wrong
+    /// kind: `stateIncomeTaxUsd` wants an EFFECTIVE rate, so for the ~11 graduated states
+    /// carrying their top bracket (CA 9.30, MN 9.85, OR 9.90, NY 6.85) the SALT-paid row
+    /// overstates. The sample relocated to California shows about $52.5k of SALT paid at
+    /// $470k of MAGI where the true effective figure is nearer $30k. SALT is capped either
+    /// way, so the itemization verdict rarely moves — but the row is client-facing, and
+    /// fixing it properly needs 51 sourced effective rates, not a derived guess.
     public var incomeRate: Double
+    /// Effective property-tax rate on assessed value.
     public var propertyRate: Double
     public init(code: String, name: String, incomeRate: Double, propertyRate: Double) {
         self.code = code; self.name = name; self.incomeRate = incomeRate; self.propertyRate = propertyRate
