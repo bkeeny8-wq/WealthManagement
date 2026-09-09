@@ -114,13 +114,25 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
     public var birthYear: Int = 1975
     public var retirementAge: Int = 65
     public var health: HealthStatus = .good
-    public var salaryUsd: Usd = 120_000
+    public var salaryUsd: Usd = 0
     public var bonusUsd: Usd = 0
     public var bonusStability: BonusStability = .medium
     public var incomeCharacter: IncomeCharacter = .moderate
     public var sector: Sector? = nil
     public var employerStockUsd: Usd = 0
     public var deferredCashUsd: Usd = 0
+    /// Monthly Social Security at full retirement age, as printed on THIS person's SSA
+    /// statement. Zero means "not supplied", and the model falls back to estimating it from
+    /// salary — a rough bend-point approximation that quietly became a client-facing
+    /// guaranteed-income figure, and through it the funded ratio and the required return.
+    /// The client has the real number; the form should ask for it and say when it is
+    /// guessing.
+    public var socialSecurityMonthlyUsd: Usd = 0
+    /// The age THIS person plans to claim. Claiming is an individual decision — a couple
+    /// routinely claims years apart to maximise the survivor benefit — and a single
+    /// household-wide age could not express that.
+    public var ssClaimAge: Int = 0        // 0 = follow the household default
+
     /// Retirement accounts are INDIVIDUALLY owned — there is no such thing as a joint IRA.
     /// Holding them per adult is what lets each account distribute on its own owner's RMD
     /// schedule, honour that owner's beneficiary designation, and be traded without
@@ -149,6 +161,8 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .deferredCashUsd)) ?? nil { deferredCashUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .traditionalUsd)) ?? nil { traditionalUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .rothUsd)) ?? nil { rothUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .socialSecurityMonthlyUsd)) ?? nil { socialSecurityMonthlyUsd = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .ssClaimAge)) ?? nil { ssClaimAge = v }
         sector = (try? c.decodeIfPresent(Sector.self, forKey: .sector)) ?? nil
     }
 }
@@ -414,11 +428,17 @@ public struct IntakeModel: Codable, Hashable {
     public var survivableOnOneIncome: Bool = true
 
     // 3 — savings & reserve
-    public var annualSavingsUsd: Usd = 20_000
-    public var emergencyReserveUsd: Usd = 50_000
+    /// Dollar amounts default to ZERO on purpose. They are facts about a specific client,
+    /// not conventions, and a pre-filled figure is a fabricated answer: nobody re-reads a
+    /// field that already looks filled in, so $120,000 of invented salary and $300,000 of
+    /// invented IRA used to survive intake and reach the plan as if the client had said
+    /// them. Ages and horizons keep their conventional defaults, because those ARE
+    /// conventions — 67 for full retirement, planning to 95 — and the form says so.
+    public var annualSavingsUsd: Usd = 0
+    public var emergencyReserveUsd: Usd = 0
 
     // 4 — accounts & holdings
-    public var taxableUsd: Usd = 200_000
+    public var taxableUsd: Usd = 0
     /// Household totals, computed over the adults who actually own the accounts.
     ///
     /// Reading gives the sum. ASSIGNING puts the whole balance on the primary and clears the
@@ -474,7 +494,7 @@ public struct IntakeModel: Codable, Hashable {
     public var ssClaimAge: Int = 67
 
     // 7 — goals
-    public var retirementSpendingUsd: Usd = 120_000
+    public var retirementSpendingUsd: Usd = 0
     public var retirementStartAge: Int = 65
     public var planToAge: Int = 92
     public var legacyFloorUsd: Usd = 0
@@ -654,6 +674,10 @@ public struct IntakeModel: Codable, Hashable {
     }
 
     // Derived conveniences
+    /// True when any adult's Social Security is still the salary-derived approximation
+    /// rather than a figure taken from their statement. The form uses this to say so.
+    public var socialSecurityIsEstimated: Bool { adults.contains { $0.socialSecurityMonthlyUsd <= 0 } }
+
     public var totalInvestableUsd: Usd { taxableUsd + traditionalUsd + rothUsd }
     public var primaryAge: Int { max(0, Self.currentYear - (adults.first?.birthYear ?? 1975)) }
 }
@@ -755,8 +779,14 @@ public extension IntakeModel {
             if a.deferredCashUsd > 0 {
                 deferredComp.append(DeferredCompensation(id: "dc_cash_\(i)", personId: pid, kind: .deferredCash, ticker: nil, grantValueUsd: a.deferredCashUsd, subjectToEmployerCredit: true, tradingRestricted: false))
             }
-            ssProfiles.append(SocialSecurityProfile(personId: pid, estimatedPIAUsd: Self.estimatedMonthlyPIA(a.salaryUsd + a.bonusUsd),
-                                                    fullRetirementAge: 67, plannedClaimingAge: ssClaimAge,
+            // The client's own SSA statement wins over the salary-derived approximation, and
+            // each person claims on their own schedule.
+            let pia = a.socialSecurityMonthlyUsd > 0
+                ? a.socialSecurityMonthlyUsd
+                : Self.estimatedMonthlyPIA(a.salaryUsd + a.bonusUsd)
+            ssProfiles.append(SocialSecurityProfile(personId: pid, estimatedPIAUsd: pia,
+                                                    fullRetirementAge: 67,
+                                                    plannedClaimingAge: a.ssClaimAge > 0 ? a.ssClaimAge : ssClaimAge,
                                                     eligibleForSpousalBenefit: i > 0, survivorBenefitApplies: adults.count > 1))
         }
 

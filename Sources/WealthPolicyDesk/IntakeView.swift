@@ -651,8 +651,29 @@ struct IntakeWizard: View {
     private var externalStep: some View {
         VStack(spacing: 14) {
             Card("Social Security") {
-                WheelRow(label: "Planned claiming age", selection: $intake.ssClaimAge, options: ages(62...70))
-                Note("We estimate your benefit from your earnings. Delaying past your full retirement age (67) raises it ~8%/yr.")
+                // Asked per person, and asked for the REAL number. The benefit is guaranteed
+                // income, so it drives the funded ratio and the required return — estimating
+                // it from salary is a rough bend-point approximation that was being shown to
+                // the client as fact. Claiming is an individual decision too: couples
+                // routinely claim years apart to maximise the survivor benefit.
+                ForEach(Array(intake.adults.enumerated()), id: \.element.id) { i, adult in
+                    let who = adult.name.isEmpty ? (i == 0 ? "You" : "Them") : adult.name
+                    MoneyField(label: "\(who) — monthly benefit at 67 (from the SSA statement)",
+                               value: Binding(get: { intake.adults[i].socialSecurityMonthlyUsd },
+                                              set: { intake.adults[i].socialSecurityMonthlyUsd = $0 }),
+                               placeholder: "Leave blank to estimate from earnings")
+                    WheelRow(label: "\(who) — claiming age",
+                             selection: Binding(get: { intake.adults[i].ssClaimAge > 0 ? intake.adults[i].ssClaimAge : intake.ssClaimAge },
+                                                set: { intake.adults[i].ssClaimAge = $0 }),
+                             options: ages(62...70))
+                }
+                if intake.socialSecurityIsEstimated {
+                    Note("Blank benefits are ESTIMATED from earnings — a rough approximation, not a statement figure. Entering the real number from ssa.gov materially sharpens the funded ratio. Delaying past full retirement age (67) raises the benefit ~8%/yr.",
+                         icon: "exclamationmark.triangle", color: Theme.amber)
+                } else {
+                    Note("Using the benefits you entered. Delaying past full retirement age (67) raises them ~8%/yr.",
+                         icon: "checkmark.circle", color: Theme.asset)
+                }
             }
             Card("Pension") {
                 MoneyField(label: "Annual pension (if any)", value: $intake.pensionAnnualUsd)
@@ -987,6 +1008,10 @@ struct AdultForm: View {
 struct MoneyField: View {
     let label: String
     @Binding var value: Usd
+    /// Shown when the field is empty. Use it to distinguish "the client answered zero" from
+    /// "we have not asked yet" — a zero the model then quietly fills in is the difference
+    /// between an answer and a guess.
+    var placeholder: String = "0"
     @FocusState private var focused: Bool
     var body: some View {
         HStack {
@@ -994,11 +1019,11 @@ struct MoneyField: View {
             Spacer(minLength: 10)
             HStack(spacing: 1) {
                 Text("$").foregroundStyle(Theme.muted).font(.system(size: 15))
-                TextField("0", value: $value, format: .number.precision(.fractionLength(0)))
+                TextField(placeholder, value: $value, format: .number.precision(.fractionLength(0)))
                     .focused($focused)
                     .keyboardType(.numberPad).multilineTextAlignment(.trailing)
                     .font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)
-                    .frame(minWidth: 90, maxWidth: 140)
+                    .frame(minWidth: 90, maxWidth: 190)
             }
         }
         .padding(.vertical, 9)
