@@ -234,11 +234,27 @@ extension Engine {
         if niitApplies { effectiveRate += tax.niitRateBps.frac }
         // The phase-down only bites if the household actually itemizes.
         if item.inPhaseDownBand && item.itemizes { effectiveRate += tax.salt.phaseDownRatePerDollar * marginal.frac }
-        let tey = Double(muniYieldBps) / max(0.01, 1 - effectiveRate)
+        // The state rate, which the crossover ignored entirely — Seed carries 51 profiles
+        // and they moved this verdict by exactly 0 bps. It cannot simply be added to the
+        // gross-up, because the three instruments are taxed asymmetrically:
+        //   • municipal (national fund): exempt federally, generally taxed by the holder's state
+        //   • Treasury:                  taxed federally (and by NIIT), exempt from state tax
+        //   • corporate:                 taxed by both
+        // So the verdict compares AFTER-TAX yields directly rather than grossing one up.
+        let stateRate = Seed.stateTaxProfile(for: h.stateOfResidence).incomeRate
+        let muniAfterTax = Double(muniYieldBps) * (1 - stateRate)
+        let treasuryAfterTax = Double(treasuryYieldBps) * (1 - effectiveRate)
+        let corporateAfterTax = Double(corporateYieldBps) * (1 - min(0.95, effectiveRate + stateRate))
+        // Reported TEY stays the corporate yield that would match the muni after every tax.
+        let tey = muniAfterTax / max(0.01, 1 - min(0.95, effectiveRate + stateRate))
         let teyBps = Int(tey.rounded())
-        let preferred = teyBps > max(treasuryYieldBps, corporateYieldBps)
+        let preferred = muniAfterTax > max(treasuryAfterTax, corporateAfterTax)
         return MuniCrossover(muniYieldBps: muniYieldBps, treasuryYieldBps: treasuryYieldBps, corporateYieldBps: corporateYieldBps,
                              marginalOrdinaryRateBps: marginal, niitApplies: niitApplies, inSaltPhaseDownBand: item.inPhaseDownBand,
+                             stateIncomeRateBps: stateRate.bps,
+                             muniAfterTaxBps: Int(muniAfterTax.rounded()),
+                             treasuryAfterTaxBps: Int(treasuryAfterTax.rounded()),
+                             corporateAfterTaxBps: Int(corporateAfterTax.rounded()),
                              taxableEquivalentYieldBps: teyBps, muniPreferred: preferred)
     }
 

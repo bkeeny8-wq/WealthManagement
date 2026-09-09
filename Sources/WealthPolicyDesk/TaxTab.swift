@@ -43,7 +43,11 @@ struct TaxTab: View {
             LedgerRow("Treasury (taxable)", Fmt.pctBps(mc.treasuryYieldBps), color: Theme.muted)
             LedgerRow("Corporate IG (taxable)", Fmt.pctBps(mc.corporateYieldBps), color: Theme.muted)
             LedgerRow("Marginal ordinary rate", Fmt.pctBps(mc.marginalOrdinaryRateBps) + (mc.niitApplies ? " + NIIT" : ""), color: Theme.ink)
-            Note(mc.muniPreferred ? "Muni preferred: its taxable-equivalent yield beats both taxable alternatives. The naive rate misses NIIT and the MAGI effect — muni interest stays out of the SALT phase-down band and NIIT, though it IS added back for IRMAA and the Social-Security formula." : "Muni not preferred at these yields.", icon: mc.muniPreferred ? "checkmark.circle" : "info.circle", color: mc.muniPreferred ? Theme.asset : Theme.muted)
+            LedgerRow("State income rate", Fmt.pctBps(mc.stateIncomeRateBps), color: Theme.muted)
+            LedgerRow("After tax — muni / Treasury / corporate",
+                      "\(Fmt.pctBps(mc.muniAfterTaxBps)) · \(Fmt.pctBps(mc.treasuryAfterTaxBps)) · \(Fmt.pctBps(mc.corporateAfterTaxBps))",
+                      color: Theme.ink)
+            Note(mc.muniPreferred ? "Muni preferred: it wins after every tax that applies. Modelled as a NATIONAL muni fund, so state-taxable — an in-state fund would look better still, and Treasuries are already state-exempt. The naive rate misses NIIT and the MAGI effect — muni interest stays out of the SALT phase-down band and NIIT, though it IS added back for IRMAA and the Social-Security formula." : "Muni not preferred at these yields.", icon: mc.muniPreferred ? "checkmark.circle" : "info.circle", color: mc.muniPreferred ? Theme.asset : Theme.muted)
         }
 
         Card("Pay down or invest", help: Teach.help("paydown")) {

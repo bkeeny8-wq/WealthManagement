@@ -27,13 +27,28 @@ public struct MuniCrossover: Sendable, Hashable {
     public var marginalOrdinaryRateBps: Bps
     public var niitApplies: Bool
     public var inSaltPhaseDownBand: Bool
+    /// The holder's state income rate. Municipal income is exempt from FEDERAL tax; a
+    /// national muni fund — which is what this model's sleeves hold — is generally still
+    /// taxable by the holder's own state, while Treasuries are the reverse: federally
+    /// taxable and state-exempt. Ignoring the state rate entirely made the crossover
+    /// identical in Texas, New Jersey and California.
+    public var stateIncomeRateBps: Bps
+    /// Yields net of every tax that actually applies to each instrument, which is what the
+    /// preference verdict compares. A single grossed-up number cannot express the
+    /// federal/state asymmetry between munis and Treasuries.
+    public var muniAfterTaxBps: Bps
+    public var treasuryAfterTaxBps: Bps
+    public var corporateAfterTaxBps: Bps
     /// Includes NIIT and MAGI effects, not just the headline rate.
     public var taxableEquivalentYieldBps: Bps
     public var muniPreferred: Bool
-    public init(muniYieldBps: Bps, treasuryYieldBps: Bps, corporateYieldBps: Bps, marginalOrdinaryRateBps: Bps, niitApplies: Bool, inSaltPhaseDownBand: Bool, taxableEquivalentYieldBps: Bps, muniPreferred: Bool) {
+    public init(muniYieldBps: Bps, treasuryYieldBps: Bps, corporateYieldBps: Bps, marginalOrdinaryRateBps: Bps, niitApplies: Bool, inSaltPhaseDownBand: Bool, stateIncomeRateBps: Bps = 0, muniAfterTaxBps: Bps = 0, treasuryAfterTaxBps: Bps = 0, corporateAfterTaxBps: Bps = 0, taxableEquivalentYieldBps: Bps, muniPreferred: Bool) {
         self.muniYieldBps = muniYieldBps; self.treasuryYieldBps = treasuryYieldBps; self.corporateYieldBps = corporateYieldBps
         self.marginalOrdinaryRateBps = marginalOrdinaryRateBps; self.niitApplies = niitApplies
         self.inSaltPhaseDownBand = inSaltPhaseDownBand; self.taxableEquivalentYieldBps = taxableEquivalentYieldBps
+        self.stateIncomeRateBps = stateIncomeRateBps
+        self.muniAfterTaxBps = muniAfterTaxBps; self.treasuryAfterTaxBps = treasuryAfterTaxBps
+        self.corporateAfterTaxBps = corporateAfterTaxBps
         self.muniPreferred = muniPreferred
     }
 }
