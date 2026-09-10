@@ -207,6 +207,11 @@ public struct IntakeHeldPosition: Codable, Hashable, Identifiable {
     public var treatment: AccountTaxTreatment = .taxable
     public var plan: HeldPositionTreatment = .keepAsCore
     public var unwindYears: Int = 3
+    /// Which adult's account this sits in, by index into `adults`. Only meaningful for a
+    /// retirement treatment — a taxable holding follows the household's titled brokerage.
+    /// It decides whose RMD schedule the holding distributes on, so filing every itemized
+    /// IRA holding under the primary put a spouse's rollover on the wrong clock.
+    public var ownerIndex: Int = 0
     public var isConcentrated: Bool = false
     /// When set, the lot's acquisition date drives its holding period (short vs long term).
     /// Optional so records saved before this field decode cleanly. Empty/nil = unknown vintage.
@@ -232,6 +237,7 @@ public struct IntakeHeldPosition: Codable, Hashable, Identifiable {
         if let v = (try? c.decodeIfPresent(AccountTaxTreatment.self, forKey: .treatment)) ?? nil { treatment = v }
         if let v = (try? c.decodeIfPresent(HeldPositionTreatment.self, forKey: .plan)) ?? nil { plan = v }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .unwindYears)) ?? nil { unwindYears = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .ownerIndex)) ?? nil { ownerIndex = v }
         if let v = (try? c.decodeIfPresent(Bool.self, forKey: .isConcentrated)) ?? nil { isConcentrated = v }
         acquisitionDate = (try? c.decodeIfPresent(IsoDate.self, forKey: .acquisitionDate)) ?? nil
         sector = (try? c.decodeIfPresent(Sector.self, forKey: .sector)) ?? nil
@@ -874,13 +880,42 @@ public extension IntakeModel {
         // balance is synthesized into a policy-shaped proxy.
         var accounts: [Account] = []
         var positions: [Position] = []
-        var itemizedByTreatment: [AccountTaxTreatment: Usd] = [:]
+        // Keyed by ACCOUNT, not by treatment. Keying by treatment was correct only while a
+        // treatment had exactly one account: once each adult owns their own IRA, every one
+        // of them subtracted the same household-wide itemized total, and the difference
+        // vanished from the portfolio. A couple with $600k + $400k of IRAs and $100k of
+        // itemized held-away holdings came out holding $900k.
+        var itemizedByAccount: [String: Usd] = [:]
         var realizedGain: Usd = 0
-        func acctId(_ t: AccountTaxTreatment) -> String {
-            switch t { case .taxable: return "acct_taxable"; case .taxDeferred: return "acct_trad"; case .taxFree: return "acct_roth" }
+        /// The stated balance for one adult's account of a given treatment.
+        func statedBalance(_ t: AccountTaxTreatment, _ i: Int) -> Usd {
+            guard i >= 0, i < adults.count else { return 0 }
+            switch t {
+            case .taxDeferred: return adults[i].traditionalUsd
+            case .taxFree:     return adults[i].rothUsd
+            case .taxable:     return taxableUsd
+            }
+        }
+        /// The account a holding belongs to. Retirement accounts follow the named owner; a
+        /// taxable holding follows the household's single titled brokerage.
+        ///
+        /// A holding filed against an owner who stated NO balance for that treatment is
+        /// self-contradictory input — "we hold $150k of AAPL in an IRA" and "that person has
+        /// no IRA". The itemized value is netted out of the stated balance, so honouring the
+        /// named owner there would add money the client never said they had. It falls back
+        /// to the first adult who does have a balance of that treatment, which is the only
+        /// account the holding can coherently be netted against.
+        func acctId(_ t: AccountTaxTreatment, owner: Int = 0) -> String {
+            guard t != .taxable else { return "acct_taxable" }
+            let stem = t == .taxDeferred ? "acct_trad" : "acct_roth"
+            var i = (owner >= 0 && owner < adults.count) ? owner : 0
+            if statedBalance(t, i) <= 0 {
+                i = adults.indices.first { statedBalance(t, $0) > 0 } ?? i
+            }
+            return i > 0 ? "\(stem)_\(i)" : stem
         }
         for (i, hp) in heldAwayPositions.enumerated() where hp.marketValueUsd > 0 {
-            let acct = acctId(hp.treatment)
+            let acct = acctId(hp.treatment, owner: hp.ownerIndex)
             let (disp, hold, draws) = Self.heldDisposition(plan: hp.plan, treatment: hp.treatment)
             // A dated lot makes the holding period (short vs long term) real for this holding.
             let lots: [TaxLot] = (hp.acquisitionDate?.isEmpty == false)
@@ -890,14 +925,14 @@ public extension IntakeModel {
                                       sleeveId: nil, marketValueUsd: hp.marketValueUsd, costBasisUsd: hp.costBasisUsd,
                                       layer: .strategic, disposition: disp, holdToStepUp: hold, isConcentrated: hp.isConcentrated,
                                       sector: hp.sector, lots: lots))
-            itemizedByTreatment[hp.treatment, default: 0] += hp.marketValueUsd
+            itemizedByAccount[acct, default: 0] += hp.marketValueUsd
             if draws && hp.treatment == .taxable {
                 let gain = max(0, hp.unrealizedGainUsd)
                 realizedGain += hp.plan == .unwindImmediate ? gain : gain / Double(max(1, hp.unwindYears))
             }
         }
         func addAccount(_ id: String, _ label: String, _ treatment: AccountTaxTreatment, _ balance: Usd, _ ownership: AccountOwnership) {
-            let itemized = itemizedByTreatment[treatment] ?? 0
+            let itemized = itemizedByAccount[id] ?? 0
             guard balance > 0 || itemized > 0 else { return }
             if !accounts.contains(where: { $0.id == id }) { accounts.append(Account(id: id, label: label, treatment: treatment, ownership: ownership)) }
             let remainder = max(0, balance - itemized)   // synthesize only what the client didn't itemize

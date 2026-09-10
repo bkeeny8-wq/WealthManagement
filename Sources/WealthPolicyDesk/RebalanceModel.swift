@@ -335,21 +335,33 @@ public extension Engine {
     /// that expresses it. The sleeve merely houses that call: `us_sector_tilt` lists all
     /// eleven Select Sector SPDRs and its PRIMARY is XLK. Funding a tilted sleeve with the
     /// sleeve's primary therefore handed an advisor who staged an energy overweight, wrote an
-    /// energy thesis and committed it a ticket to buy technology. The ticker must be one the
-    /// sleeve actually lists, so a stale or hand-edited tilt cannot buy something off-policy.
+    /// energy thesis and committed it a ticket to buy technology.
+    ///
+    /// `deviationBps` is SIGNED, and the sign changes what the ticker means. An overweight
+    /// names what to BUY; an underweight names what to AVOID, and buying it is the exact
+    /// opposite of the recorded thesis — including when the avoided fund happens to be the
+    /// sleeve's own default, which is precisely the case an "underweight technology" tilt on
+    /// an XLK-primary sleeve produces. The ticker must also be one the sleeve actually lists,
+    /// so a stale or hand-edited tilt cannot send the plan off-policy, and the sleeve's own
+    /// spelling is what reaches the ticket.
     static func buyTicker(for sleeve: Sleeve, household h: Household, style: USEquityStyleTilt) -> String {
-        let tilted = h.tacticalTilts.first { tilt in
-            guard tilt.status == .committed, tilt.sleeveId == sleeve.id, !tilt.ticker.isEmpty else { return false }
-            return sleeve.instruments.contains { $0.ticker.uppercased() == tilt.ticker.uppercased() }
+        let listed = { (t: String) -> String? in
+            sleeve.instruments.first { $0.ticker.uppercased() == t.uppercased() }?.ticker
         }
-        return tilted?.ticker ?? styledBuyTicker(for: sleeve, style: style)
-    }
-
-    private static func preferredAccount(for sleeve: Sleeve, accounts: [Account]) -> Account? {
-        for pref in sleeve.locationPreference {
-            if let a = accounts.first(where: { $0.treatment == pref }) { return a }
+        let committed = h.tacticalTilts.filter {
+            $0.status == .committed && $0.sleeveId == sleeve.id && !$0.ticker.isEmpty && listed($0.ticker) != nil
         }
-        return accounts.first
+        // An overweight names the buy. Style still governs a US size sleeve, so a value tilt
+        // does not get undone by naming the blend fund.
+        if let over = committed.first(where: { $0.deviationBps > 0 }), let ticker = listed(over.ticker) {
+            guard let bucket = USSizeBucket.bucket(forTicker: ticker) else { return ticker }
+            return bucket.ticker(for: style.style(for: bucket))
+        }
+        // An underweight names what to avoid — never buy it, even as the fallback.
+        let avoid = Set(committed.filter { $0.deviationBps < 0 }.compactMap { listed($0.ticker)?.uppercased() })
+        let fallback = styledBuyTicker(for: sleeve, style: style)
+        if !avoid.contains(fallback.uppercased()) { return fallback }
+        return sleeve.instruments.first { !avoid.contains($0.ticker.uppercased()) }?.ticker ?? fallback
     }
 
     private static func sellRationale(_ p: Position, treatment: AccountTaxTreatment) -> String {

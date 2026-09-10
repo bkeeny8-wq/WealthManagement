@@ -97,3 +97,72 @@ final class TacticalTiltInstrumentTests: XCTestCase {
                        sectorSleeve.primaryTicker)
     }
 }
+
+/// `deviationBps` is SIGNED, and the sign changes what the tilt's ticker means. Honouring
+/// it unconditionally made a committed UNDERWEIGHT buy the very fund its thesis says to
+/// avoid — the exact opposite of the recorded call.
+final class TacticalTiltSignTests: XCTestCase {
+
+    private var sectorSleeve: Sleeve { Seed.legacyPolicy.sleeve("us_sector_tilt")! }
+
+    private func tilted(_ ticker: String, _ deviationBps: Bps) -> Household {
+        var h = Seed.sampleHousehold
+        h.tacticalTilts = [TacticalTiltAction(sleeveId: "us_sector_tilt", deviationBps: deviationBps,
+                                              sourceName: "Energy", ticker: ticker,
+                                              thesis: "t", status: .committed)]
+        return h
+    }
+
+    func testAnOverweightNamesWhatToBuy() {
+        let h = tilted("XLE", 300)
+        XCTAssertEqual(Engine.buyTicker(for: sectorSleeve, household: h, style: h.equityStyle), "XLE")
+    }
+
+    /// The defect: an underweight must never buy the fund it is underweighting.
+    func testAnUnderweightNeverBuysTheFundItAvoids() {
+        let h = tilted("XLE", -300)
+        XCTAssertNotEqual(Engine.buyTicker(for: sectorSleeve, household: h, style: h.equityStyle), "XLE",
+                          "an underweight thesis must not produce a ticket to buy that very sector")
+    }
+
+    /// And the hard case: underweighting the sleeve's OWN default. Falling back to the
+    /// default would buy the avoided fund.
+    func testUnderweightingTheSleevesDefaultStillAvoidsIt() {
+        let primary = sectorSleeve.primaryTicker
+        let h = tilted(primary, -300)
+        let bought = Engine.buyTicker(for: sectorSleeve, household: h, style: h.equityStyle)
+        XCTAssertNotEqual(bought, primary,
+                          "the fallback bought \(primary), which is exactly what the tilt says to avoid")
+        XCTAssertTrue(sectorSleeve.instruments.contains { $0.ticker == bought },
+                      "the replacement must still be an instrument this sleeve lists")
+    }
+
+    /// A zero deviation is neither a buy nor an avoid, and must not redirect anything.
+    func testAZeroDeviationDoesNotRedirectTheTrade() {
+        let h = tilted("XLE", 0)
+        XCTAssertEqual(Engine.buyTicker(for: sectorSleeve, household: h, style: h.equityStyle),
+                       sectorSleeve.primaryTicker)
+    }
+
+    /// The ticket carries the sleeve's own spelling, not whatever case the tilt was saved in.
+    func testTheTicketUsesTheSleevesCanonicalSpelling() {
+        let h = tilted("xle", 300)
+        XCTAssertEqual(Engine.buyTicker(for: sectorSleeve, household: h, style: h.equityStyle), "XLE")
+    }
+
+    /// A tilt on a US SIZE sleeve must not silently undo the household's value/growth style —
+    /// naming the blend fund should still buy the styled flavour.
+    func testAnOverweightOnASizeSleeveStillHonoursTheEquityStyle() {
+        guard let large = Seed.legacyPolicy.sleeve("us_large_core"),
+              large.instruments.contains(where: { $0.ticker == "VOO" }) else {
+            return   // this sleeve does not list VOO in the shipped policy; nothing to assert
+        }
+        var h = Seed.sampleHousehold
+        h.equityStyle = USEquityStyleTilt(large: .value, mid: .value, small: .value)
+        h.tacticalTilts = [TacticalTiltAction(sleeveId: "us_large_core", deviationBps: 200,
+                                              sourceName: "US large", ticker: "VOO",
+                                              thesis: "t", status: .committed)]
+        XCTAssertEqual(Engine.buyTicker(for: large, household: h, style: h.equityStyle), "VTV",
+                       "a value household buying its large sleeve should still buy the value fund")
+    }
+}
