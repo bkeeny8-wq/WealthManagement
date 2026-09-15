@@ -801,10 +801,24 @@ public extension IntakeModel {
             let pia = a.socialSecurityMonthlyUsd > 0
                 ? a.socialSecurityMonthlyUsd
                 : Self.estimatedMonthlyPIA(a.salaryUsd + a.bonusUsd)
+            // Spousal eligibility is a fact about WHOSE record is the higher one, not about
+            // the order the adults were typed in. `i > 0` made the same two people, the same
+            // statements and the same claim ages produce $18,000/yr and 132 bps of required
+            // return apart depending on who was entered first. Resolved below, once every
+            // PIA is known.
             ssProfiles.append(SocialSecurityProfile(personId: pid, estimatedPIAUsd: pia,
                                                     fullRetirementAge: 67,
                                                     plannedClaimingAge: a.ssClaimAge > 0 ? a.ssClaimAge : ssClaimAge,
-                                                    eligibleForSpousalBenefit: i > 0, survivorBenefitApplies: adults.count > 1))
+                                                    eligibleForSpousalBenefit: false, survivorBenefitApplies: adults.count > 1))
+        }
+
+        // Anyone whose own record is below half the household's highest may claim against it.
+        // Order-independent by construction: it is decided by the PIAs, after all are known.
+        if ssProfiles.count > 1 {
+            let highest = ssProfiles.map(\.estimatedPIAUsd).max() ?? 0
+            for i in ssProfiles.indices {
+                ssProfiles[i].eligibleForSpousalBenefit = ssProfiles[i].estimatedPIAUsd < 0.5 * highest
+            }
         }
 
         // Dependents on the roster (no human capital).
@@ -959,19 +973,32 @@ public extension IntakeModel {
         // `Σ positions(in: t) == Σ stated balances of t` whenever the client's itemisation
         // fits inside what they said they hold. When it does not, the itemized holdings win:
         // they are specific facts the client typed, and the balance is the estimate.
-        var unabsorbedItemized: [AccountTaxTreatment: Usd] = [:]
+        // The pool carries only the OVERFLOW — the part of an account's own itemized value
+        // that exceeds its own stated balance. Pooling the raw total conserved the household
+        // figure while RELOCATING money between accounts: a $300,000 holding filed to Ben's
+        // $400,000 IRA drained $300,000 out of Ada's $600,000 IRA to "absorb" it, leaving
+        // Ada $300k / Ben $700k. Ada is 76 and past her required beginning date, so her first
+        // RMD halved from $25,316 to $12,658 — and on the older-spouse variant her IRA
+        // emptied entirely and her RMDs vanished from the projection. The household total was
+        // right throughout, which is exactly why the test asserting only that total passed.
+        var overflowPool: [AccountTaxTreatment: Usd] = [:]
         for (acct, usd) in itemizedByAccount {
             let t: AccountTaxTreatment = acct.hasPrefix("acct_trad") ? .taxDeferred
                                        : acct.hasPrefix("acct_roth") ? .taxFree : .taxable
-            unabsorbedItemized[t, default: 0] += usd
+            let owner = acct.split(separator: "_").last.flatMap { Int($0) } ?? 0
+            overflowPool[t, default: 0] += max(0, usd - statedBalance(t, owner))
         }
         func addAccount(_ id: String, _ label: String, _ treatment: AccountTaxTreatment, _ balance: Usd, _ ownership: AccountOwnership) {
             let itemized = itemizedByAccount[id] ?? 0
             guard balance > 0 || itemized > 0 else { return }
             if !accounts.contains(where: { $0.id == id }) { accounts.append(Account(id: id, label: label, treatment: treatment, ownership: ownership)) }
-            let absorbed = min(balance, unabsorbedItemized[treatment] ?? 0)
-            unabsorbedItemized[treatment] = (unabsorbedItemized[treatment] ?? 0) - absorbed
-            let remainder = max(0, balance - absorbed)   // synthesize only what the client didn't itemize
+            // This account's OWN itemized value comes out of its own balance first; only a
+            // neighbour's overflow may consume what is left. Money never moves between
+            // owners.
+            let own = min(balance, itemized)
+            let spill = min(max(0, balance - own), overflowPool[treatment] ?? 0)
+            overflowPool[treatment] = (overflowPool[treatment] ?? 0) - spill
+            let remainder = max(0, balance - own - spill)   // synthesize only what the client didn't itemize
             if remainder > 0 {
                 positions.append(contentsOf: Self.synthesizePositions(accountId: id, treatment: treatment, balance: remainder, gainPct: taxableUnrealizedGainPct, equityPct: currentEquityPct))
             }
@@ -1074,12 +1101,14 @@ public extension IntakeModel {
                 disabilityGroupOnlyTaxable: diEngaged && disabilityIndividualMonthlyUsd == 0 && disabilityBenefitsTaxable && disabilityGroupMonthlyUsd > 0,
                 lifeNeedUsd: lifeNeed, lifeInForceUsd: lifeInForceUsd, lifeGapUsd: max(0, lifeNeed - lifeInForceUsd),
                 ltcApproach: ltcApproach, ltcTotalExposureUsd: ltcExposure, ltcUnfundedUsd: ltcUnfunded,
-                // Answering ANY protection question is engagement with the section; the
-                // per-domain gates above still suppress phantom gaps in the domains that were
-                // skipped. The explicit flag exists for the household that was asked and has
-                // NO cover — the case an all-zero record cannot otherwise express.
-                umbrellaLimitUsd: umbrellaLimitUsd,
-                reviewed: protectionReviewed || diEngaged || lifeEngaged || ltcEngaged || umbrellaEngaged)
+                // ONLY the explicit flag. Deriving "reviewed" from engagement in ANY domain
+                // was wrong in the direction that matters: a household that answered the life
+                // question and was never asked about umbrella cover came out "reviewed", and
+                // the umbrella rule — which now treats zero as the worst case — fabricated a
+                // HARD "No umbrella cover" finding from a question nobody put to them. That
+                // is worse than the silence it replaced. Engagement in one domain says
+                // nothing about another; only the advisor confirming the section does.
+                umbrellaLimitUsd: umbrellaLimitUsd, reviewed: protectionReviewed)
         }
 
         // Equity comp mechanics + options/ESPP legs (single-employer exposure).

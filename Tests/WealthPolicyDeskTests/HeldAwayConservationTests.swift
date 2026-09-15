@@ -135,6 +135,71 @@ final class HeldAwayConservationTests: XCTestCase {
                        "the entered holding stands alone; no proxy is synthesized alongside it")
     }
 
+    // MARK: - Per-ACCOUNT conservation, not just the household total
+
+    private func byAccount(_ h: Household) -> [String: Usd] {
+        Dictionary(grouping: h.positions, by: \.accountId)
+            .mapValues { $0.reduce(0) { $0 + $1.marketValueUsd } }
+    }
+
+    /// The household total being right does not mean the money is in the right ACCOUNTS.
+    /// Pooling the raw itemized total conserved the household figure while draining one
+    /// spouse's IRA to absorb the other's holding — and the test asserting only the total
+    /// certified it.
+    func testItemizedValueNeverMovesBetweenOwnersAccounts() {
+        let m = couple(traditional: (600_000, 400_000),
+                       heldAway: [held("AAPL", 100_000, .taxDeferred, owner: 0),
+                                  held("MSFT", 250_000, .taxDeferred, owner: 1)])
+        let acct = byAccount(m.buildHousehold())
+        XCTAssertEqual(acct["acct_trad"] ?? 0, 600_000, accuracy: 1, "Ada stated $600,000 and must hold $600,000")
+        XCTAssertEqual(acct["acct_trad_1"] ?? 0, 400_000, accuracy: 1, "Ben stated $400,000 and must hold $400,000")
+    }
+
+    /// The consequence that makes it matter: an older spouse past her required beginning date
+    /// must keep her own distributions, whoever itemized what.
+    func testAnItemizedHoldingCannotDeleteTheOtherSpousesRmds() {
+        func firstRmd(ownerOfHolding: Int) -> (age: Int, usd: Usd) {
+            var m = IntakeModel()
+            var ada = IntakeAdult(); ada.name = "Ada"; ada.birthYear = 1950; ada.retirementAge = 62
+            ada.salaryUsd = 0; ada.traditionalUsd = 600_000
+            var ben = IntakeAdult(); ben.name = "Ben"; ben.birthYear = 1980; ben.retirementAge = 65
+            ben.salaryUsd = 150_000; ben.traditionalUsd = 400_000
+            m.adults = [ada, ben]
+            m.taxableUsd = 300_000
+            m.retirementSpendingUsd = 120_000
+            m.heldAwayPositions = [held("MSFT", 300_000, .taxDeferred, owner: ownerOfHolding)]
+            let years = Engine.evaluate(m.buildHousehold()).decumulation.baseline.years
+            guard let y = years.first(where: { $0.rmdUsd > 0 }) else { return (0, 0) }
+            return (y.age, y.rmdUsd)
+        }
+        let filedToBen = firstRmd(ownerOfHolding: 1), filedToAda = firstRmd(ownerOfHolding: 0)
+        XCTAssertGreaterThan(filedToBen.usd, 0, "Ada is 76 and past her required beginning date")
+        XCTAssertEqual(filedToBen.age, filedToAda.age,
+                       "whose rollover was itemized cannot change when distributions begin")
+        XCTAssertEqual(filedToBen.usd, filedToAda.usd, accuracy: 1,
+                       "nor how large they are — Ada's IRA was drained to absorb Ben's holding")
+    }
+
+    /// Sweep three adults and every owner, asserting per-account, not just the total.
+    func testPerAccountConservationHoldsAcrossThreeAdults() {
+        for owner in [0, 1, 2] {
+            var m = IntakeModel()
+            let balances: [Usd] = [300_000, 300_000, 400_000]
+            m.adults = balances.enumerated().map { i, b in
+                var a = IntakeAdult(); a.name = "A\(i)"; a.birthYear = 1970; a.retirementAge = 65
+                a.salaryUsd = 100_000; a.traditionalUsd = b; return a
+            }
+            m.taxableUsd = 200_000
+            m.heldAwayPositions = [held("AAPL", 250_000, .taxDeferred, owner: owner)]
+            let acct = byAccount(m.buildHousehold())
+            for (i, b) in balances.enumerated() {
+                let id = i == 0 ? "acct_trad" : "acct_trad_\(i)"
+                XCTAssertEqual(acct[id] ?? 0, b, accuracy: 1,
+                               "holding filed to owner \(owner) moved money out of account \(i)")
+            }
+        }
+    }
+
     /// The owner must survive a save and reload, or the holding silently moves back to the
     /// primary's account — and onto the wrong distribution schedule — on the next load.
     func testTheOwnerRoundTrips() throws {

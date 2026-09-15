@@ -163,6 +163,11 @@ public enum Engine {
     /// The top of the required-return bisection bracket. A solve that lands here did not
     /// converge — it means no achievable return funds the plan, not that the plan needs 20%.
     static let requiredReturnCeilingBps: Bps = 2000
+    /// The BOTTOM of the same bracket, and the same kind of artifact. `solve` early-returns
+    /// it when the plan is funded even at −5% real, so materially different households — one
+    /// with $900k, one with $1.2M, one with $2M — all report exactly −5.0% as though it were
+    /// a computed rate. Only the top of the bracket was treated as a sentinel.
+    static let requiredReturnFloorBps: Bps = -500
     /// `fundedRatioBps` is clamped at 9.99x; a ratio sitting on the clamp is a sentinel too.
     static let fundedRatioCeilingBps: Bps = 99900
 
@@ -264,6 +269,7 @@ public enum Engine {
         let spendingUsd = h.goals.filter { $0.kind == .spending }
             .flatMap(\.outflows).reduce(0) { $0 + $1.amountUsd }
         let returnSolveRanOff = rr.requiredRealReturnBps >= requiredReturnCeilingBps
+            || rr.requiredRealReturnBps <= requiredReturnFloorBps
         let fundedRatioClamped = bs.fundedRatioBps >= fundedRatioCeilingBps
         let solvable = h.portfolioValueUsd > 0 && spendingUsd > 0
             && !returnSolveRanOff && !fundedRatioClamped
@@ -499,11 +505,16 @@ public enum Engine {
         // unreachable while a single household claiming age applied to both; with per-person
         // ages a spouse claiming at 62 against a worker claiming at 70 collected eight years
         // of a benefit nobody was entitled to yet.
-        let workerClaimStart: Int = h.socialSecurity
+        // UNFLOORED. A claim already in the past yields a negative plan-year, and flooring it
+        // to 0 made the top-up look as though it commenced TODAY — so a couple onboarded at
+        // 76 who both claimed at 62 had the early-claim reduction silently removed and
+        // collected $55,800/yr against a correct $50,400. The floor belongs on the payment
+        // gate, not on the age the adjustment is priced from.
+        let workerClaimStartRaw: Int = h.socialSecurity
             .filter { $0.estimatedPIAUsd >= maxPIA && maxPIA > 0 }
             .compactMap { ss -> Int? in
                 guard let p = h.people.first(where: { $0.id == ss.personId }) else { return nil }
-                return max(0, ss.plannedClaimingAge - age(birthDate: p.birthDate, asOf: asOf)) + 1
+                return ss.plannedClaimingAge - age(birthDate: p.birthDate, asOf: asOf) + 1
             }
             .min() ?? 0
         // A person's own retirement benefit and any spousal TOP-UP are one leg with a
@@ -519,7 +530,8 @@ public enum Engine {
         for ss in h.socialSecurity {
             guard let person = h.people.first(where: { $0.id == ss.personId }) else { continue }
             let currentAge = age(birthDate: person.birthDate, asOf: asOf)
-            let start = max(0, ss.plannedClaimingAge - currentAge) + 1
+            let startRaw = ss.plannedClaimingAge - currentAge + 1
+            let start = max(0, startRaw)
             let death = person.longevityPercentileTarget - currentAge
 
             // Own benefit: +8%/yr delayed (frozen at 70), −6%/yr early, vs FRA.
@@ -531,13 +543,19 @@ public enum Engine {
             // order the adults were typed into intake — keying it to `i > 0` meant the same
             // two people, the same statements and the same claim ages produced $18,000/yr and
             // 132 bps of required return apart depending on who was entered first.
-            let topUpPIA = h.socialSecurity.count > 1 ? max(0, 0.5 * maxPIA - ss.estimatedPIAUsd) : 0
-            let topUpStart = max(start, workerClaimStart)
+            // Eligibility is still a stated fact about the RECORD — a person with no spousal
+            // entitlement (never married to the worker, or their own record governs) must be
+            // suppressible. Dropping the flag entirely handed every additional profile a
+            // top-up, so a three-adult household collected one it was not owed.
+            let topUpPIA = (h.socialSecurity.count > 1 && ss.eligibleForSpousalBenefit)
+                ? max(0, 0.5 * maxPIA - ss.estimatedPIAUsd) : 0
+            let topUpStartRaw = max(startRaw, workerClaimStartRaw)
+            let topUpStart = max(0, topUpStartRaw)
             // The reduction is priced off the age the money ACTUALLY starts, not the age the
             // client nominated. Carrying a −30% early-claim haircut through years the gate
             // pays nothing made claiming at 62 strictly worse than claiming at 70 — same
             // first payment, permanently smaller.
-            let commenceAge = currentAge + topUpStart - 1
+            let commenceAge = currentAge + topUpStartRaw - 1
             let topUpDelta = commenceAge - ss.fullRetirementAge
             let topUpAdj = topUpDelta >= 0 ? 1.0 : (1 + 0.06 * Double(topUpDelta))   // no delayed credit on spousal
             legs.append((own: ss.estimatedPIAUsd * 12 * ownAdj,

@@ -118,25 +118,45 @@ final class RebalanceAccountBoundaryTests: XCTestCase {
     }
 
     /// And when a boundary IS the cause, it says so.
+    ///
+    /// The previous version was vacuous: it bailed on `guard let shortfall … else { return }`
+    /// because its fixture had no funding gap at all, so deleting the entire "name the
+    /// boundary cause" branch left 305 tests green. Location preference is only a PREFERENCE,
+    /// so cash never strands for want of a willing sleeve — it strands below the minimum
+    /// trade size, which is what this builds.
     func testTheBoundaryCauseIsNamedWhenItIsTheRealOne() {
-        let plan = makePlan(twoOwnerHousehold())
-        guard let shortfall = plan.warnings.first(where: { $0.contains("could be funded") }) else { return }
-        let stranded = plan.excessCashUsd > 0 || Set(plan.trades.filter { $0.side == TradeSide.buy }.map(\.accountId)).count > 1
-        if stranded {
-            XCTAssertTrue(shortfall.contains("Money cannot move between accounts"),
-                          "cash stranded across accounts must be explained as such")
+        func sleeve(_ id: String, _ ticker: String, target: Bps, prefs: [AccountTaxTreatment]) -> Sleeve {
+            Sleeve(id: id, label: id, tier: .satellite, role: .growth, targetBps: target,
+                   bandBps: 50, maxBps: 10000, taxEfficiency: .moderate,
+                   locationPreference: prefs, liquidityClass: .daily,
+                   instruments: [.init(ticker: ticker, role: .primary)], rationale: "")
         }
-    }
+        var policy = Seed.legacyPolicy
+        policy.sleeves = [sleeve("zz_over", "OVER", target: 0, prefs: [.taxable, .taxDeferred]),
+                          sleeve("aa_under", "UNDER", target: 9960, prefs: [.taxable])]
+        policy.altBudgets = []
 
-    /// Asset location still ranks buys within an account — a sleeve that names this account's
-    /// treatment first is funded ahead of one that merely tolerates it.
-    func testLocationPreferenceStillOrdersBuysInsideAnAccount() {
-        let h = twoOwnerHousehold()
-        let plan = makePlan(h)
-        for t in plan.trades where t.side == .buy {
-            guard let account = h.account(t.accountId) else { continue }
-            XCTAssertEqual(account.treatment, t.treatment,
-                           "a buy must report the treatment of the account it actually lands in")
+        var h = Seed.sampleHousehold
+        h.accounts = [Account(id: "acct_taxable", label: "Brokerage", treatment: .taxable),
+                      Account(id: "acct_ira", label: "IRA", treatment: .taxDeferred)]
+        // The IRA's slice sells first (sheltered lots rank ahead) but is below minTradeUsd,
+        // so its proceeds strand in an account whose cash cannot reach the taxable buy.
+        h.positions = [
+            Position(id: "ira", accountId: "acct_ira", ticker: "OVER", sleeveId: "zz_over",
+                     marketValueUsd: 800, costBasisUsd: 800, layer: .strategic,
+                     disposition: .consume, holdToStepUp: false),
+            Position(id: "tax", accountId: "acct_taxable", ticker: "OVER", sleeveId: "zz_over",
+                     marketValueUsd: 200_000, costBasisUsd: 200_000, layer: .strategic,
+                     disposition: .consume, holdToStepUp: false),
+        ]
+        h.tacticalTilts = []
+
+        let plan = Engine.rebalancePlan(h, policy: policy, tax: Seed.tax2026, asOf: Engine.planningAsOf)
+        XCTAssertGreaterThan(plan.excessCashUsd, 0, "fixture check: the IRA's slice strands")
+        guard let shortfall = plan.warnings.first(where: { $0.contains("could be funded") }) else {
+            return XCTFail("a shortfall must be reported when cash strands")
         }
+        XCTAssertTrue(shortfall.contains("Money cannot move between accounts"),
+                      "stranded cash must be explained as an account boundary, not as insufficient sells")
     }
 }

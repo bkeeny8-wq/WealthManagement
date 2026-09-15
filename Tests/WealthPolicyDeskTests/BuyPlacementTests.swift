@@ -183,6 +183,45 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertFalse(e.isSolvable)
     }
 
+    /// The BOTTOM of the bracket is the same artifact as the top. `solve` early-returns −5%
+    /// when the plan is funded even there, so materially different households all report
+    /// exactly −5.0% as though it were a computed rate. Only the ceiling was being gated.
+    func testTheBottomOfTheBracketIsAlsoASentinel() {
+        func build(taxable: Usd) -> Evaluation {
+            var m = IntakeModel()
+            var a = IntakeAdult(); a.birthYear = 1958; a.retirementAge = 65
+            a.salaryUsd = 120_000; a.socialSecurityMonthlyUsd = 4_000; a.ssClaimAge = 67
+            m.adults = [a]
+            m.taxableUsd = taxable
+            m.retirementSpendingUsd = 24_000
+            return Engine.evaluate(m.buildHousehold())
+        }
+        // Two materially different households that both bottom out. (A LARGER portfolio can
+        // need MORE return here, because an unset legacy floor defaults to preserving the
+        // whole corpus — so "richer" is not automatically further from the floor.)
+        let modest = build(taxable: 900_000), rich = build(taxable: 1_200_000)
+        XCTAssertEqual(modest.requiredReturn.requiredRealReturnBps, Engine.requiredReturnFloorBps,
+                       "fixture check: the solve bottoms out")
+        XCTAssertEqual(rich.requiredReturn.requiredRealReturnBps, Engine.requiredReturnFloorBps)
+        XCTAssertFalse(modest.isSolvable, "a bottomed-out solve is a sentinel, not a −5% rate")
+        XCTAssertFalse(rich.isSolvable)
+    }
+
+    /// A review snapshot has to remember whether its own figures were solved, or the history
+    /// row renders a sentinel forever and the CRM export ships one as a rate.
+    func testAReviewRemembersWhetherItsFiguresWereSolved() {
+        var m = IntakeModel()
+        m.adults = [{ var a = IntakeAdult(); a.birthYear = 1985; a.retirementAge = 65
+                      a.salaryUsd = 150_000; return a }()]
+        m.taxableUsd = 25_000; m.emergencyReserveUsd = 50_000; m.retirementSpendingUsd = 20_000
+        let unsolvable = IPSReview.from(Engine.evaluate(m.buildHousehold()), overrides: HouseholdOverrides(),
+                                        at: Date(timeIntervalSinceReferenceDate: 700_000_000))
+        XCTAssertFalse(unsolvable.solved)
+        let solved = IPSReview.from(Engine.evaluate(Seed.sampleHousehold), overrides: HouseholdOverrides(),
+                                    at: Date(timeIntervalSinceReferenceDate: 700_000_000))
+        XCTAssertTrue(solved.solved)
+    }
+
     /// The renderer must never format a sentinel as a rate, wherever it is shown.
     func testASentinelNeverRendersAsARate() {
         XCTAssertEqual(Fmt.solvedPctBps(Engine.requiredReturnCeilingBps, solved: false), "—")

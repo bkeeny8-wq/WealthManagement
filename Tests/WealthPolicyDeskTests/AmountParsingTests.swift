@@ -33,7 +33,10 @@ final class AmountParsingTests: XCTestCase {
         XCTAssertEqual(Fmt.parseAmount(""), 0, accuracy: 0.001)
         XCTAssertEqual(Fmt.parseAmount("abc"), 0, accuracy: 0.001)
         XCTAssertEqual(Fmt.parseAmount("$"), 0, accuracy: 0.001)
-        XCTAssertEqual(Fmt.parseAmount("1.2.3"), 1.23, accuracy: 0.001, "only the first separator is a decimal point")
+        // A separator repeated is GROUPING, which is what makes the EU form "1.234.567" parse
+        // as 1234567 rather than as a fraction. Malformed input inherits that reading.
+        XCTAssertEqual(Fmt.parseAmount("1.2.3"), 123, accuracy: 0.001)
+        XCTAssertEqual(Fmt.parseAmount("1.234.567"), 1_234_567, accuracy: 0.001, "EU grouping")
     }
 
     /// Zero renders empty so the prompt shows — that is the affordance the whole change
@@ -42,6 +45,38 @@ final class AmountParsingTests: XCTestCase {
         XCTAssertEqual(Fmt.editableAmount(0), "")
         XCTAssertEqual(Fmt.editableAmount(600_000), "600000")
         XCTAssertEqual(Fmt.editableAmount(4_123.50), "4123.50")
+    }
+
+    /// `.decimalPad` renders the DEVICE's decimal separator, which is "," across most of the
+    /// EU. Treating "," as grouping unconditionally re-created the hundredfold overstatement
+    /// this function exists to prevent — on the keyboard change that was supposed to let the
+    /// client type cents in the first place.
+    func testACommaDecimalSeparatorIsNotReadAsThousands() {
+        XCTAssertEqual(Fmt.parseAmount("4123,50"), 4_123.50, accuracy: 0.001, "German/French entry")
+        XCTAssertEqual(Fmt.parseAmount("1.234,56"), 1_234.56, accuracy: 0.001, "and its grouped form")
+        XCTAssertEqual(Fmt.parseAmount("4,123.50"), 4_123.50, accuracy: 0.001, "US form still works")
+    }
+
+    /// A separator with three digits after it is grouping, not cents — that is what keeps
+    /// "250,000" from becoming $250.
+    func testThreeDigitGroupsAreNotCents() {
+        XCTAssertEqual(Fmt.parseAmount("250,000"), 250_000, accuracy: 0.001)
+        XCTAssertEqual(Fmt.parseAmount("250.000"), 250_000, accuracy: 0.001, "the EU grouping form")
+        XCTAssertEqual(Fmt.parseAmount("1,000,000"), 1_000_000, accuracy: 0.001)
+    }
+
+    /// Every keystroke re-renders through `editableAmount`, which formats whole values via
+    /// `Int` — and `Int(Double)` TRAPS above Int64.max. Nineteen digits, reachable by holding
+    /// a key on the pad, used to crash the app outright.
+    func testALongRunOfDigitsCannotCrashTheField() {
+        for digits in [15, 17, 19, 25, 40] {
+            let typed = String(repeating: "9", count: digits)
+            let parsed = Fmt.parseAmount(typed)
+            XCTAssertLessThanOrEqual(parsed, Fmt.maxEnterableAmount, "\(digits) digits must be clamped")
+            XCTAssertFalse(Fmt.editableAmount(parsed).isEmpty, "\(digits) digits must still render")
+        }
+        XCTAssertEqual(Fmt.editableAmount(.infinity), "", "a non-finite value must not reach Int()")
+        XCTAssertEqual(Fmt.editableAmount(.nan), "")
     }
 
     /// Edit, re-render, edit again must not drift — a field the advisor tabs through twice

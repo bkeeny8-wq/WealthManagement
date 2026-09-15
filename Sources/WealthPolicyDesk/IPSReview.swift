@@ -27,15 +27,22 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
     /// when the review happened; this records what the engine treated as "now", which is
     /// what a reader needs to reproduce the figures above.
     public var planAsOf: IsoDate = Engine.planningAsOf
+    /// Whether the required-return solve CONVERGED when this snapshot was taken. Without it
+    /// the history row renders "Required 20.0% · Funded 427.4%" forever, with delta arrows
+    /// against the next review, and the CRM export ships 2000 in `required_real_return_bps`
+    /// as though it were a rate. Reviews written before this field existed were all taken on
+    /// solvable plans in practice, so they default to true.
+    public var solved: Bool = true
 
     public init(id: String = UUID().uuidString, createdAt: Date, note: String = "", confirmedSections: [String] = [],
                 requiredRealReturnBps: Bps, fundedRatioBps: Bps, equityCeilingBps: Bps,
                 afterTaxNetWorthUsd: Usd, goalCount: Int, overrides: HouseholdOverrides = HouseholdOverrides(),
-                planAsOf: IsoDate = Engine.planningAsOf) {
+                planAsOf: IsoDate = Engine.planningAsOf, solved: Bool = true) {
         self.id = id; self.createdAt = createdAt; self.note = note; self.confirmedSections = confirmedSections
         self.requiredRealReturnBps = requiredRealReturnBps; self.fundedRatioBps = fundedRatioBps
         self.equityCeilingBps = equityCeilingBps; self.afterTaxNetWorthUsd = afterTaxNetWorthUsd
         self.goalCount = goalCount; self.overrides = overrides; self.planAsOf = planAsOf
+        self.solved = solved
     }
 
     /// Forward/backward-compatible decode: a missing field never drops the record.
@@ -52,6 +59,7 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
         goalCount = ((try? c.decodeIfPresent(Int.self, forKey: .goalCount)) ?? nil) ?? 0
         overrides = ((try? c.decodeIfPresent(HouseholdOverrides.self, forKey: .overrides)) ?? nil) ?? HouseholdOverrides()
         planAsOf = ((try? c.decodeIfPresent(IsoDate.self, forKey: .planAsOf)) ?? nil) ?? Engine.planningAsOf
+        solved = ((try? c.decodeIfPresent(Bool.self, forKey: .solved)) ?? nil) ?? true
     }
 
     /// Snapshot the headline figures from an evaluated plan.
@@ -63,6 +71,6 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
                   equityCeilingBps: e.riskProfile?.bindingEquityBps ?? 0,
                   afterTaxNetWorthUsd: e.balanceSheet.afterTaxNetWorthUsd,
                   goalCount: e.household.goals.filter { $0.kind == .spending }.count,
-                  overrides: overrides, planAsOf: e.asOf)
+                  overrides: overrides, planAsOf: e.asOf, solved: e.isSolvable)
     }
 }

@@ -433,7 +433,7 @@ struct PolicyStatementTab: View {
                 Spacer(minLength: 8)
                 Text("\(r.confirmedSections.count)/\(reviewSections.count) confirmed").font(.system(size: 10.5)).foregroundStyle(Theme.muted)
             }
-            Text("Required \(Fmt.pctBps(r.requiredRealReturnBps))\(delta(r.requiredRealReturnBps, prior?.requiredRealReturnBps)) · Funded \(Fmt.pctBps(r.fundedRatioBps))\(delta(r.fundedRatioBps, prior?.fundedRatioBps)) · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
+            Text("Required \(Fmt.solvedPctBps(r.requiredRealReturnBps, solved: r.solved))\(delta(r.requiredRealReturnBps, prior?.requiredRealReturnBps)) · Funded \(Fmt.solvedPctBps(r.fundedRatioBps, solved: r.solved))\(delta(r.fundedRatioBps, prior?.fundedRatioBps)) · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             if !r.note.isEmpty {
                 Text("“\(r.note)”").font(.system(size: 12)).italic().foregroundStyle(Theme.ink.opacity(0.85)).fixedSize(horizontal: false, vertical: true)

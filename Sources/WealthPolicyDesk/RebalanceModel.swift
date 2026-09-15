@@ -176,6 +176,17 @@ public extension Engine {
         var totalBuys: Usd = 0
         var buysByAccountSleeve: [String: [String: Usd]] = [:]   // account → sleeve → usd
 
+        // Sleeves with no instrument anyone has argued for — a committed underweight tilt has
+        // ruled out the only one the sleeve lists. Excluded BEFORE allocation, because
+        // dropping the buy afterwards left the cash it had already reserved stranded: the
+        // account sold, bought nothing, and a perfectly fundable sleeve beside it sat out of
+        // band with no warning while $300,000 sat idle in the one account that could spend it.
+        let undefendable = Set(gaps.filter { gap in
+            guard gap.traded, gap.gapUsd > 0, let sleeve = policy.sleeve(gap.sleeveId) else { return false }
+            return buyTicker(for: sleeve, household: h, style: h.equityStyle).isEmpty
+        }.map { $0.sleeveId })
+        let unthesisedSleeves = gaps.filter { undefendable.contains($0.sleeveId) }.map { $0.label }
+
         for accountId in proceedsByAccount.keys.sorted() {
             guard var cash = proceedsByAccount[accountId], cash >= reb.minTradeUsd,
                   let account = h.account(accountId) else { continue }
@@ -195,7 +206,8 @@ public extension Engine {
             // while an outer breach went unfunded. Sleeve id remains the final tiebreak so
             // the plan stays deterministic.
             func severity(_ g: RebalanceSleeveGap) -> Int { g.status == .outerBreach ? 0 : 1 }
-            let ranked = gaps.filter { $0.traded && (remainingBySleeve[$0.sleeveId] ?? 0) > 0 }
+            let ranked = gaps.filter { $0.traded && (remainingBySleeve[$0.sleeveId] ?? 0) > 0
+                                        && !undefendable.contains($0.sleeveId) }
                 .compactMap { gap -> (gap: RebalanceSleeveGap, rank: Int)? in
                     guard let sleeve = policy.sleeve(gap.sleeveId) else { return nil }
                     let rank = sleeve.locationPreference.firstIndex(of: account.treatment) ?? Int.max
@@ -222,7 +234,6 @@ public extension Engine {
             proceedsByAccount[accountId] = cash    // whatever is left is idle cash in THIS account
         }
 
-        var unthesisedSleeves: [String] = []
         for accountId in buysByAccountSleeve.keys.sorted() {
             guard let account = h.account(accountId) else { continue }
             for sleeveId in (buysByAccountSleeve[accountId] ?? [:]).keys.sorted() {
@@ -230,13 +241,6 @@ public extension Engine {
                       let gap = gaps.first(where: { $0.sleeveId == sleeveId }),
                       let buyUsd = buysByAccountSleeve[accountId]?[sleeveId] else { continue }
                 let ticker = buyTicker(for: sleeve, household: h, style: h.equityStyle)
-                // No instrument anyone has argued for — see `buyTicker`. Funding it would be
-                // an un-thesised bet picked by declaration order, so the cash stays put.
-                guard !ticker.isEmpty else {
-                    unthesisedSleeves.append(gap.label)
-                    totalBuys -= buyUsd
-                    continue
-                }
                 let rationale = buyRationale(sleeve, ticker: ticker, placedIn: account)
                 trades.append(RebalanceTrade(id: "buy-\(accountId)-\(sleeveId)", side: .buy, ticker: ticker,
                     accountId: accountId, accountLabel: account.label,

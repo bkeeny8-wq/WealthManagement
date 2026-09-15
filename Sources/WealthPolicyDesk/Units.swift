@@ -41,27 +41,52 @@ public enum Fmt {
         solved ? pctBps(bps) : "—"
     }
 
-    /// Parse a human-typed money amount. Commas are thousands separators and are dropped;
-    /// the FIRST "." is the decimal point; anything else a paste drags in ("$", spaces,
-    /// non-breaking spaces) is discarded.
+    /// Parse a human-typed money amount.
     ///
-    /// Filtering to digits alone turned a figure copied off a statement — "4,123.50" — into
-    /// 412350, a hundredfold overstatement, on the very field that asks the client to copy
-    /// their Social Security benefit verbatim.
+    /// Both "." and "," can be a decimal separator OR a thousands separator depending on the
+    /// locale and on where they fall, and `.decimalPad` renders whichever the DEVICE uses —
+    /// which is "," across most of the EU. So the separator is identified by position, not by
+    /// character: when both appear, the LAST one is the decimal point and the other groups;
+    /// when only one appears, it is a decimal point only if it occurs once with one or two
+    /// digits after it. "4,123.50" and "4123,50" both give 4123.50; "1,000,000" and "250,000"
+    /// stay whole. Treating "," as grouping unconditionally turned a German client's
+    /// "4123,50" into 412350 — the same hundredfold overstatement this function exists to
+    /// prevent, re-created by switching to a keyboard that can finally type a separator.
     public static func parseAmount(_ raw: String) -> Usd {
-        var digits = "", seenDot = false
-        for ch in raw {
-            if ch.isNumber { digits.append(ch) }
-            else if ch == "." && !seenDot { seenDot = true; digits.append(ch) }
+        let kept = raw.filter { $0.isNumber || $0 == "." || $0 == "," }
+        guard !kept.isEmpty else { return 0 }
+        let lastDot = kept.lastIndex(of: "."), lastComma = kept.lastIndex(of: ",")
+        var decimalAt: String.Index? = nil
+        if let d = lastDot, let c = lastComma {
+            decimalAt = d > c ? d : c
+        } else if let only = lastDot ?? lastComma {
+            let ch = kept[only]
+            let occurrences = kept.filter { $0 == ch }.count
+            let after = kept.distance(from: kept.index(after: only), to: kept.endIndex)
+            if occurrences == 1 && after >= 1 && after <= 2 { decimalAt = only }
         }
-        return Usd(digits) ?? 0
+        var whole = "", fraction = ""
+        for (i, ch) in zip(kept.indices, kept) where ch.isNumber {
+            if let d = decimalAt, i > d { fraction.append(ch) } else { whole.append(ch) }
+        }
+        // Guard the magnitude: `editableAmount` renders whole values through `Int`, which
+        // TRAPS above Int64.max, and every keystroke re-renders. Nineteen digits — reachable
+        // by holding a key — used to crash the app outright.
+        let combined = whole + (fraction.isEmpty ? "" : "." + fraction)
+        let parsed = Usd(combined) ?? 0
+        return min(parsed, maxEnterableAmount)
     }
+
+    /// The largest amount a field will accept. Far above any real balance, and well inside
+    /// the range `Int` can represent, so rendering can never trap.
+    public static let maxEnterableAmount: Usd = 1_000_000_000_000   // $1 trillion
 
     /// Round-trips with `parseAmount`. Zero renders EMPTY so an unanswered field can show its
     /// prompt instead of a fabricated "0".
     public static func editableAmount(_ value: Usd) -> String {
-        guard value != 0 else { return "" }
-        return value == value.rounded() ? String(Int(value)) : String(format: "%.2f", value)
+        guard value != 0, value.isFinite else { return "" }
+        let clamped = min(max(value, -maxEnterableAmount), maxEnterableAmount)
+        return clamped == clamped.rounded() ? String(Int(clamped)) : String(format: "%.2f", clamped)
     }
 
 

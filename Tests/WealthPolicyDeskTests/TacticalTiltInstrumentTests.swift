@@ -177,6 +177,49 @@ final class TacticalTiltSignTests: XCTestCase {
                        "TILTB is a substitute picked by declaration order, not a bet anyone wrote")
     }
 
+    /// Dropping the buy must not strand the cash it reserved. The account sold $300,000,
+    /// bought nothing, and a second sleeve with a perfectly defensible instrument sat out of
+    /// band beside it — with no warning that it had been starved.
+    func testADroppedBuyReleasesItsCashToTheNextFundableSleeve() {
+        func sleeve(_ id: String, _ ticker: String, target: Bps) -> Sleeve {
+            Sleeve(id: id, label: id, tier: .satellite, role: .growth, targetBps: target,
+                   bandBps: 50, maxBps: 10000, taxEfficiency: .moderate,
+                   locationPreference: [.taxable], liquidityClass: .daily,
+                   instruments: [.init(ticker: ticker, role: .primary)], rationale: "")
+        }
+        var policy = Seed.legacyPolicy
+        policy.sleeves = [sleeve("zz_sell", "SELLME", target: 0),
+                          sleeve("aa_tilted", "TILTP", target: 6000),
+                          sleeve("bb_ok", "OKAY", target: 4000)]
+        policy.altBudgets = []
+
+        var h = Seed.sampleHousehold
+        h.accounts = [Account(id: "acct_taxable", label: "Brokerage", treatment: .taxable)]
+        h.positions = [
+            Position(id: "sellable", accountId: "acct_taxable", ticker: "SELLME", sleeveId: "zz_sell",
+                     marketValueUsd: 300_000, costBasisUsd: 300_000, layer: .strategic,
+                     disposition: .consume, holdToStepUp: false),
+            Position(id: "locked", accountId: "acct_taxable", ticker: "SELLME", sleeveId: "zz_sell",
+                     marketValueUsd: 700_000, costBasisUsd: 700_000, layer: .strategic,
+                     disposition: .holdToStepUp, holdToStepUp: true),
+        ]
+        // aa_tilted sorts first alphabetically AND has the larger gap, so it would be funded
+        // first — but its only instrument is the one its committed underweight rules out.
+        h.tacticalTilts = [TacticalTiltAction(sleeveId: "aa_tilted", deviationBps: -300,
+                                              sourceName: "Tilted", ticker: "TILTP",
+                                              thesis: "trim it", status: .committed)]
+
+        let plan = Engine.rebalancePlan(h, policy: policy, tax: Seed.tax2026, asOf: Engine.planningAsOf)
+        let buys = plan.trades.filter { $0.side == TradeSide.buy }
+        XCTAssertFalse(buys.isEmpty, "the account raised $300,000 and bought nothing")
+        XCTAssertTrue(buys.contains { $0.sleeveId == "bb_ok" },
+                      "the cash should have flowed to the sleeve that has a defensible instrument")
+        XCTAssertFalse(buys.contains { $0.sleeveId == "aa_tilted" })
+        XCTAssertGreaterThan(plan.totalBuysUsd, 0)
+        XCTAssertTrue(plan.warnings.contains { $0.contains("un-thesised") },
+                      "and the starved sleeve must still be explained")
+    }
+
     /// A zero deviation is neither a buy nor an avoid, and must not redirect anything.
     func testAZeroDeviationDoesNotRedirectTheTrade() {
         let h = tilted("XLE", 0)

@@ -33,6 +33,23 @@ struct ResilienceTab: View {
     }
 
     var body: some View {
+        if eval.isSolvable { solvedBody } else { notSolvableNotice }
+    }
+
+    /// A screen whose every conclusion derives from a required-return solve that did not
+    /// converge is not wrong figure-by-figure — it is meaningless as a whole. Gating the
+    /// headline and patching individual rows was the mistake: the same clamp was still
+    /// printed as a rate six more times on this one tab, three of them in bold. One guard.
+    @ViewBuilder
+    private var notSolvableNotice: some View {
+        Card("Nothing to solve yet") {
+            Note("This household's required return has no solution inside the model's own bracket — its goals cannot be funded at any achievable real return, or there is not enough entered yet to compute one. Every figure on this screen would be derived from that non-answer, so none is shown. Enter the account balances and the spending this household is planning for, and this tab will compute from them.",
+                 icon: "questionmark.circle", color: Theme.muted)
+        }
+    }
+
+    @ViewBuilder
+    private var solvedBody: some View {
         if res.stresses.isEmpty {
             Card("Resilience") { Note("No plan horizon to stress yet — set a retirement age, spending, and a portfolio.") }
         } else {

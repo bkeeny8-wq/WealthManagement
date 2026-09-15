@@ -68,6 +68,29 @@ final class ProtectionGateTests: XCTestCase {
         XCTAssertNil(household(umbrella: 0, reviewed: false).protection)
     }
 
+    /// Engaging ONE protection domain says nothing about another. Deriving "reviewed" from
+    /// any engagement meant a household that answered the life question and was never asked
+    /// about umbrella cover came out reviewed — and the umbrella rule, which now treats zero
+    /// as the worst case, fabricated a HARD "No umbrella cover" finding from a question
+    /// nobody put to them. That is worse than the silence it replaced.
+    func testAnsweringOneDomainDoesNotCertifyTheOthers() {
+        var m = IntakeModel()
+        var a = IntakeAdult(); a.birthYear = 1975; a.retirementAge = 65
+        a.salaryUsd = 300_000; a.traditionalUsd = 700_000
+        m.adults = [a]
+        m.taxableUsd = 1_500_000
+        m.retirementSpendingUsd = 180_000
+        m.lifeInForceUsd = 1_000_000      // the ONLY protection question answered
+        m.umbrellaLimitUsd = 0            // never asked
+        m.protectionReviewed = false
+
+        let ids = Engine.evaluate(m.buildHousehold()).findings.map(\.ruleId)
+        XCTAssertFalse(ids.contains("umbrella_thin"),
+                       "a hard finding was invented from a question nobody asked")
+        XCTAssertTrue(ids.contains("protection_not_reviewed"),
+                      "the honest report is that the section is unreviewed")
+    }
+
     /// The flag must survive a save and reload, or the review silently un-happens.
     func testTheReviewedFlagRoundTrips() throws {
         var m = IntakeModel(); m.protectionReviewed = true

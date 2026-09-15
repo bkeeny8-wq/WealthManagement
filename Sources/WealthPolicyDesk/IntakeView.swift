@@ -952,9 +952,9 @@ struct IntakeWizard: View {
             Card("The figures your statement will anchor on") {
                 LedgerRow("Investable assets", Fmt.usd(intake.totalInvestableUsd), color: Theme.asset)
                 LedgerRow("After-tax net worth", Fmt.usd(e.balanceSheet.afterTaxNetWorthUsd), color: Theme.ink, bold: true)
-                LedgerRow("Required real return", Fmt.pctBps(e.requiredReturn.requiredRealReturnBps), color: Theme.ink)
+                LedgerRow("Required real return", Fmt.solvedPctBps(e.requiredReturn.requiredRealReturnBps, solved: e.isSolvable), color: Theme.ink)
                 LedgerRow("Net fixed income", Fmt.usd(e.netFixedIncomeUsd), color: e.netFixedIncomeUsd < 0 ? Theme.debt : Theme.asset)
-                LedgerRow("Funded ratio", Fmt.pctBps(e.balanceSheet.fundedRatioBps), color: e.balanceSheet.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber)
+                LedgerRow("Funded ratio", Fmt.solvedPctBps(e.balanceSheet.fundedRatioBps, solved: e.isSolvable), color: e.balanceSheet.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber)
                 LedgerRow("Legacy floor", intake.legacyFloorUsd > 0 || intake.legacyPriority != .none ? Fmt.usd(h.legacyFloorUsd) : "$0", color: Theme.ink)
             }
             Card("Your Investment Policy Statement will set out") {

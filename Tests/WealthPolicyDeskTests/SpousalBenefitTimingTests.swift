@@ -114,6 +114,46 @@ final class SpousalBenefitTimingTests: XCTestCase {
                        "and so did the headline required return")
     }
 
+    /// A claim already in the PAST must keep its early-claim reduction. Pricing the
+    /// adjustment off a floored plan-year made a past claim look as though it commenced
+    /// today — at or after FRA — and silently removed the haircut. A couple onboarded at 76
+    /// who both claimed at 62 collected $55,800/yr against a correct $50,400, for life, and
+    /// the same claiming decision paid more the later the plan was opened.
+    func testAPastClaimKeepsItsEarlyClaimReduction() {
+        func income(atAge: Int, onboardedAt: Int) -> Usd {
+            var m = IntakeModel()
+            let birthYear = Engine.year(Engine.planningAsOf) - onboardedAt
+            var hi = IntakeAdult(); hi.name = "Hi"; hi.birthYear = birthYear; hi.retirementAge = 62
+            hi.salaryUsd = 0; hi.socialSecurityMonthlyUsd = 4_000; hi.ssClaimAge = 62
+            var lo = IntakeAdult(); lo.name = "Lo"; lo.birthYear = birthYear; lo.retirementAge = 62
+            lo.salaryUsd = 0; lo.socialSecurityMonthlyUsd = 500; lo.ssClaimAge = 62
+            m.adults = [hi, lo]; m.taxableUsd = 900_000; m.retirementSpendingUsd = 150_000
+            let h = m.buildHousehold()
+            return Engine.socialSecurityAnnual(h, year: atAge - onboardedAt, asOf: Engine.planningAsOf)
+        }
+        // own 4000*12*0.70 + own 500*12*0.70 + top-up (2000−500)*12*0.70
+        let correct = 4_000.0 * 12 * 0.70 + 500.0 * 12 * 0.70 + 1_500.0 * 12 * 0.70
+        for onboardedAt in [62, 64, 66, 68, 76] {
+            XCTAssertEqual(income(atAge: 78, onboardedAt: onboardedAt), correct, accuracy: 1,
+                           "onboarded at \(onboardedAt): a CPI-indexed benefit claimed at 62 cannot grow because the plan was opened later")
+        }
+    }
+
+    /// The eligibility flag must still be able to SUPPRESS a top-up. Dropping it entirely
+    /// handed one to every additional profile, so a three-adult household collected a
+    /// spousal benefit nobody was entitled to.
+    func testAnIneligibleRecordGetsNoTopUp() {
+        var h = household(workerClaims: 67, spouseClaims: 67)
+        h.socialSecurity = h.socialSecurity.map { p in
+            var q = p
+            if q.estimatedPIAUsd < 1_000 { q.eligibleForSpousalBenefit = false }
+            return q
+        }
+        let eligible = household(workerClaims: 67, spouseClaims: 67)
+        XCTAssertLessThan(income(h, atAge: 70), income(eligible, atAge: 70),
+                          "an ineligible record was handed a spousal top-up anyway")
+    }
+
     /// A single filer has no spousal leg and must be untouched by any of this.
     func testASingleFilerIsUnaffected() {
         var m = IntakeModel()
