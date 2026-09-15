@@ -88,51 +88,63 @@ final class HeldAwayConservationTests: XCTestCase {
         XCTAssertEqual(h.value(in: .taxable), 400_000, accuracy: 1)
     }
 
-    /// The reported defect's mirror: an itemized holding LARGER than its own owner's stated
-    /// balance must not create money. `remainder` clamps at zero, so the owner's account
-    /// absorbed only part of the holding while every other account of that treatment still
-    /// synthesized its balance in full.
-    func testAnItemizedHoldingLargerThanItsOwnersBalanceDoesNotCreateMoney() {
+    // MARK: - When the client's own inputs contradict each other
+
+    /// "Ada's IRA is $600,000" and "here is a $700,000 holding in Ada's IRA" cannot both be
+    /// true. The SPECIFIC evidence wins — a holding typed with a ticker, a value and a basis
+    /// beats a rounded balance — so that account holds the holding and synthesizes nothing
+    /// on top. Crucially, no OTHER account is touched.
+    ///
+    /// Two earlier rules tried to force the household total to come out right instead. One
+    /// netted per account and created money; the other pooled and spilled, which conserved
+    /// the total by DRAINING the other spouse's IRA — halving a 76-year-old's required
+    /// distributions. Both existed only to hide a contradiction the client should be told
+    /// about.
+    func testAnOverItemisedAccountHoldsItsHoldingsAndLeavesOthersAlone() {
         let m = couple(traditional: (600_000, 400_000),
                        heldAway: [held("AAPL", 700_000, .taxDeferred, owner: 0)])
-        XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1,
-                       "the couple entered $1,000,000 of IRAs; a $700k holding in one of them cannot make it $1.1M")
+        let acct = byAccount(m.buildHousehold())
+        XCTAssertEqual(acct["acct_trad"] ?? 0, 700_000, accuracy: 1,
+                       "the itemized holding is the better evidence for Ada's account")
+        XCTAssertEqual(acct["acct_trad_1"] ?? 0, 400_000, accuracy: 1,
+                       "and Ben's stated balance is not in question, so it must not move")
     }
 
-    /// And on the ordinary input that made it reachable — a lopsided split where the holding
-    /// simply exceeds the smaller account. This needed no unusual data at all.
-    func testALopsidedSplitConservesWhenTheHoldingExceedsTheSmallerAccount() {
-        let m = couple(traditional: (100_000, 900_000),
-                       heldAway: [held("AAPL", 250_000, .taxDeferred, owner: 0)])
-        XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1)
-    }
-
-    /// Several holdings that together exceed one account must spill rather than duplicate.
-    func testMultipleHoldingsSpillAcrossTheTreatmentsAccounts() {
+    /// The contradiction is reported, not silently resolved.
+    func testAnOverItemisedAccountIsSurfacedToTheForm() {
         let m = couple(traditional: (600_000, 400_000),
-                       heldAway: [held("AAPL", 500_000, .taxDeferred, owner: 0),
-                                  held("MSFT", 300_000, .taxDeferred, owner: 0)])
-        XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1)
+                       heldAway: [held("AAPL", 700_000, .taxDeferred, owner: 0)])
+        let flagged = m.overItemisedAccounts
+        XCTAssertEqual(flagged.count, 1)
+        XCTAssertEqual(flagged.first?.owner, "Ada")
+        XCTAssertEqual(flagged.first?.statedUsd ?? 0, 600_000, accuracy: 1)
+        XCTAssertEqual(flagged.first?.itemizedUsd ?? 0, 700_000, accuracy: 1)
+
+        let consistent = couple(traditional: (600_000, 400_000),
+                                heldAway: [held("AAPL", 100_000, .taxDeferred, owner: 0)])
+        XCTAssertTrue(consistent.overItemisedAccounts.isEmpty, "a holding that fits is not a contradiction")
     }
 
-    /// Sweep the boundary: any itemized total up to the household's stated total conserves.
-    func testConservationHoldsAtEveryItemizedSize() {
-        for itemized in stride(from: 50_000.0, through: 1_000_000.0, by: 50_000.0) {
+    /// Whatever the itemisation, a NEIGHBOURING account always holds exactly what was stated
+    /// for it. This is the invariant that makes relocation impossible by construction.
+    func testANeighbouringAccountAlwaysHoldsItsStatedBalance() {
+        for itemized in stride(from: 50_000.0, through: 1_400_000.0, by: 50_000.0) {
             let m = couple(traditional: (600_000, 400_000),
                            heldAway: [held("AAPL", itemized, .taxDeferred, owner: 0)])
-            XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1,
-                           "a $\(Int(itemized)) itemized holding broke conservation")
+            XCTAssertEqual(byAccount(m.buildHousehold())["acct_trad_1"] ?? 0, 400_000, accuracy: 1,
+                           "a $\(Int(itemized)) holding in ADA's account moved money out of BEN's")
         }
     }
 
-    /// Itemising MORE than the stated balances is contradictory input. The holdings win —
-    /// they are specific facts the client typed, the balance is the estimate — but nothing
-    /// may be duplicated on top of them.
-    func testOverItemisingKeepsTheHoldingsAndSynthesizesNothingExtra() {
-        let m = couple(traditional: (600_000, 400_000),
-                       heldAway: [held("AAPL", 1_400_000, .taxDeferred, owner: 0)])
-        XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_400_000, accuracy: 1,
-                       "the entered holding stands alone; no proxy is synthesized alongside it")
+    /// And when the itemisation fits, the household total is exactly what was entered.
+    func testTheHouseholdTotalIsExactWheneverTheItemisationFits() {
+        for itemized in stride(from: 50_000.0, through: 600_000.0, by: 50_000.0) {
+            let m = couple(traditional: (600_000, 400_000),
+                           heldAway: [held("AAPL", itemized, .taxDeferred, owner: 0)])
+            XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1,
+                           "a $\(Int(itemized)) holding inside Ada's balance broke the total")
+            XCTAssertTrue(m.overItemisedAccounts.isEmpty)
+        }
     }
 
     // MARK: - Per-ACCOUNT conservation, not just the household total

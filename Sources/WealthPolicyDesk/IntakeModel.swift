@@ -691,6 +691,45 @@ public struct IntakeModel: Codable, Hashable {
     }
 
     // Derived conveniences
+    /// Accounts where the itemized holdings exceed the balance the client stated for that
+    /// same account — "Ada's IRA is $600,000" alongside "here is a $700,000 holding in Ada's
+    /// IRA". The specific evidence wins and the account holds the holdings, but the form
+    /// should say so rather than let a stated balance quietly stop meaning anything.
+    /// Returns the owner's display name paired with the two figures.
+    public var overItemisedAccounts: [(owner: String, treatment: AccountTaxTreatment, statedUsd: Usd, itemizedUsd: Usd)] {
+        var out: [(String, AccountTaxTreatment, Usd, Usd)] = []
+        for (i, a) in adults.enumerated() {
+            let who = a.name.isEmpty ? (i == 0 ? "Primary" : "Spouse") : a.name
+            for (treatment, stated) in [(AccountTaxTreatment.taxDeferred, a.traditionalUsd),
+                                        (AccountTaxTreatment.taxFree, a.rothUsd)] {
+                let itemized = heldAwayPositions
+                    .filter { $0.marketValueUsd > 0 && $0.treatment == treatment && ownerIndexResolved($0) == i }
+                    .reduce(0) { $0 + $1.marketValueUsd }
+                if itemized > stated { out.append((who, treatment, stated, itemized)) }
+            }
+        }
+        let taxableItemized = heldAwayPositions
+            .filter { $0.marketValueUsd > 0 && $0.treatment == .taxable }
+            .reduce(0) { $0 + $1.marketValueUsd }
+        if taxableItemized > taxableUsd {
+            out.append(("Taxable brokerage", .taxable, taxableUsd, taxableItemized))
+        }
+        return out.map { (owner: $0.0, treatment: $0.1, statedUsd: $0.2, itemizedUsd: $0.3) }
+    }
+
+    /// The adult whose account a holding actually lands in — the named owner, unless they
+    /// stated no balance of that treatment, in which case it falls to the first who did.
+    /// Mirrors `acctId` in `buildHousehold`.
+    private func ownerIndexResolved(_ hp: IntakeHeldPosition) -> Int {
+        guard hp.treatment != .taxable else { return 0 }
+        func stated(_ i: Int) -> Usd {
+            guard i >= 0, i < adults.count else { return 0 }
+            return hp.treatment == .taxDeferred ? adults[i].traditionalUsd : adults[i].rothUsd
+        }
+        let named = (hp.ownerIndex >= 0 && hp.ownerIndex < adults.count) ? hp.ownerIndex : 0
+        return stated(named) > 0 ? named : (adults.indices.first { stated($0) > 0 } ?? named)
+    }
+
     /// True when any adult's Social Security is still the salary-derived approximation
     /// rather than a figure taken from their statement. The form uses this to say so.
     public var socialSecurityIsEstimated: Bool { adults.contains { $0.socialSecurityMonthlyUsd <= 0 } }
@@ -956,49 +995,27 @@ public extension IntakeModel {
                 realizedGain += hp.plan == .unwindImmediate ? gain : gain / Double(max(1, hp.unwindYears))
             }
         }
-        // Itemized value still to be netted out of a treatment's stated balances, SPILLING
-        // across that treatment's accounts.
+        // An account holds what the client ITEMIZED in it, plus a synthesized proxy for
+        // whatever its stated balance leaves over. That is the whole rule — there is no
+        // cross-account term, so no arrangement of holdings can move money between owners.
         //
-        // Netting strictly per account looked right and quietly created money. `remainder`
-        // clamps at zero, so an account whose itemized holdings exceed its own stated balance
-        // absorbs only part of them while every OTHER account of that treatment still
-        // synthesizes its balance in full. Ada's IRA $600k, Ben's $400k, one itemized $700k
-        // rollover: Ada's account holds the $700k holding, Ben's synthesizes $400k, and the
-        // household holds $1.1M against the $1.0M they entered — with no warning. It is
-        // reachable on ordinary inputs, because the balance being clamped against is now ONE
-        // ADULT's rather than the household total (Ada $100k / Ben $900k and a $250k holding
-        // does it), and it was not reachable before retirement money gained an owner.
+        // Two earlier versions did have one. Netting a treatment's total against each account
+        // separately created money; pooling it and spilling across accounts conserved the
+        // household figure while DRAINING one spouse's IRA to absorb the other's holding,
+        // which halved a 76-year-old's required distributions and on one variant deleted them
+        // outright. Both were attempts to make the household total come out right when the
+        // client's own inputs contradict each other — "Ada's IRA is $600,000" and "here is a
+        // $700,000 holding in Ada's IRA" cannot both be true.
         //
-        // Spilling nets the treatment's itemized total against its accounts in order, so
-        // `Σ positions(in: t) == Σ stated balances of t` whenever the client's itemisation
-        // fits inside what they said they hold. When it does not, the itemized holdings win:
-        // they are specific facts the client typed, and the balance is the estimate.
-        // The pool carries only the OVERFLOW — the part of an account's own itemized value
-        // that exceeds its own stated balance. Pooling the raw total conserved the household
-        // figure while RELOCATING money between accounts: a $300,000 holding filed to Ben's
-        // $400,000 IRA drained $300,000 out of Ada's $600,000 IRA to "absorb" it, leaving
-        // Ada $300k / Ben $700k. Ada is 76 and past her required beginning date, so her first
-        // RMD halved from $25,316 to $12,658 — and on the older-spouse variant her IRA
-        // emptied entirely and her RMDs vanished from the projection. The household total was
-        // right throughout, which is exactly why the test asserting only that total passed.
-        var overflowPool: [AccountTaxTreatment: Usd] = [:]
-        for (acct, usd) in itemizedByAccount {
-            let t: AccountTaxTreatment = acct.hasPrefix("acct_trad") ? .taxDeferred
-                                       : acct.hasPrefix("acct_roth") ? .taxFree : .taxable
-            let owner = acct.split(separator: "_").last.flatMap { Int($0) } ?? 0
-            overflowPool[t, default: 0] += max(0, usd - statedBalance(t, owner))
-        }
+        // The specific wins: a holding the advisor typed with a ticker, a value and a basis is
+        // better evidence than a rounded balance, so the account holds it and synthesizes
+        // nothing on top. The contradiction is surfaced to the form (`overItemisedAccounts`)
+        // rather than silently rebalanced away.
         func addAccount(_ id: String, _ label: String, _ treatment: AccountTaxTreatment, _ balance: Usd, _ ownership: AccountOwnership) {
             let itemized = itemizedByAccount[id] ?? 0
             guard balance > 0 || itemized > 0 else { return }
             if !accounts.contains(where: { $0.id == id }) { accounts.append(Account(id: id, label: label, treatment: treatment, ownership: ownership)) }
-            // This account's OWN itemized value comes out of its own balance first; only a
-            // neighbour's overflow may consume what is left. Money never moves between
-            // owners.
-            let own = min(balance, itemized)
-            let spill = min(max(0, balance - own), overflowPool[treatment] ?? 0)
-            overflowPool[treatment] = (overflowPool[treatment] ?? 0) - spill
-            let remainder = max(0, balance - own - spill)   // synthesize only what the client didn't itemize
+            let remainder = max(0, balance - itemized)   // synthesize only what the client didn't itemize
             if remainder > 0 {
                 positions.append(contentsOf: Self.synthesizePositions(accountId: id, treatment: treatment, balance: remainder, gainPct: taxableUnrealizedGainPct, equityPct: currentEquityPct))
             }

@@ -817,6 +817,15 @@ struct IntakeWizard: View {
                 Button { intake.heldAwayPositions.append(IntakeHeldPosition()) } label: {
                     Label("Add a position", systemImage: "plus.circle").font(.system(size: 14, weight: .semibold))
                 }.buttonStyle(.plain).foregroundStyle(Theme.accent).padding(.top, 4)
+                // "Ada's IRA is $600,000" and "here is a $700,000 holding in Ada's IRA"
+                // cannot both be true. The itemized holding is the better evidence and wins,
+                // but the advisor has to see that the balance above it no longer means
+                // anything — the model used to resolve this silently, and the ways it did so
+                // either created money or moved it out of the other spouse's account.
+                ForEach(Array(intake.overItemisedAccounts.enumerated()), id: \.offset) { _, row in
+                    Note("\(row.owner)'s \(row.treatment.short.lowercased()) balance is \(Fmt.usd(row.statedUsd)), but \(Fmt.usd(row.itemizedUsd)) of holdings are itemized in it. The holdings are used and the balance is ignored for that account — correct the balance if the holdings are right.",
+                         icon: "exclamationmark.triangle", color: Theme.amber)
+                }
             }
             Card("Transition budget") {
                 MoneyField(label: "Annual realized-gain budget", value: $intake.annualGainBudgetUsd)
