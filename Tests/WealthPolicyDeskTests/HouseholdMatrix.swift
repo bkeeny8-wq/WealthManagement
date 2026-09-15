@@ -178,6 +178,21 @@ enum HouseholdMatrix {
             base([adult("A", born: bornAged(58), retireAt: 62, salary: 0, traditional: 2_000_000,
                         ssMonthly: 4_000, claimAt: 67)],
                  taxable: 3_000_000, spending: 60_000))
+        // A deferred balance large enough to SURVIVE to the required beginning date and
+        // through the conversion window. Without one, no household in the matrix ever reaches
+        // the boundaries that the RMD age and the conversion window are about — every balance
+        // drains first, so the interesting years are never evaluated.
+        add("deferred balance that survives to the RMD boundary",
+            base([adult("A", born: bornAged(63), retireAt: 65, salary: 180_000,
+                        traditional: 6_000_000, roth: 200_000, ssMonthly: 3_800, claimAt: 70)],
+                 taxable: 1_500_000, spending: 140_000, planTo: 95))
+        add("couple, both balances survive to their own boundaries",
+            base([adult("A", born: bornAged(64), retireAt: 65, salary: 150_000,
+                        traditional: 4_000_000, ssMonthly: 4_000, claimAt: 70),
+                  adult("B", born: bornAged(72), retireAt: 62, salary: 0,
+                        traditional: 3_000_000, ssMonthly: 2_800, claimAt: 67)],
+                 taxable: 1_000_000, spending: 160_000, planTo: 95))
+
         add("already retired, drawing today",
             base([adult("A", born: bornAged(70), retireAt: 62, salary: 0, traditional: 800_000, ssMonthly: 3_600, claimAt: 67),
                   adult("B", born: bornAged(68), retireAt: 62, salary: 0, traditional: 400_000, ssMonthly: 2_400, claimAt: 67)],
