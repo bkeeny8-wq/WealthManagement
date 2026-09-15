@@ -96,8 +96,36 @@ final class RebalanceAccountBoundaryTests: XCTestCase {
     func testUnfundableBuysAreReportedAsAFundingGap() {
         let plan = makePlan(Seed.sampleHousehold)
         XCTAssertGreaterThan(plan.fundingGapUsd, 0, "fixture check: the sample cannot fund every underweight")
-        XCTAssertTrue(plan.warnings.contains { $0.contains("Money cannot move between accounts") },
-                      "the advisor has to be told WHY the rebalance is partial")
+        XCTAssertTrue(plan.warnings.contains { $0.contains("could be funded") },
+                      "the advisor has to be told the rebalance is partial")
+    }
+
+    /// The warning must not assert a cause that is false. On the shipped sample exactly ONE
+    /// account trades and spends everything it raised — nothing is stranded by an account
+    /// boundary there, the sells simply do not raise enough. Naming the wrong reason is worse
+    /// than naming none, and this test previously demanded the wrong one.
+    func testTheShortfallNamesTheCauseThatIsActuallyTrue() {
+        let plan = makePlan(Seed.sampleHousehold)
+        let accountsTrading = Set(plan.trades.map(\.accountId))
+        XCTAssertEqual(accountsTrading.count, 1, "fixture check: one account does all the trading")
+        XCTAssertEqual(plan.excessCashUsd, 0, accuracy: 1, "fixture check: it spends everything it raised")
+
+        let shortfall = plan.warnings.first { $0.contains("could be funded") }
+        XCTAssertNotNil(shortfall)
+        XCTAssertFalse(shortfall?.contains("Money cannot move between accounts") ?? true,
+                       "no money was stranded by an account boundary here — the sells just did not raise enough")
+        XCTAssertTrue(shortfall?.contains("do not raise enough") ?? false)
+    }
+
+    /// And when a boundary IS the cause, it says so.
+    func testTheBoundaryCauseIsNamedWhenItIsTheRealOne() {
+        let plan = makePlan(twoOwnerHousehold())
+        guard let shortfall = plan.warnings.first(where: { $0.contains("could be funded") }) else { return }
+        let stranded = plan.excessCashUsd > 0 || Set(plan.trades.filter { $0.side == TradeSide.buy }.map(\.accountId)).count > 1
+        if stranded {
+            XCTAssertTrue(shortfall.contains("Money cannot move between accounts"),
+                          "cash stranded across accounts must be explained as such")
+        }
     }
 
     /// Asset location still ranks buys within an account — a sleeve that names this account's

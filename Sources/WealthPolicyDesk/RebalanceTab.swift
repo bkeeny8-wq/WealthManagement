@@ -61,7 +61,12 @@ struct RebalanceTab: View {
         if !buys.isEmpty {
             Card("Buy — \(buys.count)") {
                 ForEach(buys) { tradeRow($0) }
-                Note("Each underweight sleeve is funded with its primary instrument, in its preferred account location.", color: Theme.muted)
+                // Both halves of the old sentence are now false. Buys are funded from the
+                // account that raised the cash, so a second-best location is routine and the
+                // ticket says so; and a committed tactical tilt names the instrument, which
+                // is not the sleeve's primary. The footer sat directly above tickets that
+                // contradicted it.
+                Note("Each underweight sleeve is funded from the proceeds of the account that raised them — money cannot cross an account boundary, so a ticket may land in a second-best location and will say so. A committed tactical tilt buys the instrument the tilt names, not the sleeve's default.", color: Theme.muted)
             }
         }
 

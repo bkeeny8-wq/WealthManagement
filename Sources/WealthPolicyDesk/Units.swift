@@ -33,6 +33,14 @@ public extension Double {
 /// Formatting. Money uses grouped separators; percentages accept either a raw
 /// fraction (`pct`) or whole basis points (`pctBps`).
 public enum Fmt {
+    /// A required return or funded ratio that is only meaningful when the solve converged.
+    /// Renders an em dash for a sentinel, so no screen can print "20.0%" as though it were a
+    /// rate the portfolio could be asked to earn, or "999.0%" as though the plan were nine
+    /// times over-funded. Pass `Evaluation.isSolvable`.
+    public static func solvedPctBps(_ bps: Bps, solved: Bool) -> String {
+        solved ? pctBps(bps) : "—"
+    }
+
     /// Parse a human-typed money amount. Commas are thousands separators and are dropped;
     /// the FIRST "." is the decimal point; anything else a paste drags in ("$", spaces,
     /// non-breaking spaces) is discarded.

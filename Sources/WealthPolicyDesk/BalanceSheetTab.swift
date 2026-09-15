@@ -21,7 +21,7 @@ struct BalanceSheetTab: View {
 
         StatGrid([
             StatTile("Net fixed income", Fmt.usd(bs.netFixedIncomeUsd), sub: bs.netFixedIncomeUsd < 0 ? "Net SHORT duration" : "Net long", color: netFIColor),
-            StatTile("Funded ratio", Fmt.pctBps(bs.fundedRatioBps), sub: "Resources ÷ liabilities", color: bs.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber),
+            StatTile("Funded ratio", Fmt.solvedPctBps(bs.fundedRatioBps, solved: eval.isSolvable), sub: eval.isSolvable ? "Resources ÷ liabilities" : "not yet solvable", color: bs.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber),
             StatTile("Total B/S equity", Fmt.pctBps(bs.totalBalanceSheetEquityBps), sub: "Incl. human-capital beta", color: Theme.ink),
             StatTile("Net duration", Fmt.yrs(bs.netHouseholdDurationYears), sub: "Household, incl. debt", color: Theme.ink),
         ])

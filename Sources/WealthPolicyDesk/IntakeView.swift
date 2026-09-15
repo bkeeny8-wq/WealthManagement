@@ -812,7 +812,7 @@ struct IntakeWizard: View {
             Card("Held-away holdings we should analyze directly") {
                 Note("Itemize the handful of positions that actually matter — concentrated employer stock, an inherited low-basis fund, the winner you can't bear to sell. Everything else in each account stays a clean policy-shaped proxy, so you only type what's worth typing.")
                 ForEach($intake.heldAwayPositions) { $p in
-                    HeldPositionForm(position: $p) { intake.heldAwayPositions.removeAll { $0.id == p.id } }
+                    HeldPositionForm(position: $p, adults: intake.adults) { intake.heldAwayPositions.removeAll { $0.id == p.id } }
                 }
                 Button { intake.heldAwayPositions.append(IntakeHeldPosition()) } label: {
                     Label("Add a position", systemImage: "plus.circle").font(.system(size: 14, weight: .semibold))
@@ -1275,6 +1275,11 @@ struct ViewportHeightKey: PreferenceKey {
 
 struct HeldPositionForm: View {
     @Binding var position: IntakeHeldPosition
+    /// The household's adults, so a retirement holding can name WHOSE account it sits in.
+    /// Without this the owner defaulted to the primary for every holding entered through the
+    /// app, which put a spouse's rollover on the primary's distribution schedule and made the
+    /// per-owner routing unreachable from intake entirely.
+    var adults: [IntakeAdult] = []
     var onRemove: () -> Void
     var body: some View {
         VStack(spacing: 0) {
@@ -1295,6 +1300,16 @@ struct HeldPositionForm: View {
                 set: { position.acquisitionDate = $0.isEmpty ? nil : $0 }))
             WheelRow(label: "Sector (single stocks)", selection: $position.sector, options: sectorOptions)
             FieldLabel("Account") { ChoiceChips(AccountTaxTreatment.allCases.map { ($0, $0.short) }, selection: position.treatment) { position.treatment = $0 } }
+            // Whose account, once there are two adults and the holding is in a retirement
+            // account. There is no such thing as a joint IRA, and the owner decides which
+            // required-distribution schedule the holding runs on.
+            if adults.count > 1 && position.treatment != .taxable {
+                FieldLabel("Whose account") {
+                    ChoiceChips(adults.indices.map { i in
+                        (i, adults[i].name.isEmpty ? (i == 0 ? "Primary" : "Spouse") : adults[i].name)
+                    }, selection: min(position.ownerIndex, adults.count - 1)) { position.ownerIndex = $0 }
+                }
+            }
             FieldLabel("Plan") { ChoiceChips(HeldPositionTreatment.allCases.map { ($0, $0.label) }, selection: position.plan) { position.plan = $0 } }
             if position.plan == .unwindScheduled {
                 StepperRow(label: "Unwind over (years)", value: $position.unwindYears, range: 1...15)

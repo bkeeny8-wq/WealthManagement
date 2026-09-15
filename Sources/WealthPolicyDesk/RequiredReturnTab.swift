@@ -15,7 +15,7 @@ struct RequiredReturnTab: View {
     var body: some View {
         Card("Required real return", help: Teach.help("requiredReturn")) {
             HStack(alignment: .top) {
-                HeadlineFigure(Fmt.pctBps(rr.requiredRealReturnBps),
+                HeadlineFigure(Fmt.solvedPctBps(rr.requiredRealReturnBps, solved: eval.isSolvable),
                                caption: rr.legacyFloorUsd > 0
                                  ? "to fund the plan AND leave \(Fmt.usdShort(rr.legacyFloorUsd)) (today's $)"
                                  : "to spend the corpus down to zero — no legacy",
@@ -87,7 +87,7 @@ struct RequiredReturnTab: View {
             LedgerRow("+ External income (PV)", Fmt.usd(rr.externalIncomePvUsd), color: Theme.asset)
             LedgerRow("− Goal liabilities (PV)", Fmt.usd(rr.liabilityPvUsd), color: Theme.debt)
             LedgerRow("Net liability after resources", Fmt.usd(rr.netLiabilityPvUsd), color: Theme.debt, bold: true)
-            LedgerRow("Funded ratio", Fmt.pctBps(rr.fundedRatioBps), color: rr.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber, bold: true)
+            LedgerRow("Funded ratio", Fmt.solvedPctBps(rr.fundedRatioBps, solved: eval.isSolvable), color: rr.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber, bold: true)
             Note("PVs use a \(Fmt.pctBps(rr.safeRealRateBps)) safe real rate (TIPS-like) — an observable, not a capital-market forecast. Report the required return first; let assumptions answer how plausible it is.")
         }
     }

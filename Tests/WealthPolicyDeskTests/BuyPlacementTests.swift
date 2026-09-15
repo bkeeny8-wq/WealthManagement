@@ -156,6 +156,40 @@ final class PlanSolvabilityTests: XCTestCase {
                        "a goal with no corpus has no return that funds it")
     }
 
+    /// The sentinels are reachable on ORDINARY inputs, not just an empty intake. A
+    /// 41-year-old with $25,000 saved and a $50,000 reserve target drives the required-return
+    /// bisection off the top of its own bracket, and the funded ratio — which counts human
+    /// capital — comes back over 400%. Testing only for "has a portfolio and a goal" left the
+    /// 20.0%-beside-427% contradiction rendering to a real client.
+    func testARealButUnfundableHouseholdIsNotTreatedAsSolved() {
+        var m = IntakeModel()
+        m.adults = [{ var a = IntakeAdult(); a.birthYear = 1985; a.retirementAge = 65
+                      a.salaryUsd = 150_000; return a }()]
+        m.taxableUsd = 25_000
+        m.emergencyReserveUsd = 50_000
+        m.retirementSpendingUsd = 20_000
+        let e = Engine.evaluate(m.buildHousehold())
+        XCTAssertGreaterThan(e.household.portfolioValueUsd, 0, "fixture check: this is a real household")
+        XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, Engine.requiredReturnCeilingBps,
+                       "fixture check: the solve runs off the top of its bracket")
+        XCTAssertFalse(e.isSolvable,
+                       "a bisection that ran off its bracket is a sentinel, not a 20% return the portfolio can be asked to earn")
+    }
+
+    /// A funded ratio sitting on its own 9.99x clamp is a sentinel too.
+    func testAClampedFundedRatioIsNotTreatedAsSolved() {
+        let e = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertEqual(e.balanceSheet.fundedRatioBps, Engine.fundedRatioCeilingBps)
+        XCTAssertFalse(e.isSolvable)
+    }
+
+    /// The renderer must never format a sentinel as a rate, wherever it is shown.
+    func testASentinelNeverRendersAsARate() {
+        XCTAssertEqual(Fmt.solvedPctBps(Engine.requiredReturnCeilingBps, solved: false), "—")
+        XCTAssertEqual(Fmt.solvedPctBps(Engine.fundedRatioCeilingBps, solved: false), "—")
+        XCTAssertEqual(Fmt.solvedPctBps(479, solved: true), Fmt.pctBps(479), "a solved figure renders normally")
+    }
+
     /// And a real plan must still be solvable, or the gate would hide every client's numbers.
     func testARealPlanIsSolvable() {
         var m = IntakeModel()
@@ -165,5 +199,86 @@ final class PlanSolvabilityTests: XCTestCase {
         m.retirementSpendingUsd = 150_000
         XCTAssertTrue(Engine.evaluate(m.buildHousehold()).isSolvable)
         XCTAssertTrue(Engine.evaluate(Seed.sampleHousehold).isSolvable, "the shipped sample is a real plan")
+    }
+}
+
+/// Two fixes from this batch that the suite could not detect the absence of. Both were
+/// reported by adversarial review as silently revertible with 277 tests green — which is the
+/// same class of hole as a test that re-implements the logic it is guarding.
+final class BuyAllocationTeethTests: XCTestCase {
+
+    private func sleeve(_ id: String, _ ticker: String, target: Bps, band: Bps,
+                        prefs: [AccountTaxTreatment] = [.taxable]) -> Sleeve {
+        Sleeve(id: id, label: id, tier: .satellite, role: .growth, targetBps: target,
+               bandBps: band, maxBps: 10000, taxEfficiency: .moderate,
+               locationPreference: prefs, liquidityClass: .daily,
+               instruments: [.init(ticker: ticker, role: .primary)], rationale: "")
+    }
+
+    private func policy(_ sleeves: [Sleeve]) -> InvestmentPolicy {
+        var p = Seed.legacyPolicy; p.sleeves = sleeves; p.altBudgets = []; return p
+    }
+
+    private func household(_ positions: [Position], accounts: [Account]) -> Household {
+        var h = Seed.sampleHousehold
+        h.accounts = accounts; h.positions = positions; h.tacticalTilts = []
+        return h
+    }
+
+    /// `fundingGapUsd` must measure what could not be BOUGHT, not what was not SOLD. Cash can
+    /// strand in an account with no sleeve it can hold, or sit below the minimum trade size —
+    /// and the sleeve stays underweight while a sells-based gap reports nothing.
+    func testTheFundingGapCountsStrandedCash() {
+        // The IRA's slice sells (sheltered lots rank first) but is below minTradeUsd, so it
+        // strands: sells exceed buys, and only a buys-based gap can see it.
+        let p = policy([sleeve("zz_over", "OVER", target: 0, band: 50, prefs: [.taxable, .taxDeferred]),
+                        sleeve("aa_under", "UNDER", target: 9960, band: 50)])
+        let h = household([
+            Position(id: "ira", accountId: "acct_ira", ticker: "OVER", sleeveId: "zz_over",
+                     marketValueUsd: 800, costBasisUsd: 800, layer: .strategic,
+                     disposition: .consume, holdToStepUp: false),
+            Position(id: "tax", accountId: "acct_taxable", ticker: "OVER", sleeveId: "zz_over",
+                     marketValueUsd: 200_000, costBasisUsd: 200_000, layer: .strategic,
+                     disposition: .consume, holdToStepUp: false),
+        ], accounts: [Account(id: "acct_taxable", label: "Brokerage", treatment: .taxable),
+                      Account(id: "acct_ira", label: "IRA", treatment: .taxDeferred)])
+
+        let plan = Engine.rebalancePlan(h, policy: p, tax: Seed.tax2026, asOf: Engine.planningAsOf)
+        XCTAssertGreaterThan(plan.totalSellsUsd, plan.totalBuysUsd,
+                             "fixture check: some proceeds strand, so sells exceed buys")
+        let gapFromBuys = max(0, plan.sleeveGaps.filter { $0.traded && $0.gapUsd > 0 }
+            .reduce(0) { $0 + $1.gapUsd * 0.6 } - plan.totalBuysUsd)
+        XCTAssertEqual(plan.fundingGapUsd, gapFromBuys, accuracy: 1,
+                       "the gap is measured against sells, so stranded cash reports as no gap at all")
+    }
+
+    /// An OUTER-band breach must be funded before an inner one at the same location rank.
+    /// Ordering by sleeve id spent an account's cash alphabetically.
+    func testAnOuterBreachIsFundedBeforeAnInnerOneAtTheSameRank() {
+        // aa_inner sorts FIRST alphabetically and is only an inner breach; bb_outer is an
+        // outer breach. There is only enough cash for one of them.
+        let p = policy([sleeve("zz_sell", "SELLME", target: 0, band: 50),
+                        sleeve("aa_inner", "INNER", target: 5000, band: 3000),
+                        sleeve("bb_outer", "OUTER", target: 3000, band: 200)])
+        let h = household([
+            Position(id: "sellable", accountId: "acct_taxable", ticker: "SELLME", sleeveId: "zz_sell",
+                     marketValueUsd: 300_000, costBasisUsd: 300_000, layer: .strategic,
+                     disposition: .consume, holdToStepUp: false),
+            Position(id: "locked", accountId: "acct_taxable", ticker: "SELLME", sleeveId: "zz_sell",
+                     marketValueUsd: 700_000, costBasisUsd: 700_000, layer: .strategic,
+                     disposition: .holdToStepUp, holdToStepUp: true),
+        ], accounts: [Account(id: "acct_taxable", label: "Brokerage", treatment: .taxable)])
+
+        let plan = Engine.rebalancePlan(h, policy: p, tax: Seed.tax2026, asOf: Engine.planningAsOf)
+        let outer = plan.sleeveGaps.first { $0.sleeveId == "bb_outer" }
+        let inner = plan.sleeveGaps.first { $0.sleeveId == "aa_inner" }
+        XCTAssertEqual(outer?.status, .outerBreach, "fixture check")
+        XCTAssertEqual(inner?.status, .innerBreach, "fixture check")
+
+        let buys = plan.trades.filter { $0.side == TradeSide.buy }
+        let outerUsd = buys.first { $0.sleeveId == "bb_outer" }?.amountUsd ?? 0
+        let innerUsd = buys.first { $0.sleeveId == "aa_inner" }?.amountUsd ?? 0
+        XCTAssertGreaterThan(outerUsd, innerUsd,
+                             "the account spent its cash alphabetically: $\(Int(innerUsd)) into an inner breach ahead of $\(Int(outerUsd)) into an outer one")
     }
 }

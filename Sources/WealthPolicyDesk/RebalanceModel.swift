@@ -285,7 +285,17 @@ public extension Engine {
             warnings.append("Selling stopped at the \(Fmt.usdShort(budgetCap)) net realized-gain budget. The rest of the rebalance is deferred — carry it to next tax year, or fund it from losses or new cash.")
         }
         if fundingGap > total / 1000 {
-            warnings.append("Underweight sleeves need \(Fmt.usdShort(desiredBuys)) but only \(Fmt.usdShort(totalBuys)) could be funded from the accounts that raised cash. Money cannot move between accounts, so a sleeve best held in an account with nothing to sell stays underweight until a new contribution lands there.")
+            // States the shortfall without asserting a single cause. The account-boundary
+            // explanation is often right but was false on the shipped sample, where ONE
+            // account trades and spends everything it raised — there the gap is simply that
+            // the sells did not raise enough, and naming the wrong reason is worse than
+            // naming none. The specific cause is named only when it is actually true.
+            let idleUsd = proceedsByAccount.values.reduce(0, +)
+            let boundaryBound = idleUsd > total / 1000 || buysByAccountSleeve.keys.count > 1
+            let because = boundaryBound
+                ? " Money cannot move between accounts, so a sleeve best held in an account with nothing to sell stays underweight until a contribution lands there."
+                : " The sells this plan can make do not raise enough to close the rest; new contributions or a later tax year will."
+            warnings.append("Underweight sleeves need \(Fmt.usdShort(desiredBuys)) but only \(Fmt.usdShort(totalBuys)) could be funded." + because)
         }
         if excessCash > total / 1000 {
             warnings.append("Sells raised \(Fmt.usdShort(excessCash)) more than the underweight buys absorb — the surplus lands in the cash sleeve until the next underweight opens up.")

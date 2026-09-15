@@ -160,6 +160,12 @@ public enum Engine {
 
     // Reference safe real rate (TIPS-like), used for funded ratio and PVs. An
     // OBSERVABLE, not a capital-market forecast — the README's distinction.
+    /// The top of the required-return bisection bracket. A solve that lands here did not
+    /// converge — it means no achievable return funds the plan, not that the plan needs 20%.
+    static let requiredReturnCeilingBps: Bps = 2000
+    /// `fundedRatioBps` is clamped at 9.99x; a ratio sitting on the clamp is a sentinel too.
+    static let fundedRatioCeilingBps: Bps = 99900
+
     static let safeRealRate = 0.015
     static let humanCapitalDiscount = 0.03
 
@@ -244,10 +250,23 @@ public enum Engine {
                                            balanceSheet: bs, allocation: alloc, altSizing: alts, ladder: lad,
                                            rothTaxSavedUsd: decum.lifetimeTaxSavedUsd)
         let resil = resilience(h, tax: tax, rr: rr, asOf: asOf, policy: derivedPolicy, annualTaxUsd: taxByYear)
-        // Nothing to solve without both a portfolio and a spending claim to fund from it.
+        // Nothing to solve without both a portfolio and a spending claim to fund from it —
+        // AND the solve has to have converged inside its own bracket.
+        //
+        // `requiredReturn` bisects between −5% and +20%. Returning 2000 bps does not mean
+        // "this plan needs 20%"; it means the bisection ran off the top and NO achievable
+        // return funds the plan. Likewise 999.0% is `min(fundedRatio, 9.99)`. Testing only
+        // for a portfolio and a goal left both sentinels reachable on ordinary inputs: a
+        // 41-year-old with $25,000 saved and a $50,000 reserve target renders a 20.0%
+        // headline directly above "your resources cover your goals", because the funded
+        // ratio counts human capital while the required return is asked of the portfolio
+        // alone. Both figures are defensible separately and contradict each other on screen.
         let spendingUsd = h.goals.filter { $0.kind == .spending }
             .flatMap(\.outflows).reduce(0) { $0 + $1.amountUsd }
+        let returnSolveRanOff = rr.requiredRealReturnBps >= requiredReturnCeilingBps
+        let fundedRatioClamped = bs.fundedRatioBps >= fundedRatioCeilingBps
         let solvable = h.portfolioValueUsd > 0 && spendingUsd > 0
+            && !returnSolveRanOff && !fundedRatioClamped
         return Evaluation(isSolvable: solvable,
                           household: h, policy: policy, legacyPolicy: derivedPolicy, tax: tax, asOf: asOf,
                           balanceSheet: bs, requiredReturn: rr, allocation: alloc, altSizing: alts,

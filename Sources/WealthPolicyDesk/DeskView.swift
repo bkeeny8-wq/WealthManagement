@@ -130,7 +130,7 @@ struct DeskView: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     HStack(spacing: 6) {
                         miniStat("After-tax", Fmt.usdShort(e.balanceSheet.afterTaxNetWorthUsd), Theme.ink)
-                        miniStat("Req. real", Fmt.pctBps(e.requiredReturn.requiredRealReturnBps), Theme.asset)
+                        miniStat("Req. real", Fmt.solvedPctBps(e.requiredReturn.requiredRealReturnBps, solved: e.isSolvable), Theme.asset)
                         miniStat("Net FI", Fmt.usdShort(e.netFixedIncomeUsd), e.netFixedIncomeUsd < 0 ? Theme.debt : Theme.asset)
                     }
                     .padding(.top, 2)
