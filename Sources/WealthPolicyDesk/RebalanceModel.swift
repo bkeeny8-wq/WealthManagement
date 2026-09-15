@@ -222,6 +222,7 @@ public extension Engine {
             proceedsByAccount[accountId] = cash    // whatever is left is idle cash in THIS account
         }
 
+        var unthesisedSleeves: [String] = []
         for accountId in buysByAccountSleeve.keys.sorted() {
             guard let account = h.account(accountId) else { continue }
             for sleeveId in (buysByAccountSleeve[accountId] ?? [:]).keys.sorted() {
@@ -229,6 +230,13 @@ public extension Engine {
                       let gap = gaps.first(where: { $0.sleeveId == sleeveId }),
                       let buyUsd = buysByAccountSleeve[accountId]?[sleeveId] else { continue }
                 let ticker = buyTicker(for: sleeve, household: h, style: h.equityStyle)
+                // No instrument anyone has argued for — see `buyTicker`. Funding it would be
+                // an un-thesised bet picked by declaration order, so the cash stays put.
+                guard !ticker.isEmpty else {
+                    unthesisedSleeves.append(gap.label)
+                    totalBuys -= buyUsd
+                    continue
+                }
                 let rationale = buyRationale(sleeve, ticker: ticker, placedIn: account)
                 trades.append(RebalanceTrade(id: "buy-\(accountId)-\(sleeveId)", side: .buy, ticker: ticker,
                     accountId: accountId, accountLabel: account.label,
@@ -266,6 +274,9 @@ public extension Engine {
         let excessCash = max(0, totalSells - totalBuys)
 
         var warnings: [String] = []
+        for label in unthesisedSleeves {
+            warnings.append("\(label) is underweight, but the only instrument left after the committed underweight tilt is the one that tilt says to avoid. No buy is proposed — picking a substitute by policy order would be an un-thesised sector bet. Name and thesis a replacement on the Planning tab if you want this sleeve funded.")
+        }
         if washSaleDisallowed > 1 {
             let tickers = Set(washSells.map { $0.ticker }).sorted().joined(separator: ", ")
             warnings.append("Wash sale: the plan harvests a loss on \(tickers) while also buying it within \(reb.washSaleWindowDays) days — \(Fmt.usdShort(washSaleDisallowed)) of the loss is DISALLOWED (in proportion to the replacement, added back to the taxable gain). Replace it with a not-substantially-identical fund (a TLH partner) instead.")
@@ -382,11 +393,23 @@ public extension Engine {
             guard let bucket = USSizeBucket.bucket(forTicker: ticker) else { return ticker }
             return bucket.ticker(for: style.style(for: bucket))
         }
-        // An underweight names what to avoid — never buy it, even as the fallback.
+        // An underweight names what to AVOID. It does not license a substitute bet.
+        //
+        // Falling back to "the first listed instrument that is not the avoided one" let a
+        // single expressed view — short technology — put the entire sector satellite into
+        // FINANCIALS, chosen by nothing but declaration order in Seed.sleeves. Reverse the
+        // menu and it buys communications instead. Worse, the governance layer certified it:
+        // `tactical_no_thesis` is a HARD finding precisely to stop an un-thesised sector bet,
+        // and it never fired because the XLF position was not a tilt at all.
+        //
+        // So: suppress the avoided ticker and fall back to the sleeve's primary as before.
+        // When the primary IS the avoided ticker there is no instrument left that anyone has
+        // argued for, and the honest answer is to buy nothing — the tilt has already cut this
+        // sleeve's target, so a buy was the wrong response anyway. `buyTicker` returning
+        // empty means "no defensible instrument"; the caller drops the buy.
         let avoid = Set(committed.filter { $0.deviationBps < 0 }.compactMap { listed($0.ticker)?.uppercased() })
         let fallback = styledBuyTicker(for: sleeve, style: style)
-        if !avoid.contains(fallback.uppercased()) { return fallback }
-        return sleeve.instruments.first { !avoid.contains($0.ticker.uppercased()) }?.ticker ?? fallback
+        return avoid.contains(fallback.uppercased()) ? "" : fallback
     }
 
     private static func sellRationale(_ p: Position, treatment: AccountTaxTreatment) -> String {

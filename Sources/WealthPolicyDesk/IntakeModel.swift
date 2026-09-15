@@ -937,11 +937,36 @@ public extension IntakeModel {
                 realizedGain += hp.plan == .unwindImmediate ? gain : gain / Double(max(1, hp.unwindYears))
             }
         }
+        // Itemized value still to be netted out of a treatment's stated balances, SPILLING
+        // across that treatment's accounts.
+        //
+        // Netting strictly per account looked right and quietly created money. `remainder`
+        // clamps at zero, so an account whose itemized holdings exceed its own stated balance
+        // absorbs only part of them while every OTHER account of that treatment still
+        // synthesizes its balance in full. Ada's IRA $600k, Ben's $400k, one itemized $700k
+        // rollover: Ada's account holds the $700k holding, Ben's synthesizes $400k, and the
+        // household holds $1.1M against the $1.0M they entered — with no warning. It is
+        // reachable on ordinary inputs, because the balance being clamped against is now ONE
+        // ADULT's rather than the household total (Ada $100k / Ben $900k and a $250k holding
+        // does it), and it was not reachable before retirement money gained an owner.
+        //
+        // Spilling nets the treatment's itemized total against its accounts in order, so
+        // `Σ positions(in: t) == Σ stated balances of t` whenever the client's itemisation
+        // fits inside what they said they hold. When it does not, the itemized holdings win:
+        // they are specific facts the client typed, and the balance is the estimate.
+        var unabsorbedItemized: [AccountTaxTreatment: Usd] = [:]
+        for (acct, usd) in itemizedByAccount {
+            let t: AccountTaxTreatment = acct.hasPrefix("acct_trad") ? .taxDeferred
+                                       : acct.hasPrefix("acct_roth") ? .taxFree : .taxable
+            unabsorbedItemized[t, default: 0] += usd
+        }
         func addAccount(_ id: String, _ label: String, _ treatment: AccountTaxTreatment, _ balance: Usd, _ ownership: AccountOwnership) {
             let itemized = itemizedByAccount[id] ?? 0
             guard balance > 0 || itemized > 0 else { return }
             if !accounts.contains(where: { $0.id == id }) { accounts.append(Account(id: id, label: label, treatment: treatment, ownership: ownership)) }
-            let remainder = max(0, balance - itemized)   // synthesize only what the client didn't itemize
+            let absorbed = min(balance, unabsorbedItemized[treatment] ?? 0)
+            unabsorbedItemized[treatment] = (unabsorbedItemized[treatment] ?? 0) - absorbed
+            let remainder = max(0, balance - absorbed)   // synthesize only what the client didn't itemize
             if remainder > 0 {
                 positions.append(contentsOf: Self.synthesizePositions(accountId: id, treatment: treatment, balance: remainder, gainPct: taxableUnrealizedGainPct, equityPct: currentEquityPct))
             }

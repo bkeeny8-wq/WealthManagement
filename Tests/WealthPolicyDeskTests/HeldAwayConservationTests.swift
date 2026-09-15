@@ -88,6 +88,53 @@ final class HeldAwayConservationTests: XCTestCase {
         XCTAssertEqual(h.value(in: .taxable), 400_000, accuracy: 1)
     }
 
+    /// The reported defect's mirror: an itemized holding LARGER than its own owner's stated
+    /// balance must not create money. `remainder` clamps at zero, so the owner's account
+    /// absorbed only part of the holding while every other account of that treatment still
+    /// synthesized its balance in full.
+    func testAnItemizedHoldingLargerThanItsOwnersBalanceDoesNotCreateMoney() {
+        let m = couple(traditional: (600_000, 400_000),
+                       heldAway: [held("AAPL", 700_000, .taxDeferred, owner: 0)])
+        XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1,
+                       "the couple entered $1,000,000 of IRAs; a $700k holding in one of them cannot make it $1.1M")
+    }
+
+    /// And on the ordinary input that made it reachable — a lopsided split where the holding
+    /// simply exceeds the smaller account. This needed no unusual data at all.
+    func testALopsidedSplitConservesWhenTheHoldingExceedsTheSmallerAccount() {
+        let m = couple(traditional: (100_000, 900_000),
+                       heldAway: [held("AAPL", 250_000, .taxDeferred, owner: 0)])
+        XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1)
+    }
+
+    /// Several holdings that together exceed one account must spill rather than duplicate.
+    func testMultipleHoldingsSpillAcrossTheTreatmentsAccounts() {
+        let m = couple(traditional: (600_000, 400_000),
+                       heldAway: [held("AAPL", 500_000, .taxDeferred, owner: 0),
+                                  held("MSFT", 300_000, .taxDeferred, owner: 0)])
+        XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1)
+    }
+
+    /// Sweep the boundary: any itemized total up to the household's stated total conserves.
+    func testConservationHoldsAtEveryItemizedSize() {
+        for itemized in stride(from: 50_000.0, through: 1_000_000.0, by: 50_000.0) {
+            let m = couple(traditional: (600_000, 400_000),
+                           heldAway: [held("AAPL", itemized, .taxDeferred, owner: 0)])
+            XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1,
+                           "a $\(Int(itemized)) itemized holding broke conservation")
+        }
+    }
+
+    /// Itemising MORE than the stated balances is contradictory input. The holdings win —
+    /// they are specific facts the client typed, the balance is the estimate — but nothing
+    /// may be duplicated on top of them.
+    func testOverItemisingKeepsTheHoldingsAndSynthesizesNothingExtra() {
+        let m = couple(traditional: (600_000, 400_000),
+                       heldAway: [held("AAPL", 1_400_000, .taxDeferred, owner: 0)])
+        XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_400_000, accuracy: 1,
+                       "the entered holding stands alone; no proxy is synthesized alongside it")
+    }
+
     /// The owner must survive a save and reload, or the holding silently moves back to the
     /// primary's account — and onto the wrong distribution schedule — on the next load.
     func testTheOwnerRoundTrips() throws {

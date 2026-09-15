@@ -125,16 +125,56 @@ final class TacticalTiltSignTests: XCTestCase {
                           "an underweight thesis must not produce a ticket to buy that very sector")
     }
 
-    /// And the hard case: underweighting the sleeve's OWN default. Falling back to the
-    /// default would buy the avoided fund.
-    func testUnderweightingTheSleevesDefaultStillAvoidsIt() {
-        let primary = sectorSleeve.primaryTicker
-        let h = tilted(primary, -300)
-        let bought = Engine.buyTicker(for: sectorSleeve, household: h, style: h.equityStyle)
-        XCTAssertNotEqual(bought, primary,
-                          "the fallback bought \(primary), which is exactly what the tilt says to avoid")
-        XCTAssertTrue(sectorSleeve.instruments.contains { $0.ticker == bought },
-                      "the replacement must still be an instrument this sleeve lists")
+    /// The hard case: underweighting the sleeve's OWN default. Buying the default would buy
+    /// the avoided fund — but picking a SUBSTITUTE is not the answer either.
+    ///
+    /// Falling back to "the first listed instrument that is not the avoided one" let a single
+    /// expressed view — short technology — put the whole sector satellite into financials,
+    /// chosen by nothing but declaration order in the policy. Reverse the menu and it buys
+    /// communications instead. The governance layer certified it, because `tactical_no_thesis`
+    /// only inspects tilts and that position was not one. An underweight names what to avoid;
+    /// it does not license a bet nobody wrote.
+    func testUnderweightingTheSleevesDefaultProposesNoBuyRatherThanASubstitute() {
+        let h = tilted(sectorSleeve.primaryTicker, -300)
+        XCTAssertEqual(Engine.buyTicker(for: sectorSleeve, household: h, style: h.equityStyle), "",
+                       "a substitute sector picked by declaration order is a bet nobody argued for")
+    }
+
+    /// And the plan must say so rather than silently dropping the sleeve. Built on a
+    /// synthetic policy where the tilted sleeve is the ONLY underweight and the selling
+    /// account is its preferred home, so the guard is actually reached — on the shipped
+    /// sample the sector sleeve prefers tax-deferred and the taxable account's cash goes
+    /// elsewhere first, which would make this pass for the wrong reason.
+    func testTheUnfundedSleeveIsReportedNotSilentlyDropped() {
+        func sleeve(_ id: String, _ tickers: [String], target: Bps) -> Sleeve {
+            Sleeve(id: id, label: id, tier: .satellite, role: .growth, targetBps: target,
+                   bandBps: 50, maxBps: 10000, taxEfficiency: .moderate,
+                   locationPreference: [.taxable], liquidityClass: .daily,
+                   instruments: tickers.enumerated().map { .init(ticker: $1, role: $0 == 0 ? .primary : .option) },
+                   rationale: "")
+        }
+        var policy = Seed.legacyPolicy
+        policy.sleeves = [sleeve("zz_sell", ["SELLME"], target: 0),
+                          sleeve("aa_tilted", ["TILTP", "TILTB"], target: 10000)]
+        policy.altBudgets = []
+
+        var h = Seed.sampleHousehold
+        h.accounts = [Account(id: "acct_taxable", label: "Brokerage", treatment: .taxable)]
+        h.positions = [Position(id: "p1", accountId: "acct_taxable", ticker: "SELLME", sleeveId: "zz_sell",
+                                marketValueUsd: 500_000, costBasisUsd: 500_000, layer: .strategic,
+                                disposition: .consume, holdToStepUp: false)]
+        // Underweight the sleeve's OWN primary: nothing left that anyone has argued for.
+        h.tacticalTilts = [TacticalTiltAction(sleeveId: "aa_tilted", deviationBps: -300,
+                                              sourceName: "Tech", ticker: "TILTP",
+                                              thesis: "trim it", status: .committed)]
+
+        let plan = Engine.rebalancePlan(h, policy: policy, tax: Seed.tax2026, asOf: Engine.planningAsOf)
+        XCTAssertFalse(plan.trades.contains { $0.side == TradeSide.buy && $0.sleeveId == "aa_tilted" },
+                       "no instrument here has a thesis, so nothing should be bought")
+        XCTAssertTrue(plan.warnings.contains { $0.contains("un-thesised") },
+                      "the advisor has to be told why the sleeve was left underweight")
+        XCTAssertFalse(plan.trades.contains { $0.side == TradeSide.buy && $0.ticker == "TILTB" },
+                       "TILTB is a substitute picked by declaration order, not a bet anyone wrote")
     }
 
     /// A zero deviation is neither a buy nor an avoid, and must not redirect anything.

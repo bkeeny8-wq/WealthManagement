@@ -33,6 +33,29 @@ public extension Double {
 /// Formatting. Money uses grouped separators; percentages accept either a raw
 /// fraction (`pct`) or whole basis points (`pctBps`).
 public enum Fmt {
+    /// Parse a human-typed money amount. Commas are thousands separators and are dropped;
+    /// the FIRST "." is the decimal point; anything else a paste drags in ("$", spaces,
+    /// non-breaking spaces) is discarded.
+    ///
+    /// Filtering to digits alone turned a figure copied off a statement — "4,123.50" — into
+    /// 412350, a hundredfold overstatement, on the very field that asks the client to copy
+    /// their Social Security benefit verbatim.
+    public static func parseAmount(_ raw: String) -> Usd {
+        var digits = "", seenDot = false
+        for ch in raw {
+            if ch.isNumber { digits.append(ch) }
+            else if ch == "." && !seenDot { seenDot = true; digits.append(ch) }
+        }
+        return Usd(digits) ?? 0
+    }
+
+    /// Round-trips with `parseAmount`. Zero renders EMPTY so an unanswered field can show its
+    /// prompt instead of a fabricated "0".
+    public static func editableAmount(_ value: Usd) -> String {
+        guard value != 0 else { return "" }
+        return value == value.rounded() ? String(Int(value)) : String(format: "%.2f", value)
+    }
+
 
     private static let grouped: NumberFormatter = {
         let f = NumberFormatter()

@@ -487,23 +487,48 @@ public enum Engine {
                 return max(0, ss.plannedClaimingAge - age(birthDate: p.birthDate, asOf: asOf)) + 1
             }
             .min() ?? 0
-        var legs: [(annual: Usd, start: Int, death: Int)] = []
+        // A person's own retirement benefit and any spousal TOP-UP are one leg with a
+        // time-varying amount, because the survivor logic below reasons per PERSON.
+        //
+        // The own benefit belongs to the worker's own record and starts on their own
+        // schedule. Only the top-up — the excess of half the higher earner's PIA over their
+        // own — waits for the higher earner to file. Gating the WHOLE leg deleted the
+        // spouse's earned benefit for every year before the worker claimed: a spouse with a
+        // $1,800/mo PIA claiming at 62 against a worker claiming at 70 lost nine years of
+        // $15,120, about $136,000 of guaranteed income, and the required return moved with it.
+        var legs: [(own: Usd, topUp: Usd, topUpStart: Int, start: Int, death: Int)] = []
         for ss in h.socialSecurity {
             guard let person = h.people.first(where: { $0.id == ss.personId }) else { continue }
             let currentAge = age(birthDate: person.birthDate, asOf: asOf)
-            var start = max(0, ss.plannedClaimingAge - currentAge) + 1
+            let start = max(0, ss.plannedClaimingAge - currentAge) + 1
             let death = person.longevityPercentileTarget - currentAge
-            // A spouse claims the greater of their own PIA or half the higher earner's.
-            let takingSpousal = ss.eligibleForSpousalBenefit && 0.5 * maxPIA > ss.estimatedPIAUsd
-            if takingSpousal { start = max(start, workerClaimStart) }
-            let basePIA = takingSpousal ? 0.5 * maxPIA : ss.estimatedPIAUsd
-            // Adjustment vs FRA: +8%/yr delayed (frozen at 70), −6%/yr early. Spousal
-            // benefits do not earn delayed-retirement credits, so cap their credit at 0.
-            let delta = ss.plannedClaimingAge - ss.fullRetirementAge
-            let creditDelta = takingSpousal ? min(0, delta)
-                                            : (delta > 0 ? min(delta, max(0, 70 - ss.fullRetirementAge)) : delta)
-            let adj = creditDelta >= 0 ? (1 + 0.08 * Double(creditDelta)) : (1 + 0.06 * Double(creditDelta))
-            legs.append((annual: basePIA * 12 * adj, start: start, death: death))
+
+            // Own benefit: +8%/yr delayed (frozen at 70), −6%/yr early, vs FRA.
+            let ownDelta = ss.plannedClaimingAge - ss.fullRetirementAge
+            let ownCredit = ownDelta > 0 ? min(ownDelta, max(0, 70 - ss.fullRetirementAge)) : ownDelta
+            let ownAdj = ownCredit >= 0 ? (1 + 0.08 * Double(ownCredit)) : (1 + 0.06 * Double(ownCredit))
+
+            // Spousal top-up. Eligibility is a fact about WHOSE PIA is higher, not about the
+            // order the adults were typed into intake — keying it to `i > 0` meant the same
+            // two people, the same statements and the same claim ages produced $18,000/yr and
+            // 132 bps of required return apart depending on who was entered first.
+            let topUpPIA = h.socialSecurity.count > 1 ? max(0, 0.5 * maxPIA - ss.estimatedPIAUsd) : 0
+            let topUpStart = max(start, workerClaimStart)
+            // The reduction is priced off the age the money ACTUALLY starts, not the age the
+            // client nominated. Carrying a −30% early-claim haircut through years the gate
+            // pays nothing made claiming at 62 strictly worse than claiming at 70 — same
+            // first payment, permanently smaller.
+            let commenceAge = currentAge + topUpStart - 1
+            let topUpDelta = commenceAge - ss.fullRetirementAge
+            let topUpAdj = topUpDelta >= 0 ? 1.0 : (1 + 0.06 * Double(topUpDelta))   // no delayed credit on spousal
+            legs.append((own: ss.estimatedPIAUsd * 12 * ownAdj,
+                         topUp: topUpPIA * 12 * topUpAdj,
+                         topUpStart: topUpStart, start: start, death: death))
+        }
+        /// What one person collects in plan-year `t`: their own benefit once they have
+        /// claimed, plus the spousal top-up once the higher earner has filed too.
+        func amount(_ leg: (own: Usd, topUp: Usd, topUpStart: Int, start: Int, death: Int)) -> Usd {
+            leg.own + (t >= leg.topUpStart ? leg.topUp : 0)
         }
         let claiming = legs.filter { t >= $0.start }
         if claiming.count <= 1 {
@@ -511,12 +536,12 @@ public enum Engine {
             // a lone claimant during the gap before the other spouse claims can be a
             // DECEASED early-claimer — pay it only while that person is alive, so a dead
             // spouse's benefit is never paid as if they were still living.
-            return legs.count >= 2 ? (claiming.filter { t <= $0.death }.map { $0.annual }.max() ?? 0)
-                                   : (claiming.map { $0.annual }.max() ?? 0)
+            return legs.count >= 2 ? (claiming.filter { t <= $0.death }.map(amount).max() ?? 0)
+                                   : (claiming.map(amount).max() ?? 0)
         }
         // Two claimants: sum both until the first death, then the survivor keeps the greater.
         let firstDeath = legs.map { $0.death }.min() ?? Int.max
-        return t <= firstDeath ? claiming.reduce(0) { $0 + $1.annual } : (claiming.map { $0.annual }.max() ?? 0)
+        return t <= firstDeath ? claiming.reduce(0) { $0 + amount($1) } : (claiming.map(amount).max() ?? 0)
     }
 
     static func pensionAnnual(_ h: Household, year t: Int) -> Usd {

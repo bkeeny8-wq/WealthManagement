@@ -1029,10 +1029,16 @@ struct MoneyField: View {
     var placeholder: String = "0"
     @FocusState private var focused: Bool
     /// Empty string ⇄ 0, so an untouched field shows the prompt rather than a fabricated "0".
+    ///
+    /// Keeps the decimal separator. Filtering to digits alone turned a figure copied off a
+    /// statement — "4,123.50" — into 412350, a hundredfold overstatement, on the very field
+    /// that asks the client to copy their Social Security benefit verbatim. Commas are
+    /// thousands separators here and are dropped; the first "." is the decimal point;
+    /// anything else a paste drags in ("$", spaces) is discarded.
     private var text: Binding<String> {
-        Binding(get: { value == 0 ? "" : String(Int(value.rounded())) },
-                set: { value = Usd(Int($0.filter(\.isNumber)) ?? 0) })
+        Binding(get: { Fmt.editableAmount(value) }, set: { value = Fmt.parseAmount($0) })
     }
+
     var body: some View {
         HStack {
             Text(label).font(.system(size: 14)).foregroundStyle(Theme.ink)
