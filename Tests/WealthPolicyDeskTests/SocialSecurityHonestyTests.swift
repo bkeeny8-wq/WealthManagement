@@ -125,6 +125,21 @@ final class IntakeDefaultHonestyTests: XCTestCase {
         XCTAssertEqual(m.totalInvestableUsd, 0, accuracy: 0.5, "an untouched intake has no portfolio")
     }
 
+    /// State of residence is a client fact too, and an expensive one: it sets the income
+    /// rate feeding SALT, the itemization verdict and the muni crossover. A pre-filled
+    /// California taxed a Texan at 9.30% if nobody noticed the wheel.
+    func testStateOfResidenceIsNotPreFilled() {
+        XCTAssertEqual(IntakeModel().state, "", "a new client has not told us where they live")
+        XCTAssertEqual(Seed.stateTaxProfile(for: IntakeModel().state).code, "US",
+                       "an unset state resolves to the generic profile, not to a specific one")
+        // The generic profile carries a documented national-average rate rather than zero —
+        // SALT needs SOME rate, and "unspecified" is the honest label for it. What matters is
+        // that it is not a specific state's rate quietly standing in for the client's.
+        XCTAssertNotEqual(Seed.stateTaxProfile(for: IntakeModel().state).incomeRate,
+                          Seed.stateTaxProfile(for: "CA").incomeRate,
+                          "an unset state must not be taxed at California's rate")
+    }
+
     /// Conventions are not fabrications, and must survive — blanking them would just move
     /// the dishonesty from "invented answer" to "impossible plan".
     func testConventionalDefaultsAreKept() {

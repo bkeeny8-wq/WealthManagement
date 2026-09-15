@@ -554,7 +554,7 @@ struct IntakeWizard: View {
                 FieldLabel("Filing status") {
                     ChoiceChips(FilingStatus.allCases.map { ($0, $0.rawValue.uppercased()) }, selection: intake.filingStatus) { intake.filingStatus = $0 }
                 }
-                WheelRow(label: "State of residence", selection: stateSelection, options: USStates.options)
+                WheelRow(label: "State of residence", selection: stateSelection, options: USStates.pickerOptions)
             }
         }
     }
@@ -1026,7 +1026,7 @@ struct MoneyField: View {
     /// non-optional Double NEVER shows its prompt — zero formats as "0" — so the prompt was
     /// invisible and a not-yet-answered field was indistinguishable from an answered zero.
     /// The binding below maps 0 to an empty string so the prompt actually renders.
-    var placeholder: String = "0"
+    var placeholder: String = "—"
     @FocusState private var focused: Bool
     /// Empty string ⇄ 0, so an untouched field shows the prompt rather than a fabricated "0".
     ///
@@ -1047,7 +1047,10 @@ struct MoneyField: View {
                 Text("$").foregroundStyle(Theme.muted).font(.system(size: 15))
                 TextField(placeholder, text: text)
                     .focused($focused)
-                    .keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                    // Decimal, not number: the number pad has no "." key, so a field that
+                    // asks the client to copy "$4,123.50" off a statement could not accept
+                    // the cents it was asking for. `Fmt.parseAmount` handles the separator.
+                    .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
                     .font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)
                     .frame(minWidth: 90, maxWidth: 190)
             }
@@ -1235,6 +1238,11 @@ var sectorOptions: [(Sector?, String)] {
 
 /// US states + DC, stored as the two-letter code the tax layer expects.
 enum USStates {
+    /// The wheel's rows, led by an explicit unset marker so a new client's form does not
+    /// display a state nobody chose. `Seed.stateCode(for:)` resolves "" to nil and the tax
+    /// lookup falls back to the generic US profile.
+    static var pickerOptions: [(String, String)] { [("", "— not set —")] + options }
+
     static let options: [(String, String)] = [
         ("AL","Alabama"),("AK","Alaska"),("AZ","Arizona"),("AR","Arkansas"),("CA","California"),
         ("CO","Colorado"),("CT","Connecticut"),("DE","Delaware"),("DC","District of Columbia"),

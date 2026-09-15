@@ -430,7 +430,12 @@ public struct IntakeModel: Codable, Hashable {
     public var adults: [IntakeAdult] = [IntakeAdult()]
     public var childrenBirthYears: [Int] = []
     public var filingStatus: FilingStatus = .single
-    public var state: String = "CA"
+    /// Unset by default. California was a fabricated answer in exactly the sense the dollar
+    /// defaults were: it is a fact about a specific client, and it drives a 9.30% income rate
+    /// through SALT, the itemization verdict and the muni crossover. A household in Texas
+    /// that never noticed the pre-filled wheel was taxed as Californian. Unset resolves to
+    /// the generic US profile, which is the honest stand-in for "we have not asked".
+    public var state: String = ""
     public var survivableOnOneIncome: Bool = true
 
     // 3 — savings & reserve
