@@ -340,12 +340,24 @@ public struct ProtectionProfile: Sendable, Hashable {
     public var ltcTotalExposureUsd: Usd
     public var ltcUnfundedUsd: Usd
     public var umbrellaLimitUsd: Usd
-    public init(disabilityNeedMonthlyUsd: Usd, disabilityCoverageMonthlyUsd: Usd, disabilityGapMonthlyUsd: Usd, disabilityOwnOccupation: Bool, disabilityGroupOnlyTaxable: Bool, lifeNeedUsd: Usd, lifeInForceUsd: Usd, lifeGapUsd: Usd, ltcApproach: LtcApproach, ltcTotalExposureUsd: Usd, ltcUnfundedUsd: Usd, umbrellaLimitUsd: Usd) {
+    /// Whether the protection section was actually WORKED THROUGH with the client.
+    ///
+    /// Without it, "$0 of umbrella cover" and "nobody has asked about umbrella cover" are the
+    /// same stored value, and the rule that flags a thin umbrella guarded on `limit > 0` — so
+    /// a household with NO liability cover at all raised nothing, while one with $1M raised a
+    /// finding. The gate rewarded not answering, and stayed silent for the most exposed
+    /// client on the book.
+    /// Defaults to TRUE: a profile only exists because someone supplied protection data, and
+    /// constructing one is itself evidence the section was engaged. Only the intake path,
+    /// which knows the difference, passes false.
+    public var reviewed: Bool = true
+    public init(disabilityNeedMonthlyUsd: Usd, disabilityCoverageMonthlyUsd: Usd, disabilityGapMonthlyUsd: Usd, disabilityOwnOccupation: Bool, disabilityGroupOnlyTaxable: Bool, lifeNeedUsd: Usd, lifeInForceUsd: Usd, lifeGapUsd: Usd, ltcApproach: LtcApproach, ltcTotalExposureUsd: Usd, ltcUnfundedUsd: Usd, umbrellaLimitUsd: Usd, reviewed: Bool = true) {
         self.disabilityNeedMonthlyUsd = disabilityNeedMonthlyUsd; self.disabilityCoverageMonthlyUsd = disabilityCoverageMonthlyUsd
         self.disabilityGapMonthlyUsd = disabilityGapMonthlyUsd; self.disabilityOwnOccupation = disabilityOwnOccupation
         self.disabilityGroupOnlyTaxable = disabilityGroupOnlyTaxable; self.lifeNeedUsd = lifeNeedUsd
         self.lifeInForceUsd = lifeInForceUsd; self.lifeGapUsd = lifeGapUsd; self.ltcApproach = ltcApproach
-        self.ltcTotalExposureUsd = ltcTotalExposureUsd; self.ltcUnfundedUsd = ltcUnfundedUsd; self.umbrellaLimitUsd = umbrellaLimitUsd
+        self.ltcTotalExposureUsd = ltcTotalExposureUsd; self.ltcUnfundedUsd = ltcUnfundedUsd
+        self.umbrellaLimitUsd = umbrellaLimitUsd; self.reviewed = reviewed
     }
 }
 

@@ -764,8 +764,22 @@ struct IntakeWizard: View {
                 Note("LTC is the largest tail for a long-lived household — the desk sizes exposure against the funding approach.")
             }
             Card("Liability") {
-                MoneyField(label: "Umbrella liability limit", value: $intake.umbrellaLimitUsd)
+                MoneyField(label: "Umbrella liability limit", value: $intake.umbrellaLimitUsd,
+                           placeholder: "None / not asked")
                 Note("A rule of thumb sets the umbrella limit at or above net worth. The desk detects gaps — it does not quote.")
+            }
+            Card("Protection reviewed?") {
+                // A blank protection section and a client with NO cover store the same zeros.
+                // Without this the desk cannot tell them apart, so it stayed silent for the
+                // household most exposed — no umbrella at all raised nothing, while a $1M
+                // policy raised a finding. Confirming the review is what turns those zeros
+                // into answers.
+                YesNoRow(label: "Worked through with the client", value: $intake.protectionReviewed)
+                Note(intake.protectionReviewed
+                     ? "Zeros above are now read as real answers — no cover is reported as a gap, which is what it is."
+                     : "Until this is confirmed, the desk reports protection as UNREVIEWED rather than clear. A blank section is not an all-clear.",
+                     icon: intake.protectionReviewed ? "checkmark.circle" : "exclamationmark.triangle",
+                     color: intake.protectionReviewed ? Theme.asset : Theme.amber)
             }
         }
     }

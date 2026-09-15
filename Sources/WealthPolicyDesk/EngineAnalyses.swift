@@ -484,6 +484,14 @@ extension Engine {
         }
 
         // --- Protection (insurance coverage gaps) ---
+        // An unreviewed protection section produces no profile, so this cannot live inside
+        // the binding below: the case with nothing answered is exactly the one that would
+        // otherwise go silent and read as an all-clear.
+        if h.protection?.reviewed != true {
+            out.append(Finding(ruleId: "protection_not_reviewed", module: .planning, severity: .soft,
+                               title: "Protection has not been reviewed",
+                               detail: "Liability, life and disability cover have not been worked through for this household, so no gap can be ruled out. The absence of a protection finding here is not an all-clear."))
+        }
         if let prot = h.protection {
             if prot.disabilityGapMonthlyUsd > 0.10 * max(1, prot.disabilityNeedMonthlyUsd) {
                 out.append(Finding(ruleId: "disability_gap", module: .planning, severity: .hard,
@@ -506,10 +514,16 @@ extension Engine {
                                    detail: "Estimated need \(Fmt.usdShort(prot.lifeNeedUsd)) vs \(Fmt.usdShort(prot.lifeInForceUsd)) in force — a \(Fmt.usdShort(prot.lifeGapUsd)) gap.",
                                    magnitudeUsd: prot.lifeGapUsd))
             }
-            if prot.umbrellaLimitUsd > 0 && prot.umbrellaLimitUsd < bs.grossNetWorthUsd {
-                out.append(Finding(ruleId: "umbrella_thin", module: .planning, severity: .soft,
-                                   title: "Umbrella limit below net worth",
-                                   detail: "Umbrella \(Fmt.usdShort(prot.umbrellaLimitUsd)) is below gross net worth \(Fmt.usdShort(bs.grossNetWorthUsd)) — the liability tail is under-covered.",
+            // ZERO cover is the worst case, not an exemption. Guarding on `limit > 0` meant a
+            // household with no umbrella policy at all raised nothing while one carrying $1M
+            // raised a finding — the gate was silent for exactly the client most exposed.
+            if prot.reviewed, prot.umbrellaLimitUsd < bs.grossNetWorthUsd {
+                let none = prot.umbrellaLimitUsd <= 0
+                out.append(Finding(ruleId: "umbrella_thin", module: .planning, severity: none ? .hard : .soft,
+                                   title: none ? "No umbrella cover" : "Umbrella limit below net worth",
+                                   detail: none
+                                     ? "No umbrella policy against \(Fmt.usdShort(bs.grossNetWorthUsd)) of gross net worth — the entire liability tail is uncovered, and umbrella cover is among the cheapest protection a household can buy."
+                                     : "Umbrella \(Fmt.usdShort(prot.umbrellaLimitUsd)) is below gross net worth \(Fmt.usdShort(bs.grossNetWorthUsd)) — the liability tail is under-covered.",
                                    magnitudeUsd: max(0, bs.grossNetWorthUsd - prot.umbrellaLimitUsd)))
             }
             if prot.disabilityGroupOnlyTaxable {

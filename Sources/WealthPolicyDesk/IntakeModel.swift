@@ -556,6 +556,11 @@ public struct IntakeModel: Codable, Hashable {
     public var ltcEstimatedAnnualCostUsd: Usd = 100_000
     public var ltcEstimatedDurationYears: Int = 3
     public var umbrellaLimitUsd: Usd = 0
+    /// Whether the advisor actually worked the protection section with the client. Without
+    /// it, "$0 of cover" and "nobody asked" are the same stored value, and the rules that
+    /// find protection gaps cannot tell an answered zero from an unanswered one. Answering
+    /// zero is a real, and usually serious, answer; leaving it blank is not an all-clear.
+    public var protectionReviewed: Bool = false
 
     // 14 — equity compensation (primary earner)
     public var equityGrantTypes: [EquityGrantType] = []
@@ -664,6 +669,7 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .ltcEstimatedAnnualCostUsd)) ?? nil { ltcEstimatedAnnualCostUsd = v }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .ltcEstimatedDurationYears)) ?? nil { ltcEstimatedDurationYears = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .umbrellaLimitUsd)) ?? nil { umbrellaLimitUsd = v }
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: .protectionReviewed)) ?? nil { protectionReviewed = v }
         if let v = (try? c.decodeIfPresent([EquityGrantType].self, forKey: .equityGrantTypes)) ?? nil { equityGrantTypes = v }
         if let v = (try? c.decodeIfPresent(Bool.self, forKey: .isCompanyInsider)) ?? nil { isCompanyInsider = v }
         if let v = (try? c.decodeIfPresent(TradingWindowStatus.self, forKey: .tradingWindow)) ?? nil { tradingWindow = v }
@@ -1010,7 +1016,11 @@ public extension IntakeModel {
         let ltcEngaged = ltcApproach != .none || ltcDedicatedReserveUsd > 0
         let umbrellaEngaged = umbrellaLimitUsd > 0
         var protectionProfile: ProtectionProfile? = nil
-        if diEngaged || lifeEngaged || ltcEngaged || umbrellaEngaged {
+        // Reviewing the section counts as engaging with it even when every answer is zero —
+        // otherwise a household that was asked and has NO cover produces no profile, and the
+        // rules that would flag that never run. "We checked, and there is nothing" has to be
+        // representable; it is the answer that matters most.
+        if protectionReviewed || diEngaged || lifeEngaged || ltcEngaged || umbrellaEngaged {
             let monthlyIncome = adults.reduce(0) { $0 + $1.salaryUsd + $1.bonusUsd } / 12
             let diNeed = diEngaged ? monthlyIncome * 0.60 : 0                     // 60% replacement target
             let diCoverage = diEngaged ? (disabilityIndividualMonthlyUsd + disabilityGroupMonthlyUsd * (disabilityBenefitsTaxable ? 0.72 : 1.0)) : 0
@@ -1033,7 +1043,13 @@ public extension IntakeModel {
                 disabilityOwnOccupation: disabilityOwnOccupation,
                 disabilityGroupOnlyTaxable: diEngaged && disabilityIndividualMonthlyUsd == 0 && disabilityBenefitsTaxable && disabilityGroupMonthlyUsd > 0,
                 lifeNeedUsd: lifeNeed, lifeInForceUsd: lifeInForceUsd, lifeGapUsd: max(0, lifeNeed - lifeInForceUsd),
-                ltcApproach: ltcApproach, ltcTotalExposureUsd: ltcExposure, ltcUnfundedUsd: ltcUnfunded, umbrellaLimitUsd: umbrellaLimitUsd)
+                ltcApproach: ltcApproach, ltcTotalExposureUsd: ltcExposure, ltcUnfundedUsd: ltcUnfunded,
+                // Answering ANY protection question is engagement with the section; the
+                // per-domain gates above still suppress phantom gaps in the domains that were
+                // skipped. The explicit flag exists for the household that was asked and has
+                // NO cover — the case an all-zero record cannot otherwise express.
+                umbrellaLimitUsd: umbrellaLimitUsd,
+                reviewed: protectionReviewed || diEngaged || lifeEngaged || ltcEngaged || umbrellaEngaged)
         }
 
         // Equity comp mechanics + options/ESPP legs (single-employer exposure).
