@@ -503,7 +503,16 @@ public enum Engine {
         var ownStartYear: Int
         var topUpAnnualUsd: Usd
         var topUpStartYear: Int
+        /// The plan year this person's health-implied longevity target falls in. It drives
+        /// the SURVIVOR step-down and nothing else — it is not a stop on the plan's income.
+        /// Floored at 1: a person on the roster is alive on the plan date by construction, so
+        /// an estimate already behind them means the estimate is stale, not that they are
+        /// dead. Leaving it unfloored zeroed Social Security for the WHOLE plan for a living
+        /// 85-year-old in poor health.
         var deathYear: Int
+        /// The plan year this person turns 60 — the age a widow(er)'s benefit begins. A
+        /// survivor younger than that keeps only their own record.
+        var survivorBenefitFromYear: Int = 0
 
         func amount(inYear t: Int) -> Usd {
             (t >= ownStartYear ? ownAnnualUsd : 0) + (t >= topUpStartYear ? topUpAnnualUsd : 0)
@@ -559,7 +568,8 @@ public enum Engine {
             return SocialSecurityEntitlement(
                 ownAnnualUsd: ss.estimatedPIAUsd * 12 * ownAdj, ownStartYear: max(0, ownRaw),
                 topUpAnnualUsd: topUpPIA * 12 * topUpAdj, topUpStartYear: max(0, topUpRaw),
-                deathYear: person.longevityPercentileTarget - currentAge)
+                deathYear: max(1, person.longevityPercentileTarget - currentAge),
+                survivorBenefitFromYear: max(0, 60 - currentAge))
         }
     }
 
@@ -577,11 +587,30 @@ public enum Engine {
     static func socialSecurityAnnual(_ h: Household, year t: Int, asOf: IsoDate) -> Usd {
         let entitlements = socialSecurityEntitlements(h, asOf: asOf)
         guard !entitlements.isEmpty else { return 0 }
+
+        // A single filer has no survivor economics at all: they collect their own entitlement
+        // for the whole plan. The longevity target is an input to the survivor STEP-DOWN, not
+        // a stop on income — the spending schedule runs to `planToAge` regardless, and
+        // truncating income at the target modelled a household that is dead for income and
+        // alive for spending. On a default configuration that deleted up to $288,000.
+        guard entitlements.count > 1 else { return entitlements[0].amount(inYear: t) }
+
         let firstDeath = entitlements.map(\.deathYear).min() ?? Int.max
         if t <= firstDeath { return entitlements.reduce(0) { $0 + $1.amount(inYear: t) } }
-        // Someone must still be alive to receive a survivor benefit at all.
-        guard entitlements.contains(where: { t <= $0.deathYear }) else { return 0 }
-        return entitlements.map { $0.amount(inYear: t) }.max() ?? 0
+
+        // From the first death the survivor keeps the GREATER of the two — the widow(er)'s
+        // benefit, and the late-life income cliff a naive "run both forever" model hides —
+        // but may only step up to the deceased's benefit once they are 60, the age that
+        // benefit begins.
+        let deceasedBest = entitlements.filter { t > $0.deathYear }
+            .map { $0.amount(inYear: t) }.max() ?? 0
+        let survivorBest = entitlements.filter { t <= $0.deathYear }
+            .map { max($0.amount(inYear: t), t >= $0.survivorBenefitFromYear ? deceasedBest : 0) }
+            .max()
+        // Everyone past their own estimate: the model has outlived its longevity input, which
+        // is a stale estimate rather than the household having ended. Keep paying the larger
+        // benefit rather than deleting the income outright.
+        return survivorBest ?? deceasedBest
     }
 
     static func pensionAnnual(_ h: Household, year t: Int) -> Usd {

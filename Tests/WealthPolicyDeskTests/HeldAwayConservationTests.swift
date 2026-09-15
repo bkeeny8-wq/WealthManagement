@@ -48,15 +48,41 @@ final class HeldAwayConservationTests: XCTestCase {
         XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1)
     }
 
-    /// Sweep it: whatever the split and wherever the holdings sit, the total is the total.
-    func testConservationHoldsAcrossEverySplit() {
+    /// Sweep it: whenever the holding fits inside its OWN owner's stated balance, the
+    /// household total is exactly what was entered — whatever the split.
+    func testConservationHoldsAcrossEverySplitTheHoldingFitsInside() {
         for split in [(1_000_000.0, 0.0), (600_000.0, 400_000.0), (500_000.0, 500_000.0), (0.0, 1_000_000.0)] {
             for owner in [0, 1] {
+                let stated = owner == 0 ? split.0 : split.1
+                guard stated >= 150_000 else { continue }   // otherwise the client contradicts themselves
                 let m = couple(traditional: split, heldAway: [held("AAPL", 150_000, .taxDeferred, owner: owner)])
                 XCTAssertEqual(m.buildHousehold().value(in: .taxDeferred), 1_000_000, accuracy: 1,
                                "split \(split) with the holding in account \(owner) lost money")
+                XCTAssertTrue(m.overItemisedAccounts.isEmpty)
             }
         }
+    }
+
+    /// A holding filed to an account whose owner stated NO balance is the same contradiction
+    /// as any other over-itemisation, and must be treated the same way: that account holds
+    /// the holding, the OTHER account is untouched, and the form says so.
+    ///
+    /// The previous rule redirected such a holding to "the first adult who does have a
+    /// balance" — a cross-account relocation term that survived deleting the spill because it
+    /// lived in the account lookup rather than in the netting. An advisor entering a spouse's
+    /// $400,000 rollover and leaving the balance blank had it filed into the other adult's
+    /// IRA, displacing $400,000 of their proxy: the household held $600,000 against the
+    /// $1,000,000 entered and the spouse's distributions vanished.
+    func testAHoldingFiledToABlankBalanceAccountStaysThere() {
+        let m = couple(traditional: (1_000_000, 0),
+                       heldAway: [held("MSFT", 400_000, .taxDeferred, owner: 1)])
+        let acct = byAccount(m.buildHousehold())
+        XCTAssertEqual(acct["acct_trad"] ?? 0, 1_000_000, accuracy: 1,
+                       "the other adult's stated balance was never in question")
+        XCTAssertEqual(acct["acct_trad_1"] ?? 0, 400_000, accuracy: 1,
+                       "the rollover belongs in the account the advisor filed it in")
+        XCTAssertEqual(m.overItemisedAccounts.count, 1, "and the blank balance is flagged")
+        XCTAssertEqual(m.overItemisedAccounts.first?.owner, "Ben")
     }
 
     /// A holding names whose account it is in, so it distributes on THAT owner's schedule.
@@ -209,6 +235,19 @@ final class HeldAwayConservationTests: XCTestCase {
                 XCTAssertEqual(acct[id] ?? 0, b, accuracy: 1,
                                "holding filed to owner \(owner) moved money out of account \(i)")
             }
+        }
+    }
+
+    /// The form's headline figure must agree with the household it builds. It summed the
+    /// stated balances alone, so an over-itemised intake printed "Investable assets
+    /// $1,400,000" directly above an after-tax net worth computed on $1,500,000 — and the IPS
+    /// prose quoted the larger figure to the client while the CRM row shipped both.
+    func testTheHeadlineInvestableFigureMatchesTheBuiltHousehold() {
+        for holding in [100_000.0, 700_000.0, 1_400_000.0] {
+            let m = couple(traditional: (600_000, 400_000),
+                           heldAway: [held("AAPL", holding, .taxDeferred, owner: 0)])
+            XCTAssertEqual(m.totalInvestableUsd, m.buildHousehold().portfolioValueUsd, accuracy: 1,
+                           "a $\(Int(holding)) holding made the form disagree with the plan")
         }
     }
 

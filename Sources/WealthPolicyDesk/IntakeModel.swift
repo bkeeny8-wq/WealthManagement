@@ -717,24 +717,45 @@ public struct IntakeModel: Codable, Hashable {
         return out.map { (owner: $0.0, treatment: $0.1, statedUsd: $0.2, itemizedUsd: $0.3) }
     }
 
-    /// The adult whose account a holding actually lands in — the named owner, unless they
-    /// stated no balance of that treatment, in which case it falls to the first who did.
-    /// Mirrors `acctId` in `buildHousehold`.
+    /// The adult whose account a holding lands in: the named owner, clamped to the roster.
+    /// Mirrors `acctId` in `buildHousehold` — which is now trivial, because the redirect that
+    /// used to make the two disagree (and made this warning name the wrong adult) is gone.
     private func ownerIndexResolved(_ hp: IntakeHeldPosition) -> Int {
         guard hp.treatment != .taxable else { return 0 }
-        func stated(_ i: Int) -> Usd {
-            guard i >= 0, i < adults.count else { return 0 }
-            return hp.treatment == .taxDeferred ? adults[i].traditionalUsd : adults[i].rothUsd
-        }
-        let named = (hp.ownerIndex >= 0 && hp.ownerIndex < adults.count) ? hp.ownerIndex : 0
-        return stated(named) > 0 ? named : (adults.indices.first { stated($0) > 0 } ?? named)
+        return (hp.ownerIndex >= 0 && hp.ownerIndex < adults.count) ? hp.ownerIndex : 0
     }
 
     /// True when any adult's Social Security is still the salary-derived approximation
     /// rather than a figure taken from their statement. The form uses this to say so.
     public var socialSecurityIsEstimated: Bool { adults.contains { $0.socialSecurityMonthlyUsd <= 0 } }
 
-    public var totalInvestableUsd: Usd { taxableUsd + traditionalUsd + rothUsd }
+    /// What the plan will actually hold — the same figure `buildHousehold` produces.
+    ///
+    /// Summing the stated balances alone made the form contradict itself: the review card
+    /// printed "Investable assets $1,400,000" from this property and "After-tax net worth"
+    /// on the next line from a household built on $1,500,000, while the IPS prose quoted the
+    /// larger figure to the client and the CRM row shipped both. An account holds the greater
+    /// of what was stated and what was itemized in it, so this must too.
+    public var totalInvestableUsd: Usd {
+        let taxable = max(taxableUsd, heldAwayPositions
+            .filter { $0.marketValueUsd > 0 && $0.treatment == .taxable }
+            .reduce(0) { $0 + $1.marketValueUsd })
+        var retirement: Usd = 0
+        for (i, a) in adults.enumerated() {
+            for (treatment, stated) in [(AccountTaxTreatment.taxDeferred, a.traditionalUsd),
+                                        (AccountTaxTreatment.taxFree, a.rothUsd)] {
+                let itemized = heldAwayPositions
+                    .filter { $0.marketValueUsd > 0 && $0.treatment == treatment && ownerIndexResolved($0) == i }
+                    .reduce(0) { $0 + $1.marketValueUsd }
+                retirement += max(stated, itemized)
+            }
+        }
+        return taxable + retirement
+    }
+
+    /// The stated balances alone, before any itemisation is reconciled against them. Kept for
+    /// the places that genuinely mean "what the client typed in the balance fields".
+    public var statedInvestableUsd: Usd { taxableUsd + traditionalUsd + rothUsd }
     public var primaryAge: Int { max(0, Self.currentYear - (adults.first?.birthYear ?? 1975)) }
 }
 
@@ -960,22 +981,27 @@ public extension IntakeModel {
             case .taxable:     return taxableUsd
             }
         }
-        /// The account a holding belongs to. Retirement accounts follow the named owner; a
+        /// The account a holding belongs to. Retirement accounts follow the NAMED owner; a
         /// taxable holding follows the household's single titled brokerage.
         ///
-        /// A holding filed against an owner who stated NO balance for that treatment is
-        /// self-contradictory input — "we hold $150k of AAPL in an IRA" and "that person has
-        /// no IRA". The itemized value is netted out of the stated balance, so honouring the
-        /// named owner there would add money the client never said they had. It falls back
-        /// to the first adult who does have a balance of that treatment, which is the only
-        /// account the holding can coherently be netted against.
+        /// No fallback. An earlier version redirected a holding whose named owner had stated
+        /// no balance of that treatment to "the first adult who does have one" — which is a
+        /// cross-account relocation term, and exactly the class deleting the spill rule was
+        /// supposed to make unreachable. It survived the deletion because it lives here
+        /// rather than in the netting. An advisor entering a spouse's $400,000 rollover as an
+        /// itemized holding and leaving the balance field blank had it filed into the OTHER
+        /// adult's IRA, where it displaced $400,000 of their synthesized proxy: the household
+        /// held $600,000 against the $1,000,000 entered, the spouse's required distributions
+        /// vanished, and nothing was shown on the holdings card.
+        ///
+        /// Honouring the named owner is also simply correct. `addAccount` already handles an
+        /// account with no stated balance — the guard admits it once something is itemized in
+        /// it, and `max(0, 0 - itemized)` synthesizes nothing on top — so the holding lands
+        /// where the advisor filed it and stands alone, which is what they said.
         func acctId(_ t: AccountTaxTreatment, owner: Int = 0) -> String {
             guard t != .taxable else { return "acct_taxable" }
             let stem = t == .taxDeferred ? "acct_trad" : "acct_roth"
-            var i = (owner >= 0 && owner < adults.count) ? owner : 0
-            if statedBalance(t, i) <= 0 {
-                i = adults.indices.first { statedBalance(t, $0) > 0 } ?? i
-            }
+            let i = (owner >= 0 && owner < adults.count) ? owner : 0
             return i > 0 ? "\(stem)_\(i)" : stem
         }
         for (i, hp) in heldAwayPositions.enumerated() where hp.marketValueUsd > 0 {
