@@ -46,13 +46,19 @@ struct AllocationTab: View {
                     if let s = eval.legacyPolicy.sleeve(row.sleeveId) {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 5) {
+                                // Bold the instrument the plan actually directs this sleeve
+                                // to, which a committed tactical tilt overrides. Bolding the
+                                // sleeve's PRIMARY meant the row labelled "tactical tilt"
+                                // highlighted XLK while the rebalance ticket bought XLE.
+                                let held = Engine.buyTicker(for: s, household: eval.household, style: eval.household.equityStyle)
                                 ForEach(s.instruments, id: \.ticker) { inst in
+                                    let isHeld = inst.ticker.uppercased() == held.uppercased()
                                     Text(inst.ticker)
                                         .font(.system(size: 10, weight: .heavy, design: .monospaced))
                                         .padding(.horizontal, 6).padding(.vertical, 2)
-                                        .background(inst.role == .primary ? Theme.ink.opacity(0.07) : Theme.card, in: Capsule())
+                                        .background(isHeld ? Theme.ink.opacity(0.07) : Theme.card, in: Capsule())
                                         .overlay(Capsule().stroke(Theme.rule))
-                                        .foregroundStyle(inst.role == .primary ? Theme.ink : Theme.muted)
+                                        .foregroundStyle(isHeld ? Theme.ink : Theme.muted)
                                 }
                                 if let loc = s.locationPreference.first {
                                     Text("· best held \(locationLabel(loc))").font(.system(size: 11)).foregroundStyle(Theme.muted)

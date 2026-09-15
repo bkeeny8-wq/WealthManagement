@@ -1008,18 +1008,24 @@ struct AdultForm: View {
 struct MoneyField: View {
     let label: String
     @Binding var value: Usd
-    /// Shown when the field is empty. Use it to distinguish "the client answered zero" from
-    /// "we have not asked yet" — a zero the model then quietly fills in is the difference
-    /// between an answer and a guess.
+    /// Shown when the field holds nothing. A `TextField(_:value:format:)` bound to a
+    /// non-optional Double NEVER shows its prompt — zero formats as "0" — so the prompt was
+    /// invisible and a not-yet-answered field was indistinguishable from an answered zero.
+    /// The binding below maps 0 to an empty string so the prompt actually renders.
     var placeholder: String = "0"
     @FocusState private var focused: Bool
+    /// Empty string ⇄ 0, so an untouched field shows the prompt rather than a fabricated "0".
+    private var text: Binding<String> {
+        Binding(get: { value == 0 ? "" : String(Int(value.rounded())) },
+                set: { value = Usd(Int($0.filter(\.isNumber)) ?? 0) })
+    }
     var body: some View {
         HStack {
             Text(label).font(.system(size: 14)).foregroundStyle(Theme.ink)
             Spacer(minLength: 10)
             HStack(spacing: 1) {
                 Text("$").foregroundStyle(Theme.muted).font(.system(size: 15))
-                TextField(placeholder, value: $value, format: .number.precision(.fractionLength(0)))
+                TextField(placeholder, text: text)
                     .focused($focused)
                     .keyboardType(.numberPad).multilineTextAlignment(.trailing)
                     .font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)

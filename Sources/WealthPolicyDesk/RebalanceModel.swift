@@ -256,7 +256,13 @@ public extension Engine {
         }
         let washSaleDisallowed = -(disallowedST + disallowedLT)
         let estTax = capitalGainsTaxAggregate(h, shortTerm: totalST - disallowedST, longTerm: totalLT - disallowedLT, asOf: asOf)
-        let fundingGap = max(0, desiredBuys - totalSells)
+        // Measured against what was actually BOUGHT, not what was sold. Those were the same
+        // number while cash was pooled; they are not any more. Proceeds can be stranded in an
+        // account with no underweight sleeve it can hold, or left below the minimum trade
+        // size — in both cases the sleeve stays underweight while `desiredBuys − totalSells`
+        // reports no gap at all. The warning already described the shortfall in terms of
+        // buys; the figure now agrees with it.
+        let fundingGap = max(0, desiredBuys - totalBuys)
         let excessCash = max(0, totalSells - totalBuys)
 
         var warnings: [String] = []

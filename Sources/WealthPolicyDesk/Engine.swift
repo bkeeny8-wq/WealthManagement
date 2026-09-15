@@ -475,14 +475,27 @@ public enum Engine {
     /// benefits earn none.
     static func socialSecurityAnnual(_ h: Household, year t: Int, asOf: IsoDate) -> Usd {
         let maxPIA = h.socialSecurity.map { $0.estimatedPIAUsd }.max() ?? 0
+        // The plan year the HIGHER EARNER files. A spousal benefit cannot begin until the
+        // worker has claimed their own — the spouse's filing does not unlock it. That was
+        // unreachable while a single household claiming age applied to both; with per-person
+        // ages a spouse claiming at 62 against a worker claiming at 70 collected eight years
+        // of a benefit nobody was entitled to yet.
+        let workerClaimStart: Int = h.socialSecurity
+            .filter { $0.estimatedPIAUsd >= maxPIA && maxPIA > 0 }
+            .compactMap { ss -> Int? in
+                guard let p = h.people.first(where: { $0.id == ss.personId }) else { return nil }
+                return max(0, ss.plannedClaimingAge - age(birthDate: p.birthDate, asOf: asOf)) + 1
+            }
+            .min() ?? 0
         var legs: [(annual: Usd, start: Int, death: Int)] = []
         for ss in h.socialSecurity {
             guard let person = h.people.first(where: { $0.id == ss.personId }) else { continue }
             let currentAge = age(birthDate: person.birthDate, asOf: asOf)
-            let start = max(0, ss.plannedClaimingAge - currentAge) + 1
+            var start = max(0, ss.plannedClaimingAge - currentAge) + 1
             let death = person.longevityPercentileTarget - currentAge
             // A spouse claims the greater of their own PIA or half the higher earner's.
             let takingSpousal = ss.eligibleForSpousalBenefit && 0.5 * maxPIA > ss.estimatedPIAUsd
+            if takingSpousal { start = max(start, workerClaimStart) }
             let basePIA = takingSpousal ? 0.5 * maxPIA : ss.estimatedPIAUsd
             // Adjustment vs FRA: +8%/yr delayed (frozen at 70), −6%/yr early. Spousal
             // benefits do not earn delayed-retirement credits, so cap their credit at 0.
