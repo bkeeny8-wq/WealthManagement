@@ -83,7 +83,18 @@ struct PlanSummaryTab: View {
         }
     }
 
+    @ViewBuilder
     private var mustAchieveCard: some View {
+        // With no portfolio and no spending goal there is nothing to solve, and both figures
+        // are clamp artifacts: 20.0% required return beside a 999.0% funded ratio, one saying
+        // the plan is hopeless and the other that it is nine times over-funded. Neither
+        // describes the client, so neither is shown.
+        if !eval.isSolvable {
+            Card("What your plan must achieve") {
+                Note("Nothing to solve yet. Enter the account balances and the retirement spending this household is planning for, and the required return and funded ratio will be computed from them.",
+                     icon: "questionmark.circle", color: Theme.muted)
+            }
+        } else {
         Card("What your plan must achieve") {
             HeadlineFigure(Fmt.pctBps(rr.requiredRealReturnBps), caption: "the real, after-tax return your goals require", color: Theme.accent)
             LedgerRow("Funded ratio", Fmt.pctBps(bs.fundedRatioBps), color: isFunded ? Theme.asset : Theme.amber, bold: true)
@@ -91,6 +102,7 @@ struct PlanSummaryTab: View {
             Note(isFunded
                  ? "Your resources cover your goals — the required return is the return that keeps it that way."
                  : "Your resources fund \(Fmt.pctBps(bs.fundedRatioBps)) of your goals. Closing the gap is a matter of return, savings, or flexing a goal — the required return is the return that would fund the rest.")
+        }
         }
     }
 

@@ -179,17 +179,35 @@ public extension Engine {
         for accountId in proceedsByAccount.keys.sorted() {
             guard var cash = proceedsByAccount[accountId], cash >= reb.minTradeUsd,
                   let account = h.account(accountId) else { continue }
-            // The sleeves this account still needs to fund, ordered by how well it houses
-            // them: a sleeve that names this treatment first is a better home than one that
-            // merely tolerates it.
+            // The sleeves this account still needs to fund, ordered by (1) how well it houses
+            // them and (2) how badly they are breached.
+            //
+            // A sleeve that does not list this treatment AT ALL must rank behind every sleeve
+            // that does, however far down that sleeve's list it appears. Using
+            // `locationPreference.count` as the miss rank inverted exactly that: a sleeve
+            // permitting only tax-deferred scored 1 for a taxable account, beating a sleeve
+            // that permits taxable but ranks it third (score 2) — so the account funded the
+            // holding it is the WORST home for ahead of one it is a legitimate home for.
+            //
+            // Within a location rank, an OUTER-band breach is funded before an inner one, and
+            // a larger gap before a smaller. Breaking ties on sleeve id alone spent the
+            // account's cash alphabetically and could exhaust it on a marginal inner breach
+            // while an outer breach went unfunded. Sleeve id remains the final tiebreak so
+            // the plan stays deterministic.
+            func severity(_ g: RebalanceSleeveGap) -> Int { g.status == .outerBreach ? 0 : 1 }
             let ranked = gaps.filter { $0.traded && (remainingBySleeve[$0.sleeveId] ?? 0) > 0 }
                 .compactMap { gap -> (gap: RebalanceSleeveGap, rank: Int)? in
                     guard let sleeve = policy.sleeve(gap.sleeveId) else { return nil }
-                    let rank = sleeve.locationPreference.firstIndex(of: account.treatment)
-                        ?? sleeve.locationPreference.count
+                    let rank = sleeve.locationPreference.firstIndex(of: account.treatment) ?? Int.max
                     return (gap, rank)
                 }
-                .sorted { ($0.rank, $0.gap.sleeveId) < ($1.rank, $1.gap.sleeveId) }
+                .sorted {
+                    if $0.rank != $1.rank { return $0.rank < $1.rank }
+                    let (sa, sb) = (severity($0.gap), severity($1.gap))
+                    if sa != sb { return sa < sb }
+                    if $0.gap.gapUsd != $1.gap.gapUsd { return $0.gap.gapUsd > $1.gap.gapUsd }
+                    return $0.gap.sleeveId < $1.gap.sleeveId
+                }
 
             for (gap, _) in ranked {
                 guard cash >= reb.minTradeUsd else { break }
@@ -211,11 +229,12 @@ public extension Engine {
                       let gap = gaps.first(where: { $0.sleeveId == sleeveId }),
                       let buyUsd = buysByAccountSleeve[accountId]?[sleeveId] else { continue }
                 let ticker = buyTicker(for: sleeve, household: h, style: h.equityStyle)
+                let rationale = buyRationale(sleeve, ticker: ticker, placedIn: account)
                 trades.append(RebalanceTrade(id: "buy-\(accountId)-\(sleeveId)", side: .buy, ticker: ticker,
                     accountId: accountId, accountLabel: account.label,
                     treatment: account.treatment, sleeveId: sleeveId,
                     sleeveLabel: gap.label, amountUsd: buyUsd, realizedGainUsd: 0,
-                    rationale: buyRationale(sleeve, ticker: ticker) + " Funded from this account's own sales."))
+                    rationale: rationale))
             }
         }
 
@@ -371,8 +390,24 @@ public extension Engine {
         return "Lowest-gain taxable lot (~\(gainPct)% embedded gain)."
     }
 
-    private static func buyRationale(_ sleeve: Sleeve, ticker: String) -> String {
-        let loc = sleeve.locationPreference.first.map { " · best held \($0.short.lowercased())" } ?? ""
-        return "Fund \(sleeve.label) with \(ticker)\(loc)."
+    /// The ticket says where the buy is ACTUALLY going, and admits it when that is not the
+    /// sleeve's preferred home. It used to print "best held tax-deferred" on a ticket placing
+    /// the trade in a taxable account — the ticket contradicting itself on one line. A buy
+    /// can only be funded by the account that raised the cash, so a second-best location is
+    /// a real and sometimes unavoidable outcome; the advisor needs to see it, not have it
+    /// papered over.
+    private static func buyRationale(_ sleeve: Sleeve, ticker: String, placedIn account: Account) -> String {
+        let here = account.treatment.short.lowercased()
+        guard let preferred = sleeve.locationPreference.first else {
+            return "Fund \(sleeve.label) with \(ticker) in \(here), from this account's own sales."
+        }
+        if preferred == account.treatment {
+            return "Fund \(sleeve.label) with \(ticker) in \(here) — its preferred home — from this account's own sales."
+        }
+        let permitted = sleeve.locationPreference.contains(account.treatment)
+        let caveat = permitted
+            ? "a second-best home; \(preferred.short.lowercased()) is preferred"
+            : "NOT its preferred home — \(preferred.short.lowercased()) is, and this sleeve is tax-inefficient here"
+        return "Fund \(sleeve.label) with \(ticker) in \(here) (\(caveat)). Funded from this account's own sales, which is the only cash that can reach it."
     }
 }

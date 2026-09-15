@@ -141,8 +141,15 @@ struct PolicyStatementTab: View {
 
     private func returnObjectiveSection(editable: Bool) -> some View {
         section("3", "Investment objective — return") {
+            // An unsolvable plan has no return objective to state. Printing the clamp — 20.0%
+            // per year — as this client's hurdle would put a number in a signed policy
+            // document that describes nobody.
+            if !eval.isSolvable {
+                p("No return objective can be stated yet: this household has no portfolio or no spending goal on file. Complete the balances and the retirement spending, and this section will state the hurdle those inputs imply.")
+            } else {
             p("The portfolio is required to earn a real, after-tax return of approximately \(Fmt.pctBps(rr.requiredRealReturnBps)) per year\(rr.legacyFloorUsd > 0 ? " while preserving a legacy floor of \(Fmt.usd(rr.legacyFloorUsd)) in today's dollars" : ""). Because the plan already funds the taxes its own withdrawals generate, this after-tax figure — not the \(Fmt.pctBps(rr.requiredRealReturnPreTaxBps)) pre-tax equivalent — is the binding hurdle.")
             p(fundedText)
+            }
             if isCouple { p(survivorAssumptionText) }
             if editable, let b = draftOverrides {
                 savingsRetireEditor(b)

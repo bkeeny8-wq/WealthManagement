@@ -115,6 +115,13 @@ public struct LadderPlan: Sendable, Hashable {
 
 /// Everything the desk needs for one household, in one pass.
 public struct Evaluation: Sendable {
+    /// Whether there is anything here to solve. With no investable portfolio or no spending
+    /// claim, the required return and the funded ratio are CLAMP ARTIFACTS, not findings: an
+    /// untouched intake reports a required real return of 20.0% and a funded ratio of 999.0%
+    /// in the same breath — one saying the plan is hopeless and the other that it is nine
+    /// times over-funded. Neither describes the client. Views must not present those figures
+    /// as answers while this is false.
+    public var isSolvable: Bool = true
     public var household: Household
     public var policy: InvestmentPolicy        // the spending/glide policy
     public var legacyPolicy: InvestmentPolicy
@@ -237,7 +244,12 @@ public enum Engine {
                                            balanceSheet: bs, allocation: alloc, altSizing: alts, ladder: lad,
                                            rothTaxSavedUsd: decum.lifetimeTaxSavedUsd)
         let resil = resilience(h, tax: tax, rr: rr, asOf: asOf, policy: derivedPolicy, annualTaxUsd: taxByYear)
-        return Evaluation(household: h, policy: policy, legacyPolicy: derivedPolicy, tax: tax, asOf: asOf,
+        // Nothing to solve without both a portfolio and a spending claim to fund from it.
+        let spendingUsd = h.goals.filter { $0.kind == .spending }
+            .flatMap(\.outflows).reduce(0) { $0 + $1.amountUsd }
+        let solvable = h.portfolioValueUsd > 0 && spendingUsd > 0
+        return Evaluation(isSolvable: solvable,
+                          household: h, policy: policy, legacyPolicy: derivedPolicy, tax: tax, asOf: asOf,
                           balanceSheet: bs, requiredReturn: rr, allocation: alloc, altSizing: alts,
                           findings: findings, itemization: item, dispositions: disp, ladder: lad, muni: mc,
                           paydowns: pays, deferredTaxTotalUsd: bs.liabilities.deferredTaxUsd,
