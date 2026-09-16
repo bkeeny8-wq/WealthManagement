@@ -120,6 +120,12 @@ struct TaxTab: View {
         }
     }
 
+    private var stateProfile: StateTaxProfile { Seed.stateTaxProfile(for: eval.household.stateOfResidence) }
+    private var stateIncomeRate: Double { stateProfile.incomeRate }
+    private var estimatedStateGainTax: Usd {
+        max(0, embedded.shortTerm + embedded.longTerm) * stateIncomeRate
+    }
+
     @ViewBuilder private var embeddedGainsCard: some View {
         let e = embedded
         if e.shortTerm != 0 || e.longTerm != 0 {
@@ -128,7 +134,19 @@ struct TaxTab: View {
                 Note("The unrealized gains in your taxable, sellable holdings, split by how long each lot has been held. A short-term lot — under about a year — is taxed as ORDINARY income, not at the lower long-term rate, so realizing it costs more. Hold-to-step-up lots are excluded (they extinguish at death).")
                 LedgerRow("Long-term gain", Fmt.usd(e.longTerm), color: e.longTerm >= 0 ? Theme.asset : Theme.debt)
                 LedgerRow("Short-term gain", Fmt.usd(e.shortTerm), color: e.shortTerm > 0 ? Theme.amber : Theme.muted)
-                LedgerRow("Tax if realized today", Fmt.usd(e.taxUsd), color: Theme.ink, bold: true)
+                // `capitalGainsTax` is documented as FEDERAL tax, and this row dropped the
+                // word. For a California resident the state takes capital gain as ordinary
+                // income, so the true realize-today cost on this book is about half again
+                // the figure shown. Named, and the omission sized rather than hidden.
+                LedgerRow("Federal tax if realized today", Fmt.usd(e.taxUsd), color: Theme.ink, bold: true)
+                if stateIncomeRate > 0 {
+                    LedgerRow("State — \(stateProfile.name), estimated", Fmt.usd(estimatedStateGainTax),
+                              color: Theme.amber)
+                    Note("State tax is ON TOP of the federal figure and is not included in it. The estimate applies "
+                         + "\(stateProfile.name)'s top marginal rate of \(Fmt.pctBps(stateIncomeRate.bps)) to the whole gain — most states tax "
+                         + "capital gain as ordinary income — so it is an upper bound on a household below that bracket. Verify before use.",
+                         color: Theme.muted)
+                }
                 if penalty > 100 {
                     LedgerRow("Short-term penalty", Fmt.usdSigned(penalty), color: Theme.debt, bold: true)
                     Note("Letting the short-term lots season past a year would cut the realize-today tax by \(Fmt.usdShort(penalty)) — the cost of selling a recently bought lot at ordinary rates.", icon: "clock", color: Theme.muted)

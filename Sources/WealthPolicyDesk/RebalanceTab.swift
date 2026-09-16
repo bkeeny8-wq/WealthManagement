@@ -45,7 +45,7 @@ struct RebalanceTab: View {
             if p.realizedShortTermUsd > 0 {
                 LedgerRow("of which short-term / long-term", "\(Fmt.usdShort(p.realizedShortTermUsd)) / \(Fmt.usdShort(p.realizedLongTermUsd))", color: Theme.muted)
             }
-            LedgerRow("Est. tax", Fmt.usd(p.estTaxUsd), color: p.estTaxUsd > 0 ? Theme.amber : Theme.asset, bold: true)
+            LedgerRow("Est. federal tax", Fmt.usd(p.estTaxUsd), color: p.estTaxUsd > 0 ? Theme.amber : Theme.asset, bold: true)
             if p.gainBudgetUsd > 0 {
                 LedgerRow("Gain budget", Fmt.usd(p.gainBudgetUsd), color: p.budgetBinds ? Theme.debt : Theme.asset)
             }
