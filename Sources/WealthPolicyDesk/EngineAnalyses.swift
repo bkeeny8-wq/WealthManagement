@@ -430,8 +430,15 @@ extension Engine {
         // The risk profile (capacity vs tolerance, bound to the lower) was previously
         // computed and only displayed; here it becomes a binding check on the allocation.
         if let rp = riskProfile(h, fundedRatioBps: bs.fundedRatioBps, ladder: lad) {
+            // Held equity on the SAME basis as the ceiling. `isEquity` is growth sleeves only —
+            // it excludes illiquid alts, real diversifiers and BUFR — while `bindingEquityBps` is
+            // a cap on total exposure that the solver implements as
+            // `growthCeiling = ceiling - altEquiv`. Comparing the first against the second gave
+            // the household its alt reservation twice: one holding the full 20% alt budget plus
+            // growth at the ceiling carries roughly 40% true equity exposure against a 32.5% cap
+            // and this rule would not fire, because it only saw the growth half.
             let equityUsd = h.positions.filter { isEquity($0) }.reduce(0) { $0 + $1.marketValueUsd }
-            let equityBps = (equityUsd / portfolio).bps
+            let equityBps = (equityUsd / portfolio).bps + heldAltEquityEquivalentBps(h)
             let over = equityBps - rp.bindingEquityBps
             if over > 300 {   // >3 points above the binding ceiling
                 let capBound = rp.bindingIsCapacity

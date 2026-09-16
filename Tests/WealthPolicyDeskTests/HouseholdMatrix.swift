@@ -210,6 +210,21 @@ enum HouseholdMatrix {
               m.emergencyReserveUsd = 300_000
               return m }())
 
+        // A household that actually HOLDS alternatives. Nothing else in this matrix does —
+        // `altSizing` current weights are zero on every other case — which hid an entire class of
+        // rule: the risk ceiling is a cap on TOTAL equity that the solver implements as
+        // `growthCeiling = ceiling - altEquiv`, so anything measuring holdings against it has to
+        // count the alt slice's beta too. With no fixture holding any, a check that counted only
+        // growth sleeves looked correct on all 27.
+        add("holds its alternatives",
+            { var m = base([adult("A", born: bornAged(56), retireAt: 64, salary: 220_000,
+                                  traditional: 1_200_000)],
+                           taxable: 2_800_000, spending: 190_000)
+              m.heldAwayPositions = [held("BUFR", 420_000, .taxable, owner: 0),
+                                     held("PCRED", 300_000, .taxable, owner: 0),
+                                     held("DBMF", 280_000, .taxable, owner: 0)]
+              return m }())
+
         // A plan with real SPENDING HEADROOM. Every other household in this matrix has negative
         // headroom — several survive all three stresses but end below their legacy floor, which
         // defaults to the whole investable balance when legacy priority is essential, so the

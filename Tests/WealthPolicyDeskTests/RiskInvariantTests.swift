@@ -235,9 +235,17 @@ final class RiskInvariantTests: XCTestCase {
         for c in matrix where c.eval.isSolvable {
             let f = Engine.frontier(c.eval, cme: cme)
             guard let quoted = f.frontierToleranceEquityBps else { continue }
-            let top = f.curve.map(\.equityBps).max() ?? 0
+            // On ONE basis. `FrontierPoint.equityBps` is growth sleeves over the whole book;
+            // `frontierToleranceEquityBps` is a ceiling on TOTAL equity, which the solver spends
+            // as `growthCeiling = ceiling - altEquiv`. Comparing them raw passed with enormous
+            // slack (the sweep runs to a 9000 bps ceiling, so growth-only tops out near 8250
+            // against a quoted 3250) and would have kept passing well after the menu stopped
+            // reaching its own quoted ceiling.
+            let altEquiv = Engine.altEquityEquivalentBps(c.eval.legacyPolicy)
+            let top = (f.curve.map(\.equityBps).max() ?? 0) + altEquiv
             XCTAssertGreaterThanOrEqual(top, quoted,
-                "\(c.name): the chart quotes \(quoted) bps over a menu topping out at \(top)")
+                "\(c.name): the chart quotes \(quoted) bps over a menu whose top portfolio carries "
+                + "\(top) bps of total equity (growth \(f.curve.map(\.equityBps).max() ?? 0) + alt beta \(altEquiv))")
         }
     }
 
@@ -302,5 +310,63 @@ final class RiskInvariantTests: XCTestCase {
                 .flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
             return anyOut != nil && anyOut != firstSpend
         }, "no household holds a non-spending outflow before its first draw — the outflow anchor is unreachable")
+    }
+
+    // MARK: - The risk ceiling counts what the ceiling reserves for
+
+    /// The stated-tolerance ceiling is a cap on TOTAL equity exposure: `resolveTargets` spends it
+    /// as `growthCeiling = equityCeilingBps - altEquiv`, deliberately reserving room for the alt
+    /// slice's equity/credit beta. So the rule that enforces the ceiling has to measure the same
+    /// thing. It used to measure `isEquity`, which is growth sleeves only — it excludes illiquid
+    /// alts, real diversifiers and BUFR — and so handed the household its reservation twice.
+    ///
+    /// The decisive fixture holds NO growth at all and breaches on alt beta alone: 90% in
+    /// buffered equity at 0.5 carries 45 points of equity exposure against a 32.5 point ceiling.
+    /// Measuring growth sleeves gives 0% and the rule stays silent on a book that is well over.
+    func testTheRiskCeilingSeesEquityHeldThroughAlternatives() {
+        func plan(bufrShare: Double) -> Evaluation {
+            var m = IntakeModel()
+            m.adults = [{ var a = IntakeAdult(); a.name = "A"
+                          a.birthYear = Engine.year(Engine.planningAsOf) - 58
+                          a.retirementAge = 62; a.salaryUsd = 0
+                          a.socialSecurityMonthlyUsd = 3_600; a.ssClaimAge = 67; return a }()]
+            m.state = "NJ"; m.protectionReviewed = true
+            m.planToAge = 92; m.retirementSpendingUsd = 150_000
+            let corpus: Usd = 4_000_000
+            m.taxableUsd = corpus
+            m.heldAwayPositions = [held("BUFR", corpus * bufrShare, owner: 0),
+                                   held("BND", corpus * (1 - bufrShare), owner: 0)]
+            return Engine.evaluate(m.buildHousehold())
+        }
+        func held(_ t: String, _ usd: Usd, owner: Int) -> IntakeHeldPosition {
+            var p = IntakeHeldPosition()
+            p.ticker = t; p.marketValueUsd = usd; p.costBasisUsd = usd * 0.8
+            p.treatment = .taxable; p.ownerIndex = owner
+            return p
+        }
+        func fires(_ e: Evaluation) -> Bool { e.findings.contains { $0.ruleId == "equity_exceeds_binding" } }
+
+        let heavy = plan(bufrShare: 0.90)
+        let light = plan(bufrShare: 0.10)
+
+        // Fixture checks: neither arm holds growth-sleeve equity, so anything the rule sees comes
+        // from the alt slice — and the two arms must actually straddle the ceiling.
+        for (label, e) in [("heavy", heavy), ("light", light)] {
+            let growth = (e.household.positions.filter { Engine.isEquity($0) }
+                .reduce(0) { $0 + $1.marketValueUsd } / max(1, e.household.portfolioValueUsd)).bps
+            XCTAssertLessThan(growth, 300, "fixture check (\(label)): the book holds growth-sleeve equity, so alt beta is not what is being measured")
+        }
+        let ceiling = Engine.riskProfile(heavy.household, fundedRatioBps: heavy.balanceSheet.fundedRatioBps,
+                                         ladder: heavy.ladder)?.bindingEquityBps ?? 0
+        XCTAssertGreaterThan(Engine.heldAltEquityEquivalentBps(heavy.household), ceiling + 300,
+            "fixture check: the heavy arm does not carry enough alt beta to breach the ceiling")
+        XCTAssertLessThan(Engine.heldAltEquityEquivalentBps(light.household), ceiling,
+            "fixture check: the light arm already breaches, so it cannot show the rule staying quiet")
+
+        XCTAssertTrue(fires(heavy),
+            "a book holding no growth sleeves but 45 points of equity exposure through buffered "
+            + "equity did not breach a \(ceiling) bps ceiling — the rule is counting only the growth half")
+        XCTAssertFalse(fires(light),
+            "a book comfortably inside the ceiling was reported as breaching it")
     }
 }

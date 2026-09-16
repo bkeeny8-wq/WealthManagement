@@ -19,6 +19,10 @@ struct FrontierTab: View {
     }
     private var chart: FrontierChart { Engine.frontier(eval, cme: cme) }
 
+    /// The equity/credit beta the alt budget carries. The risk ceiling reserves room for it, so
+    /// it is what closes the gap between the growth figures above and the ceilings below.
+    private var altEquivBps: Bps { Engine.altEquityEquivalentBps(eval.legacyPolicy) }
+
     var body: some View {
         let f = chart
         Card("Efficient frontier") {
@@ -37,8 +41,21 @@ struct FrontierTab: View {
 
         Card("Where the plan sits") {
             verdict(f).padding(.bottom, 4)
-            LedgerRow("Target portfolio", "\(pct(f.target.equityBps)) eq · σ \(pct(f.target.volBps)) · exp \(pct(f.target.expRealBps))", color: Theme.ink)
-            LedgerRow("Current holdings", "\(pct(f.current.equityBps)) eq · σ \(pct(f.current.volBps)) · exp \(pct(f.current.expRealBps))", color: Theme.muted)
+            // "growth", not "eq". FrontierPoint.equityBps is growth SLEEVES over the whole book
+            // (price() computes gW/tot and gW counts only the growth role), while the tolerance
+            // and capacity rows below are ceilings on TOTAL equity — the solver spends them as
+            // `growthCeiling = ceiling - altEquiv`. Calling the first "eq" and setting it beside
+            // the second invited a subtraction that means nothing: on the shipped sample it read
+            // as 25.0% against a 32.5% ceiling, as though seven and a half points of risk budget
+            // were going unused, when 25.0 growth + 7.5 alt beta IS the ceiling, exactly. The
+            // Constraints tab says so in words — "the target already carries the most equity your
+            // tolerance allows (32.5%)" — and the two tabs disagreed on screen.
+            LedgerRow("Target portfolio", "\(pct(f.target.equityBps)) growth · σ \(pct(f.target.volBps)) · exp \(pct(f.target.expRealBps))", color: Theme.ink)
+            LedgerRow("Current holdings", "\(pct(f.current.equityBps)) growth · σ \(pct(f.current.volBps)) · exp \(pct(f.current.expRealBps))", color: Theme.muted)
+            if altEquivBps > 0 {
+                LedgerRow("Alt equity-beta", "+\(pct(altEquivBps)) · counts against the ceiling", color: Theme.muted)
+                LedgerRow("Target, total equity", "\(pct(f.target.equityBps + altEquivBps))", color: Theme.ink)
+            }
             if f.toleranceStated {
                 LedgerRow("Tolerance", "≤ \(pct(f.toleranceDrawdownBps)) drawdown → σ \(pct(f.toleranceVolBps))", color: Theme.amber)
             } else {

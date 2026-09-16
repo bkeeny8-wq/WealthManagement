@@ -36,19 +36,40 @@ public extension Engine {
     /// The one sleeve that is fixed income (everything else is the growth bucket).
     static let fiSleeveId = "fixed_income_liquid"
 
+    /// The equity-equivalent of the alternatives a household actually HOLDS, on the same basis
+    /// the risk ceiling reserves room for. `resolveTargets` sets
+    /// `growthCeiling = equityCeilingBps - altEquiv`, so the ceiling is a cap on TOTAL equity
+    /// exposure including the alt slice's beta — and any check that enforces it has to measure
+    /// the same thing, or it grants the household the reservation twice.
+    static func heldAltEquityEquivalentBps(_ h: Household) -> Bps {
+        let total = max(1, h.portfolioValueUsd)
+        let usd = h.positions.reduce(0.0) { acc, p in
+            guard let fn = altFunction(ofTicker: p.ticker) else { return acc }
+            return acc + p.marketValueUsd * altEquityBeta(fn)
+        }
+        return (usd / total).bps
+    }
+
     /// The alt budget's equity/credit-beta contribution to total-portfolio equity,
     /// so the risk ceiling can be a TRUE total cap: buffered equity (shaped payoff)
     /// carries ~0.5 beta, private credit / PE ~0.7; convexity hedges (trend, gold)
     /// carry ~none. Lets resolveTargets reserve room for the alt slice's risk.
+    /// How much equity/credit beta one unit of an alt function carries. Buffered equity is about
+    /// half an equity; private credit and PE about 0.7; convexity hedges (trend, gold) carry
+    /// none. One definition, used both to size the ceiling's reservation and to measure what a
+    /// household actually holds against it — two copies of these numbers is how the reservation
+    /// and the check that enforces it would drift apart.
+    static func altEquityBeta(_ fn: AltFunction) -> Double {
+        switch fn {
+        case .shapedPayoff: return 0.5
+        case .illiquidityPremium: return 0.7
+        case .convexity: return 0.0
+        }
+    }
+
     static func altEquityEquivalentBps(_ policy: InvestmentPolicy) -> Bps {
         policy.altBudgets.reduce(0) { acc, b in
-            let beta: Double
-            switch b.fn {
-            case .shapedPayoff: beta = 0.5
-            case .illiquidityPremium: beta = 0.7
-            case .convexity: beta = 0.0
-            }
-            return acc + Int((Double(b.targetBps) * beta).rounded())
+            acc + Int((Double(b.targetBps) * altEquityBeta(b.fn)).rounded())
         }
     }
 

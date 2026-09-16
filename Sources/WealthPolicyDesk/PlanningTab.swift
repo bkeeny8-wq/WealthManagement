@@ -197,7 +197,7 @@ struct PlanningTab: View {
                 LedgerRow(isLoss ? "Realized loss" : "Unrealized gain sold",
                           Fmt.usd(t.gainUsd), color: isLoss ? Theme.debt : Theme.ink)
                 if t.taxable {
-                    LedgerRow("Realized tax now", Fmt.usd(t.taxUsd), color: t.taxUsd > 0 ? Theme.debt : Theme.asset, bold: true)
+                    LedgerRow("Realized federal tax now", Fmt.usd(t.taxUsd), color: t.taxUsd > 0 ? Theme.debt : Theme.asset, bold: true)
                     LedgerRow("Reinvested", "+\(Fmt.usd(reinvest)) \(c.buyTicker)", color: Theme.asset, bold: true)
                 } else {
                     LedgerRow("Buy", "+\(Fmt.usd(sellAmt)) \(c.buyTicker)", color: Theme.asset, bold: true)

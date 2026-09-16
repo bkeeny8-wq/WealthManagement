@@ -115,7 +115,12 @@ struct PlanSummaryTab: View {
                     StatTile("Equity ceiling", Fmt.pctBps(risk.bindingEquityBps), sub: "the lower of the two", color: Theme.accent),
                 ])
                 LedgerRow("Chance of missing the goal", Fmt.pctBps(shortfall.shortfallProbBps, 0), color: shortfall.shortfallProbBps > 5000 ? Theme.debt : (shortfall.shortfallProbBps > 3000 ? Theme.amber : Theme.asset), bold: true)
-                Note("The plan CAPS equity at the lower of what you can afford and what you can stomach, then dials the actual target below that ceiling as funded status improves — so your growth allocation below can sit under this number.")
+                Note("The plan CAPS TOTAL equity at the lower of what you can afford and what you can stomach. Two "
+                     + "things sit under that ceiling: the growth allocation shown below, and the equity beta the alt "
+                     + "sleeves carry — buffered equity counts about half, private credit and PE about seven tenths, "
+                     + "trend and gold none. So the growth figure is smaller than this number by roughly the alt "
+                     + "budget's beta even when the ceiling is fully spent. The funded-status glide can dial the "
+                     + "target further below it as the plan improves.", icon: "info.circle")
                 Note("The shortfall figure compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis; a thin margin reflects the forecast's own uncertainty, so read it as roughly funded, not a cushion.", icon: "info.circle")
             } else {
                 Note("Risk tolerance isn't on file yet — answer the risk questions to see the equity ceiling and the chance of missing the goal.", icon: "questionmark.circle")
