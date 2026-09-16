@@ -193,6 +193,17 @@ enum HouseholdMatrix {
                         traditional: 3_000_000, ssMonthly: 2_800, claimAt: 67)],
                  taxable: 1_000_000, spending: 160_000, planTo: 95))
 
+        // An accumulator carrying a NEAR-TERM non-spending outflow. Without one, every
+        // household's first outflow of ANY kind IS its first retirement draw, so the
+        // sequence anchor cannot be told apart from "the first year with any net outflow"
+        // — a replay of that defect passed the whole resilience suite.
+        add("accumulator funding a reserve years before it retires",
+            { var m = base([adult("A", born: bornAged(51), retireAt: 65, salary: 400_000)],
+                           taxable: 5_000_000, spending: 260_000)
+              m.annualSavingsUsd = 120_000
+              m.emergencyReserveUsd = 300_000
+              return m }())
+
         add("already retired, drawing today",
             base([adult("A", born: bornAged(70), retireAt: 62, salary: 0, traditional: 800_000, ssMonthly: 3_600, claimAt: 67),
                   adult("B", born: bornAged(68), retireAt: 62, salary: 0, traditional: 400_000, ssMonthly: 2_400, claimAt: 67)],
