@@ -24,3 +24,6 @@ node_modules/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Claude Code agent worktrees and session scratch
+.claude/worktrees/
