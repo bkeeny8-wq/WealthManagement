@@ -23,6 +23,14 @@ struct RebalanceTab: View {
         return Engine.rebalancePlan(eval.household, policy: p, tax: eval.tax, asOf: eval.asOf)
     }
 
+    private var altBudgetBps: Bps { eval.legacyPolicy.totalAltTargetBps }
+    private var altBudgetLabels: String {
+        eval.legacyPolicy.altBudgets
+            .filter { $0.targetBps > 0 }
+            .map { "\($0.fn.label) \(Fmt.pctBps($0.targetBps))" }
+            .joined(separator: " · ")
+    }
+
     var body: some View {
         let p = plan
         let sells = p.trades.filter { $0.side == .sell }
@@ -72,7 +80,26 @@ struct RebalanceTab: View {
 
         Card("Drift by sleeve") {
             ForEach(p.sleeveGaps.filter { $0.currentBps > 0 || $0.targetBps > 0 }) { gapRow($0) }
-            Note("Full gap to target shown; only sleeves tagged TRADE are outside their band and get a (partial) correction.", color: Theme.muted)
+            // The sleeves are the NON-ALT space, so their targets sum to the sleeve budget
+            // (~80%), not to 100%. Listed alone beside a current column that does sum to
+            // 100%, the table read as a plan with a fifth of the portfolio unallocated and
+            // nothing to say where it went. Disclose the alt budget that holds the rest.
+            if altBudgetBps > 0 {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Alternatives — fixed budget").font(.system(size: 13.5)).foregroundStyle(Theme.muted)
+                        Text("\(Fmt.pctBps(altBudgetBps)) of the policy · \(altBudgetLabels)")
+                            .font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    Text("not traded here").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                }
+                .padding(.vertical, 5)
+                .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+            }
+            Note("Full gap to target shown; only sleeves tagged TRADE are outside their band and get a (partial) correction. "
+                 + "The sleeve targets above cover the non-alt space and sum to \(Fmt.pctBps(eval.legacyPolicy.totalSleeveTargetBps)); the alt budget holds the balance and is sized by policy, not rebalanced by this plan.",
+                 color: Theme.muted)
         }
     }
 

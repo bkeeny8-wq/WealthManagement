@@ -349,4 +349,29 @@ final class RebalanceInvariantTests: XCTestCase {
             XCTAssertEqual(p.plan.warnings, again.warnings, "\(p.name)")
         }
     }
+    /// The policy allocates the whole portfolio. Sleeves cover only the NON-ALT space —
+    /// on the sample they sum to 8000 bps — and the alt budget holds the balance, so
+    /// neither total means anything on its own and only the two together must be 100%.
+    ///
+    /// Asserted because the Rebalance tab lists the sleeves beside a current-weight column
+    /// that does sum to 100%, so a drift in this sum shows up to the reader as a portfolio
+    /// with a fifth of itself unallocated rather than as a bug.
+    func testTheSleevesAndTheAltBudgetAllocateTheWholePortfolio() {
+        for c in HouseholdMatrix.evaluated {
+            let p = c.eval.legacyPolicy
+            XCTAssertEqual(p.totalSleeveTargetBps + p.totalAltTargetBps, 10_000,
+                "\(c.name): sleeves \(p.totalSleeveTargetBps) + alts \(p.totalAltTargetBps) allocate "
+                + "\(p.totalSleeveTargetBps + p.totalAltTargetBps) bps of the portfolio, not 10000")
+        }
+    }
+
+    /// And the alt budget is a real, non-empty share on at least one household — otherwise
+    /// the test above is satisfied by sleeves alone summing to 100% and proves nothing
+    /// about the split the Rebalance tab now discloses.
+    func testTheAltBudgetIsANonTrivialShareSomewhere() {
+        let alts = HouseholdMatrix.evaluated.map { $0.eval.legacyPolicy.totalAltTargetBps }
+        XCTAssertTrue(alts.contains { $0 > 0 },
+                      "no household carries an alt budget — the sleeve/alt split is unreachable")
+        XCTAssertTrue(alts.allSatisfy { $0 < 10_000 }, "a household is entirely alts")
+    }
 }
