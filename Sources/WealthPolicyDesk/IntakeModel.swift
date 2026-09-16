@@ -690,11 +690,14 @@ public struct IntakeModel: Codable, Hashable {
             // seven phantom years of salary and savings. Letting the per-adult age win
             // unconditionally has the same fault mirrored.
             //
-            // Neither field records whether it was touched, but differing from the default is the
-            // evidence available: whichever one moved is the one the client set. If BOTH moved
-            // they genuinely disagreed — that is the defect this collapse exists to end — and the
+            // Neither field records whether it was touched, and differing from the default is the
+            // only evidence available: whichever one moved is the one the client set. That
+            // evidence is incomplete and the rule cannot do better than it — a client who
+            // deliberately CHOSE 65 is indistinguishable from one who never opened the wheel, so
+            // a saved 65 always yields to a per-adult age that moved. When both moved the
             // household-level age wins, because it drove the spending schedule the client was
-            // actually shown.
+            // actually shown. The ambiguous case resolves toward the schedule, which is the
+            // conservative choice for the plan's shape but not provably the client's intent.
             let perAdult = adults.first?.retirementAge ?? Self.legacyDefaultRetirementAge
             let d = Self.legacyDefaultRetirementAge
             if saved != d || perAdult == d { retirementStartAge = saved }

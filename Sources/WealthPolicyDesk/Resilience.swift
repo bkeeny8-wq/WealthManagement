@@ -40,7 +40,16 @@ public struct ResilienceAnalysis: Sendable, Hashable {
     public var spendHeadroomBps: Bps        // (maxSafe − current)/current, in bps (can be negative)
     public var stressesSurvived: Int
     public var stressCount: Int
-    public static let empty = ResilienceAnalysis(requiredRealReturnBps: 0, legacyFloorUsd: 0, sensitivities: [], stresses: [], maxSafeSpendUsd: 0, currentSpendUsd: 0, spendHeadroomBps: 0, stressesSurvived: 0, stressCount: 0)
+    /// The plan year the bad-return pattern starts in — 1-based, so 1 means "the shock lands in
+    /// the first year of the plan". Published because the anchor has three plausible definitions
+    /// (the first retirement draw, the savings window, any net outflow) that produce the same
+    /// SHAPE of output and differ only in where the pattern lands, and terminal balances cannot
+    /// tell them apart: adding a reserve re-solves the required return upward and the stress path
+    /// re-centres on it, so a "cost" can legitimately RAISE the stressed terminal on a well-funded
+    /// household. Measured 10 such cases in an 81-household sweep. A property worth asserting that
+    /// cannot be observed is a property worth exposing.
+    public var shockStartsAtPlanYear: Int
+    public static let empty = ResilienceAnalysis(requiredRealReturnBps: 0, legacyFloorUsd: 0, sensitivities: [], stresses: [], maxSafeSpendUsd: 0, currentSpendUsd: 0, spendHeadroomBps: 0, stressesSurvived: 0, stressCount: 0, shockStartsAtPlanYear: 1)
 }
 
 public extension Engine {
@@ -149,7 +158,8 @@ public extension Engine {
             requiredRealReturnBps: rr.requiredRealReturnBps, legacyFloorUsd: floor,
             sensitivities: sensitivities, stresses: stresses,
             maxSafeSpendUsd: maxSafeSpend, currentSpendUsd: currentSpend, spendHeadroomBps: headroom,
-            stressesSurvived: stresses.filter { $0.survives }.count, stressCount: stresses.count)
+            stressesSurvived: stresses.filter { $0.survives }.count, stressCount: stresses.count,
+            shockStartsAtPlanYear: shockOffset + 1)
     }
 
     /// The spending and the (tax − external income) components of net outflow, per plan

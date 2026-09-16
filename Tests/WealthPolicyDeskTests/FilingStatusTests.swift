@@ -61,8 +61,17 @@ final class FilingStatusTests: XCTestCase {
             "fixture check: MFJ and MFS price identically here, so this comparison cannot detect the defect")
     }
 
-    /// No household the matrix builds is married and filing single, whatever route it took.
-    func testNoMatrixHouseholdIsMarriedAndFilingSingle() {
+    /// A FIXTURE-HEALTH check, not a test of the repair. `HouseholdMatrix.base` stamps `.mfj` on
+    /// every couple, so this can only fail if a fixture is written that bypasses it — which is
+    /// worth catching, because a matrix carrying the impossible combination silently changes what
+    /// several other suites are measuring. The repair itself is tested directly, on models built
+    /// for the purpose, by `testAMarriedRosterIsNeverHandedToTheEngineAsASingleFiler` and
+    /// `testALegacyCoupleFilingSingleIsRepairedOnDecode`.
+    ///
+    /// Named honestly because it USED to claim more: before the fixtures were corrected it was
+    /// the matrix's default `.single` that made it fail, so it read as evidence about
+    /// `engineFilingStatus`. Stamping the fixture removed the only thing that could falsify it.
+    func testTheMatrixItselfHoldsNoImpossibleFilingStatus() {
         var married = 0
         for c in HouseholdMatrix.built {
             let adults = c.household.people.filter { $0.role == .primary || $0.role == .spouse }
@@ -125,6 +134,65 @@ final class FilingStatusTests: XCTestCase {
             let json = "{\"adults\":\(roster),\"filingStatus\":\"\(filing)\",\"planToAge\":92}".data(using: .utf8)!
             let m = try JSONDecoder().decode(IntakeModel.self, from: json)
             XCTAssertEqual(m.filingStatus.rawValue, filing, "decode rewrote a legitimate \(filing) roster")
+        }
+    }
+
+    // MARK: - State treatment of a capital gain
+
+    /// This rule has been wrong in both directions inside the Tax tab, and neither error could
+    /// fail `swift test`, because Package.swift compiles the engine only and every SwiftUI file
+    /// is invisible to the suite. It now lives in `Engine.stateGainTreatment`, and both
+    /// directions are asserted here.
+
+    /// Direction one: a household that has not reached the residence wheel must not be told
+    /// anything about a state. `Seed.stateTaxProfile(for: "")` answers with a profile NAMED
+    /// "Unspecified" carrying 4.50%, so any gate written on the RATE fabricates a state tax for
+    /// the default intake.
+    func testAHouseholdWithNoStateOnFileIsToldNothingAboutStateTax() {
+        for blank in ["", "   ", "\n"] {
+            var m = household(adults: 1, filing: .single)
+            m.state = blank
+            XCTAssertEqual(Engine.stateGainTreatment(m.buildHousehold()), .noStateOnFile,
+                           "a blank state (\(blank.debugDescription)) resolved to a named state")
+        }
+        var unknown = household(adults: 1, filing: .single)
+        unknown.state = "Neverland"
+        XCTAssertEqual(Engine.stateGainTreatment(unknown.buildHousehold()), .noStateOnFile,
+                       "an unrecognised state resolved to the Unspecified fallback as though it were real")
+    }
+
+    /// Direction two — the mirror. Nine states carry a real, named profile with incomeRate
+    /// 0.0000. A gate written on the PRESENCE of a state tells all nine that their state taxes
+    /// capital gain, which is false.
+    func testTheNineStatesWithNoIncomeTaxAreNotToldTheyTaxCapitalGain() {
+        let noTax = ["AK", "FL", "NV", "NH", "SD", "TN", "TX", "WA", "WY"]
+        for code in noTax {
+            var m = household(adults: 1, filing: .single)
+            m.state = code
+            let t = Engine.stateGainTreatment(m.buildHousehold())
+            guard case .noStateIncomeTax = t else {
+                return XCTFail("\(code) levies no income tax but was classified \(t)")
+            }
+        }
+        // Fixture check: the seed really does carry these as named, non-fallback profiles with a
+        // zero rate — otherwise this test is asserting something about the fallback instead.
+        XCTAssertEqual(Seed.stateTaxProfiles.filter { $0.incomeRate <= 0 }.count, noTax.count,
+                       "the seed's set of zero-income-tax states no longer matches this test's list")
+    }
+
+    /// And a state that DOES tax income is still named as taxing the gain — the correction must
+    /// not swallow the common case.
+    func testAStateThatTaxesIncomeIsNamedAsTaxingTheGain() {
+        for code in ["CA", "NJ", "NY", "OR", "MN"] {
+            var m = household(adults: 1, filing: .single)
+            m.state = code
+            let t = Engine.stateGainTreatment(m.buildHousehold())
+            guard case .taxesGain(let name) = t else {
+                return XCTFail("\(code) taxes income but was classified \(t)")
+            }
+            XCTAssertFalse(name.isEmpty, "\(code) resolved to an unnamed profile")
+            XCTAssertNotEqual(name, Seed.stateTaxProfileFallback.name,
+                              "\(code) resolved to the Unspecified fallback")
         }
     }
 }

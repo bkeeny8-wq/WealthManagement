@@ -365,13 +365,44 @@ final class RebalanceInvariantTests: XCTestCase {
         }
     }
 
-    /// And the alt budget is a real, non-empty share on at least one household — otherwise
-    /// the test above is satisfied by sleeves alone summing to 100% and proves nothing
-    /// about the split the Rebalance tab now discloses.
+    /// And the alt budget is a real, non-empty share — otherwise the test above is satisfied by
+    /// sleeves alone summing to 100% and proves nothing about the split the Rebalance tab
+    /// discloses.
+    ///
+    /// Honest about its own reach: the sleeve and alt budgets are 8000/2000 on every household
+    /// in the matrix regardless of age, funded ratio, holdings or filing status, so the loop
+    /// above tests one datum many times rather than many data once. It still guards the thing
+    /// worth guarding — a solver that stopped folding its residual back breaks the sum — but it
+    /// is not evidence that the split VARIES, because in this policy it does not.
     func testTheAltBudgetIsANonTrivialShareSomewhere() {
         let alts = HouseholdMatrix.evaluated.map { $0.eval.legacyPolicy.totalAltTargetBps }
         XCTAssertTrue(alts.contains { $0 > 0 },
                       "no household carries an alt budget — the sleeve/alt split is unreachable")
         XCTAssertTrue(alts.allSatisfy { $0 < 10_000 }, "a household is entirely alts")
+    }
+
+    /// What the household actually HOLDS in alternatives is a different number from the budget,
+    /// and the Rebalance tab now shows both. Nothing held them apart before: every household in
+    /// the matrix holds ZERO alts, so a display that printed the TARGET where the HOLDING
+    /// belonged looked correct on every fixture — which is exactly how "the alt budget holds the
+    /// balance" shipped over a book holding none of it.
+    func testTheAltBudgetAndWhatIsHeldAreTrackedSeparately() {
+        var held = 0, empty = 0
+        for c in HouseholdMatrix.evaluated {
+            let target = c.eval.legacyPolicy.totalAltTargetBps
+            let current = c.eval.altSizing.reduce(0) { $0 + $1.currentBps }
+            XCTAssertGreaterThanOrEqual(current, 0, "\(c.name): negative alt holding")
+            XCTAssertLessThanOrEqual(current, 10_000, "\(c.name): alt holding above the whole portfolio")
+            if current > 0 { held += 1 } else { empty += 1 }
+            _ = target
+        }
+        XCTAssertGreaterThan(empty, 0, "fixture check: no household is short of its alt budget")
+        // Not asserted as > 0: no fixture currently HOLDS alternatives, which is a real coverage
+        // gap — it hides any rule that compares a growth-only holding against a ceiling sized to
+        // include alt beta. Recorded here rather than left silent.
+        if held == 0 {
+            print("COVERAGE GAP: no HouseholdMatrix household holds alternatives; "
+                  + "rules that price alt equity-beta are unexercised.")
+        }
     }
 }

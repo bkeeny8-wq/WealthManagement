@@ -26,7 +26,15 @@ struct DecumulationTab: View {
     /// should be — said neither.
     private var noRmdReason: String {
         let plan = self.plan
-        let everHeldDeferred = plan.years.contains { $0.endDeferredUsd > 0 } || plan.years.contains { $0.rothConversionUsd > 0 }
+        // Evidence of having HELD a deferred balance, not just of ending a year with one. The
+        // first version looked only at end-of-year balances and conversions, so a household that
+        // drew its whole tax-deferred balance down inside plan year 1 — the engine's draw order
+        // is taxable, then deferred, then Roth — was reported as having had "no tax-deferred
+        // balance to draw from", which is the opposite of what happened. A withdrawal or an RMD
+        // is proof the balance existed.
+        let everHeldDeferred = plan.years.contains {
+            $0.endDeferredUsd > 0 || $0.rothConversionUsd > 0 || $0.deferredWithdrawalUsd > 0 || $0.rmdUsd > 0
+        }
         if !everHeldDeferred { return "no tax-deferred balance to draw from" }
         if let last = plan.years.last, last.endDeferredUsd > 0 { return "the plan ends before the RMD age" }
         return "the tax-deferred balance is exhausted before the RMD age"

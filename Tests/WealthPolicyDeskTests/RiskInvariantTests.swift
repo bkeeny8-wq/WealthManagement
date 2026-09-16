@@ -67,18 +67,47 @@ final class RiskInvariantTests: XCTestCase {
         }
     }
 
-    /// Max safe spend is solved on the same path the stresses report, so it must be finite,
-    /// non-negative, and consistent with the headroom figure shown beside it.
-    func testMaxSafeSpendIsCoherentWithWhatIsShownBesideIt() {
-        for c in matrix where c.eval.isSolvable {
+    /// Max safe spend and the stress table are solved by different code — the first by bisecting
+    /// a spending multiplier, the second by running the pattern at mult = 1 — so they can be
+    /// checked against each other. The bisection accepts a multiplier only when the worst stress
+    /// both survives AND ends at or above the legacy floor, so a household that already clears
+    /// that bar at its CURRENT spending must have non-negative headroom, and one that does not
+    /// must have negative headroom. Neither side is derived from the other.
+    ///
+    /// This replaces an assertion that recomputed `(maxSafe - current) / current` and compared it
+    /// to `spendHeadroomBps` — which Resilience.swift computes as exactly that expression from
+    /// exactly those two published Doubles. It was an algebraic identity: true for every possible
+    /// value, unfalsifiable by any behaviour of the solve.
+    func testMaxSafeSpendAgreesWithTheStressTableAboutWhetherThePlanClears() {
+        var clearing = 0, failing = 0
+        // Deliberately NOT filtered to solvable households. The required return is solved to
+        // exhaust the corpus down to the legacy floor, so a solvable plan sits on the edge by
+        // construction and a bad sequence always pushes it under — every solvable household in
+        // this matrix has negative headroom. The positive branch exists only where the plan is
+        // so overfunded that the bisection runs off its floor sentinel, which is exactly the
+        // case `isSolvable` excludes. Filtering it out left half this assertion vacuous.
+        for c in matrix {
             let r = c.eval.resilience
+            XCTAssertTrue(r.maxSafeSpendUsd.isFinite, "\(c.name): max safe spend is not a number")
             XCTAssertGreaterThanOrEqual(r.maxSafeSpendUsd, 0, "\(c.name)")
-            XCTAssertTrue(r.maxSafeSpendUsd.isFinite, "\(c.name)")
-            guard r.currentSpendUsd > 0 else { continue }
-            let implied = ((r.maxSafeSpendUsd - r.currentSpendUsd) / r.currentSpendUsd).bps
-            XCTAssertEqual(r.spendHeadroomBps, implied, accuracy: 2,
-                "\(c.name): headroom \(r.spendHeadroomBps) bps disagrees with the spend figures it is derived from")
+            guard r.currentSpendUsd > 0, !r.stresses.isEmpty else { continue }
+
+            let clearsToday = r.stresses.allSatisfy { $0.survives && $0.terminalBalanceUsd >= r.legacyFloorUsd }
+            if clearsToday {
+                clearing += 1
+                XCTAssertGreaterThanOrEqual(r.maxSafeSpendUsd, r.currentSpendUsd * 0.999,
+                    "\(c.name): every stress survives at the current \(r.currentSpendUsd) and still ends above the "
+                    + "floor, yet the safe-spend solve says the most this plan can afford is \(r.maxSafeSpendUsd)")
+            } else {
+                failing += 1
+                XCTAssertLessThanOrEqual(r.maxSafeSpendUsd, r.currentSpendUsd * 1.001,
+                    "\(c.name): a stress depletes or lands below the floor at the current \(r.currentSpendUsd), "
+                    + "yet the safe-spend solve says \(r.maxSafeSpendUsd) is affordable")
+            }
         }
+        // Both sides of the comparison must occur, or one branch is never exercised.
+        XCTAssertGreaterThan(clearing, 0, "no household clears every stress — the non-negative-headroom branch is vacuous")
+        XCTAssertGreaterThan(failing, 0, "no household fails a stress — the negative-headroom branch is vacuous")
     }
 
     /// Retiring later moves the shock later, because the shock tracks the first RETIREMENT
@@ -151,52 +180,48 @@ final class RiskInvariantTests: XCTestCase {
         }
     }
 
-    /// And the other candidate anchor: ANY year with a net outflow. A reserve funded in
-    /// plan year 1 is not the household drawing down, but it is an outflow — anchoring on
-    /// it drops the shock onto an accumulator at peak balance, thirteen years before the
-    /// first withdrawal.
+    /// The anchor, asserted directly rather than inferred. Three definitions were plausible —
+    /// the first retirement draw, the savings window (the LATER of two retirements), and any year
+    /// with a net outflow — and they produce the same SHAPE of output, differing only in where
+    /// the pattern lands.
     ///
-    /// Isolated without a magic threshold by asking which DIRECTION the reserve moves the
-    /// answer. Funding a reserve is a cost: money leaves in year 1 and never comes back, so
-    /// under stress the plan can only end up the same or worse. Under the outflow anchor it
-    /// ends up dramatically BETTER — the shock lands during accumulation and the plan has a
-    /// decade to recover before it draws, so a household that adds an expense reports a
-    /// stronger stressed balance than one that does not.
-    func testFundingAReserveCannotImproveTheStressedOutcome() {
-        func stressed(reserve: Usd) -> [SequenceStress] {
-            var m = IntakeModel()
-            m.adults = [{ var a = IntakeAdult(); a.birthYear = Engine.year(Engine.planningAsOf) - 51
-                          a.retirementAge = 65; a.salaryUsd = 400_000; return a }()]
-            m.retirementStartAge = 65; m.planToAge = 92
-            m.taxableUsd = 5_000_000; m.retirementSpendingUsd = 260_000; m.annualSavingsUsd = 120_000
-            m.emergencyReserveUsd = reserve
-            return Engine.evaluate(m.buildHousehold()).resilience.stresses
+    /// An earlier version of this test tried to separate them through terminal balances, on the
+    /// ground that funding a reserve is a cost and so can only leave a stressed plan the same or
+    /// worse. That is NOT an invariant of this engine: adding the reserve re-solves the required
+    /// return upward and `stressPath` re-centres the whole pattern on the higher rate, so the
+    /// corpus compounds faster for the entire horizon. A sweep of 81 households found 10 where a
+    /// $300k reserve RAISED the stressed terminal. The old test passed only because its one
+    /// fixture happened to sit on the other side of that line.
+    func testTheShockLandsOnTheFirstRetirementDraw() {
+        for c in matrix where c.eval.isSolvable {
+            let h = c.eval.household
+            let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
+            let firstSpend = h.goals.filter { $0.kind == .spending }
+                .flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
+            let expected = min(max(1, firstSpend ?? 1), horizon)
+            XCTAssertEqual(c.eval.resilience.shockStartsAtPlanYear, expected,
+                "\(c.name): the bad-return pattern starts in plan year "
+                + "\(c.eval.resilience.shockStartsAtPlanYear), but the plan's first retirement draw is "
+                + "year \(String(describing: firstSpend))")
         }
-        let without = stressed(reserve: 0), with = stressed(reserve: 300_000)
+    }
 
-        // Fixture check: the reserve has to actually move the anchor's input, or the two
-        // arms are the same plan and the comparison is vacuous.
-        let h = { var m = IntakeModel()
-                  m.adults = [{ var a = IntakeAdult(); a.birthYear = Engine.year(Engine.planningAsOf) - 51
-                                a.retirementAge = 65; a.salaryUsd = 400_000; return a }()]
-                  m.retirementStartAge = 65; m.planToAge = 92
-                  m.taxableUsd = 5_000_000; m.retirementSpendingUsd = 260_000
-                  m.annualSavingsUsd = 120_000; m.emergencyReserveUsd = 300_000
-                  return m.buildHousehold() }()
-        let anyOutflow = h.goals.flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
-        let firstSpend = h.goals.filter { $0.kind == .spending }
-            .flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
-        XCTAssertNotEqual(anyOutflow, firstSpend,
-            "fixture check: the reserve must fall in a different year from the first draw, or the two anchors coincide")
-        XCTAssertTrue(without.contains { $0.terminalBalanceUsd > 0 },
-                      "fixture check: the plan must survive far enough for the comparison to carry a signal")
-
-        for (bare, funded) in zip(without, with) {
-            XCTAssertLessThanOrEqual(funded.terminalBalanceUsd, bare.terminalBalanceUsd + 1,
-                "\(bare.name): funding a 300k reserve RAISED the stressed terminal "
-                + "\(bare.terminalBalanceUsd) → \(funded.terminalBalanceUsd) — spending money cannot improve the "
-                + "plan, so the shock moved onto the reserve year instead of the first drawdown")
+    /// And the state that separates the first-draw anchor from the other two must be REACHABLE,
+    /// or the assertion above holds for every household by coincidence.
+    func testTheMatrixSeparatesTheThreeCandidateAnchors() {
+        var drawAfterAnOutflow = 0, drawBeforeTheSavingsWindowEnds = 0
+        for c in matrix {
+            let h = c.eval.household
+            let anyOut = h.goals.flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
+            let firstSpend = h.goals.filter { $0.kind == .spending }
+                .flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
+            if let a = anyOut, let f = firstSpend, a != f { drawAfterAnOutflow += 1 }
+            if let f = firstSpend, Engine.householdSaveYears(h, asOf: c.eval.asOf) > f { drawBeforeTheSavingsWindowEnds += 1 }
         }
+        XCTAssertGreaterThan(drawAfterAnOutflow, 0,
+            "no household holds a non-spending outflow before its first draw — the any-outflow anchor is unreachable")
+        XCTAssertGreaterThan(drawBeforeTheSavingsWindowEnds, 0,
+            "no household's savings window outlasts its first draw — the savings-window anchor is unreachable")
     }
 
     // MARK: - The frontier

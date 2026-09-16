@@ -120,18 +120,6 @@ struct TaxTab: View {
         }
     }
 
-    /// A state is only "on file" when the household actually named one. `Seed.stateTaxProfile`
-    /// falls back to a profile called "Unspecified" carrying the US-median-ish 4.50%, and
-    /// `IntakeModel.state` defaults to "" with "— not set —" leading the picker, so gating on a
-    /// non-zero RATE (as an earlier version of this card did) fabricates a named state tax for
-    /// every household that has not reached the residence wheel yet.
-    private var statedStateProfile: StateTaxProfile? {
-        let code = eval.household.stateOfResidence.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !code.isEmpty else { return nil }
-        let p = Seed.stateTaxProfile(for: code)
-        return p.code == Seed.stateTaxProfileFallback.code ? nil : p
-    }
-
     @ViewBuilder private var embeddedGainsCard: some View {
         let e = embedded
         if e.shortTerm != 0 || e.longTerm != 0 {
@@ -156,13 +144,20 @@ struct TaxTab: View {
                 // effective (or true marginal) capital-gain rates for all 51 jurisdictions,
                 // which is the same open data task as the SALT row's.
                 LedgerRow("Federal tax if realized today", Fmt.usd(e.taxUsd), color: Theme.ink, bold: true)
-                if let sp = statedStateProfile {
-                    Note("This is the FEDERAL figure only. \(sp.name) taxes capital gain too, and that is ON TOP of "
+                // Three-way, decided in the engine where it can be tested — see
+                // Engine.stateGainTreatment for why this rule does not live in the view.
+                switch Engine.stateGainTreatment(eval.household) {
+                case .noStateIncomeTax(let name):
+                    Note("\(name) levies no state income tax, so for this household the federal figure above is "
+                         + "the whole realize-today liability. Rates are a dated, teaching-grade snapshot — verify.",
+                         color: Theme.muted)
+                case .taxesGain(let name):
+                    Note("This is the FEDERAL figure only. \(name) taxes capital gain too, and that is ON TOP of "
                          + "the number above — not included in it. The app does not size it: the state rates it carries "
                          + "are a dated, teaching-grade snapshot scoped to the SALT and muni comparisons, not to a "
                          + "realization decision. Get the state number from the client's preparer before acting on this row.",
                          color: Theme.muted)
-                } else {
+                case .noStateOnFile:
                     Note("This is the FEDERAL figure only, and no state of residence is on file. Most states tax capital "
                          + "gain as well — set the residence on the intake's Household step, then treat any state liability "
                          + "as additional to the number above.",

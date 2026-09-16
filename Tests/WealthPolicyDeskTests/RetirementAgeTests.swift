@@ -75,11 +75,16 @@ final class RetirementAgeTests: XCTestCase {
         }
     }
 
-    /// A household cannot be made to report a funded ratio that assumes income it does not
-    /// earn. Held as a comparison so it needs no threshold: shortening the primary's career
-    /// is unambiguously worse — fewer earning years, more drawing years — so the funded
-    /// ratio must fall. Under the split it ROSE, because the spending schedule stayed put
-    /// while the wages retreated.
+    /// Economic sanity, not evidence about the collapse. Shortening the primary's career is
+    /// unambiguously worse — fewer earning years, more drawing years — so the funded ratio must
+    /// fall, monotonically, with no threshold needed.
+    ///
+    /// The docstring used to claim this caught the split ("under the split it ROSE"). It does
+    /// not, and cannot: the fixture sets the age through `retirementStartAge`, which under the
+    /// split leaves the household-level field at its 65 default for every arm, so the only thing
+    /// varying is the wage window and the ratio falls either way. The split is covered by
+    /// `testTheTwoRetirementAgesAreOneValue` and
+    /// `testWagesAndTheFirstDrawMeetWithNoGapAndNoOverlap`, which do go red when it is restored.
     func testRetiringEarlierCannotImproveTheFundedRatio() {
         let ratios = [70, 65, 62, 58, 55].map { single(adultRetiresAt: $0).buildHousehold() }
             .map { Engine.evaluate($0).balanceSheet.fundedRatioBps }

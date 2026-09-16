@@ -11,6 +11,39 @@ import Foundation
 
 extension Engine {
 
+    /// How a household's state of residence bears on a capital-gain realization, as a decision
+    /// the engine makes rather than a branch buried in a view.
+    ///
+    /// It lives here because the rule has now been wrong in BOTH directions inside the Tax tab,
+    /// and neither error was catchable by `swift test`: `Package.swift` compiles the engine only,
+    /// so every SwiftUI file — that tab included — is invisible to the suite. First the row was
+    /// gated on a non-zero RATE, and `Seed.stateTaxProfile(for: "")` returns a profile named
+    /// "Unspecified" carrying 4.50%, so a household that had not reached the residence wheel was
+    /// shown a dollar liability for a state that does not exist. Gating on the PRESENCE of a
+    /// state instead fixed that and opened the mirror: nine states in the seed — AK, FL, NV, NH,
+    /// SD, TN, TX, WA and WY — carry a real, named profile with `incomeRate` 0.0000, and all nine
+    /// were then told their state taxes capital gain.
+    ///
+    /// Three outcomes, not two, and each one testable.
+    public enum StateGainTreatment: Equatable {
+        /// No residence on file. `IntakeModel.state` defaults to "" and the picker leads with
+        /// "— not set —", so this is where every intake starts.
+        case noStateOnFile
+        /// A named state that levies no income tax: the federal figure is the whole liability.
+        case noStateIncomeTax(name: String)
+        /// A named state that taxes income: state tax is additional, and this app does not size it.
+        case taxesGain(name: String)
+    }
+
+    public static func stateGainTreatment(_ h: Household) -> StateGainTreatment {
+        let code = h.stateOfResidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else { return .noStateOnFile }
+        let p = Seed.stateTaxProfile(for: code)
+        guard p.code != Seed.stateTaxProfileFallback.code else { return .noStateOnFile }
+        return p.incomeRate <= 0 ? .noStateIncomeTax(name: p.name) : .taxesGain(name: p.name)
+    }
+
+
     // MARK: - Allocation (current vs target; the emergent "what it looks like")
 
     /// The sleeve a position COUNTS TOWARD: its assigned sleeve, or the one its ticker

@@ -25,8 +25,23 @@ struct RebalanceTab: View {
 
     private var altBudgetBps: Bps { eval.legacyPolicy.totalAltTargetBps }
     private var altHeldBps: Bps { eval.altSizing.reduce(0) { $0 + $1.currentBps } }
-    private var altIsUnderweight: Bool { altBudgetBps - altHeldBps > 100 }
-    private var altGapUsd: Usd { (altBudgetBps - altHeldBps).frac * eval.household.portfolioValueUsd }
+    /// Signed, because the first version of this flag only knew one direction: it tested
+    /// `budget - held > 100` and rendered an overweight alt book as unremarkable while the
+    /// footer's else-branch told the reader alternatives "are sized by policy", directly under a
+    /// sentence reporting a holding above that policy.
+    private var altDriftBps: Bps { altBudgetBps - altHeldBps }
+    private var altIsUnderweight: Bool { altDriftBps > 100 }
+    private var altIsOverweight: Bool { altDriftBps < -100 }
+    private var altOffPolicy: Bool { altIsUnderweight || altIsOverweight }
+    private var altGapUsd: Usd { altDriftBps.frac * eval.household.portfolioValueUsd }
+
+    /// What the sleeve and alt rows together fail to account for. Positions that map to no
+    /// sleeve — an itemised held-away ticker the classifier does not recognise — sit in no row
+    /// at all, so the footer cannot claim the columns reconcile without checking.
+    private var unclassifiedBps: Bps {
+        let accounted = eval.allocation.reduce(0) { $0 + $1.currentBps } + altHeldBps
+        return 10_000 - accounted
+    }
     private var altBudgetLabels: String {
         eval.legacyPolicy.altBudgets
             .filter { $0.targetBps > 0 }
@@ -99,10 +114,11 @@ struct RebalanceTab: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text("Alternatives — policy budget").font(.system(size: 13.5, weight: altIsUnderweight ? .semibold : .regular))
+                            Text("Alternatives — policy budget").font(.system(size: 13.5, weight: altOffPolicy ? .semibold : .regular))
                                 .foregroundStyle(Theme.ink)
-                            if altIsUnderweight {
-                                Text("UNDERWEIGHT").font(.system(size: 8.5, weight: .heavy)).foregroundStyle(.white)
+                            if altOffPolicy {
+                                Text(altIsUnderweight ? "UNDERWEIGHT" : "OVERWEIGHT")
+                                    .font(.system(size: 8.5, weight: .heavy)).foregroundStyle(.white)
                                     .padding(.horizontal, 5).padding(.vertical, 1.5).background(Theme.amber, in: Capsule())
                             }
                         }
@@ -112,7 +128,7 @@ struct RebalanceTab: View {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(Fmt.usdSigned(altGapUsd)).font(.system(size: 13, weight: .bold, design: .monospaced))
-                            .foregroundStyle(altIsUnderweight ? Theme.amber : Theme.muted)
+                            .foregroundStyle(altOffPolicy ? Theme.amber : Theme.muted)
                         Text("not traded here").font(.system(size: 10.5)).foregroundStyle(Theme.muted)
                     }
                 }
@@ -124,7 +140,12 @@ struct RebalanceTab: View {
                  + "the alt budget is the remaining \(Fmt.pctBps(altBudgetBps)), of which this household holds \(Fmt.pctBps(altHeldBps)). "
                  + (altIsUnderweight
                     ? "The shortfall is a real underweight, not a rounding gap — it is funded through a wrapper on the Allocation tab, not by a ticket on this one."
-                    : "Alternatives are sized by policy and are not rebalanced by this plan."),
+                    : altIsOverweight
+                      ? "The book holds MORE than the policy budget — that excess is also not corrected by this plan; it is unwound through the wrapper on the Allocation tab."
+                      : "Alternatives are sized by policy and are not rebalanced by this plan.")
+                 + (abs(unclassifiedBps) > 100
+                    ? " \(Fmt.pctBps(abs(unclassifiedBps))) of the book maps to no sleeve and no alt function — an itemised holding the classifier does not recognise — so it appears in none of the rows above."
+                    : ""),
                  color: Theme.muted)
         }
     }

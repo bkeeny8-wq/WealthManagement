@@ -210,6 +210,33 @@ enum HouseholdMatrix {
               m.emergencyReserveUsd = 300_000
               return m }())
 
+        // A plan with real SPENDING HEADROOM. Every other household in this matrix has negative
+        // headroom — several survive all three stresses but end below their legacy floor, which
+        // defaults to the whole investable balance when legacy priority is essential, so the
+        // safe-spend bisection (which requires surviving AND clearing the floor) never accepts a
+        // multiplier above 1. Without this case the positive side of every headroom assertion is
+        // vacuous.
+        add("overfunded, no legacy floor",
+            { var m = base([adult("A", born: bornAged(58), retireAt: 62, salary: 0,
+                                  ssMonthly: 4_000, claimAt: 67)],
+                           taxable: 8_000_000, spending: 70_000)
+              m.legacyFloorUsd = 0
+              m.legacyPriority = LegacyPriority.none
+              return m }())
+
+        // A savings window that OUTLASTS the plan horizon. The primary is already retired and
+        // drawing today, so the first spending year is 1, while a much younger spouse keeps
+        // `householdSaveYears` running past the end of the plan. Under the shipped anchor the
+        // shock lands in year 1; under the savings-window anchor the whole pattern falls off the
+        // end and every stress silently reproduces the UNSHOCKED corpus — the state
+        // `testEveryStressActuallyShocksThePlan` was written for and which no other household in
+        // this matrix could reach (measured: saveYears < horizon on all 27).
+        add("savings window outlasts the plan horizon",
+            base([adult("A", born: bornAged(70), retireAt: 62, salary: 0,
+                        traditional: 900_000, ssMonthly: 3_400, claimAt: 67),
+                  adult("B", born: bornAged(40), retireAt: 70, salary: 140_000)],
+                 taxable: 700_000, spending: 130_000, planTo: 95))
+
         add("already retired, drawing today",
             base([adult("A", born: bornAged(70), retireAt: 62, salary: 0, traditional: 800_000, ssMonthly: 3_600, claimAt: 67),
                   adult("B", born: bornAged(68), retireAt: 62, salary: 0, traditional: 400_000, ssMonthly: 2_400, claimAt: 67)],

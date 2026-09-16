@@ -534,8 +534,6 @@ struct IntakeWizard: View {
 
     // MARK: steps
 
-    @State private var autoUpgradedFilingOnAdd = false
-
     private var householdStep: some View {
         VStack(spacing: 14) {
             Card("About you") {
@@ -555,25 +553,25 @@ struct IntakeWizard: View {
                     set: { on in
                         if on && intake.adults.count == 1 {
                             intake.adults.append(IntakeAdult())
-                            // Only SINGLE is impossible for a couple, so only SINGLE is moved —
-                            // and remember that we moved it, so the toggle can undo exactly what
-                            // it did and nothing else.
-                            if intake.filingStatus == .single {
-                                intake.filingStatus = .mfj
-                                autoUpgradedFilingOnAdd = true
-                            }
+                            // Adding a spouse makes SINGLE impossible, so that one is moved. It is
+                            // the only rewrite this toggle performs.
+                            if intake.filingStatus == .single { intake.filingStatus = .mfj }
                         } else if !on && intake.adults.count > 1 {
                             intake.adults.removeLast()
-                            // Undo ONLY our own upgrade. The two branches used to disagree: add
-                            // rewrote just SINGLE, remove rewrote MFJ and MFS unconditionally, so
-                            // toggling on and off destroyed a deliberately chosen status. A widow
-                            // filing MFJ in the year of death, or a married client filing MFS with
-                            // the spouse not modelled, are both one-adult rosters this form should
-                            // preserve — and both are cases the filing gate exists to protect.
-                            if autoUpgradedFilingOnAdd && intake.filingStatus == .mfj {
-                                intake.filingStatus = .single
-                            }
-                            autoUpgradedFilingOnAdd = false
+                            // Removing the spouse rewrites NOTHING. Every status is possible for a
+                            // one-adult roster — MFJ is the year-of-death filing, MFS is a married
+                            // client whose spouse is not modelled, HOH is a single filer with a
+                            // dependent — so there is no impossible state to repair, and rewriting
+                            // one would destroy a choice the client may have made deliberately.
+                            //
+                            // An earlier version tried to undo only its OWN upgrade by remembering
+                            // it in @State. That flag lives and dies with the view, and the wizard
+                            // is presented in a .fullScreenCover that is torn down on every
+                            // dismissal, so the undo fired or did not depending on whether the
+                            // sheet had been closed in between — the same gesture giving different
+                            // results. Deriving beats remembering: the chips below offer every
+                            // status to a one-adult roster, so whatever is left standing is visible
+                            // and one tap from being changed.
                         }
                     })).tint(Theme.ink)
                 if intake.adults.count > 1 { AdultForm(adult: $intake.adults[1], index: 1, showIncome: false) }
