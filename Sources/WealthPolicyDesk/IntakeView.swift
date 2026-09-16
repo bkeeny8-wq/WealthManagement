@@ -788,7 +788,17 @@ struct IntakeWizard: View {
         VStack(spacing: 14) {
             Card("Retirement spending", help: Teach.help("requiredReturn")) {
                 MoneyField(label: "Annual spending (today's $)", value: $intake.retirementSpendingUsd)
-                WheelRow(label: "Retire at age", selection: $intake.retirementStartAge, options: ages(45...75))
+                // The same value as the primary's "Planned retirement age" in the people
+                // step, shown again here because it is what starts the spending. Named so
+                // the shared binding is visible: two wheels that silently disagreed used to
+                // be one wheel-scroll away from a plan with a seven-year hole in it.
+                WheelRow(label: intake.adults.count > 1
+                            ? "\(intake.adults.first?.name.isEmpty == false ? intake.adults[0].name : "You") retires at age"
+                            : "Retire at age",
+                         selection: $intake.retirementStartAge, options: ages(45...75))
+                if intake.adults.count > 1 {
+                    Note("Drawing starts when you retire. This is the same age as your planned retirement age in the people step — changing either moves both.")
+                }
                 WheelRow(label: "Plan to age", selection: $intake.planToAge, options: ages(80...100))
             }
             Card("Legacy floor", help: Teach.help("requiredReturn")) {

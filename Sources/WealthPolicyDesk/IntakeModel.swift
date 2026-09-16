@@ -506,7 +506,27 @@ public struct IntakeModel: Codable, Hashable {
 
     // 7 — goals
     public var retirementSpendingUsd: Usd = 0
-    public var retirementStartAge: Int = 65
+    /// The year the plan starts drawing. NOT a second retirement age — a shim onto the
+    /// primary's own `retirementAge`, so the spending schedule and the wage/saving window
+    /// cannot disagree.
+    ///
+    /// They used to be independent fields edited by two separate wheels in two different
+    /// steps of the form, and either direction produced a plan the engine could not fault:
+    /// wages stopping at 58 with spending starting at 65 left seven years funded by nothing
+    /// and still reported 67% funded; the mirror ran seven years of phantom salary against
+    /// the draw and read 78 bps easier than the truth. `withDriverOverrides` had already
+    /// settled the question for the what-if slider — it moves the person record and the
+    /// spending schedule together, "otherwise saveYears/human-capital would extend past a
+    /// spending start that didn't move" — but the intake path every client is onboarded
+    /// through could still split them.
+    private enum LegacyGoalKeys: String, CodingKey { case retirementStartAge }
+    public var retirementStartAge: Int {
+        get { adults.first?.retirementAge ?? 65 }
+        set {
+            if adults.isEmpty { adults = [IntakeAdult()] }
+            adults[0].retirementAge = newValue
+        }
+    }
     public var planToAge: Int = 92
     public var legacyFloorUsd: Usd = 0
 
@@ -627,7 +647,17 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .pensionAnnualUsd)) ?? nil { pensionAnnualUsd = v }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .ssClaimAge)) ?? nil { ssClaimAge = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .retirementSpendingUsd)) ?? nil { retirementSpendingUsd = v }
-        if let v = (try? c.decodeIfPresent(Int.self, forKey: .retirementStartAge)) ?? nil { retirementStartAge = v }
+        // `retirementStartAge` is computed now, so it is neither in the synthesized
+        // CodingKeys nor written on encode — the JSON carries one retirement age per adult
+        // and nothing to contradict it. Saved plans from before the collapse still carry the
+        // old household-level key, and it is the one that drove the spending schedule the
+        // client was actually shown, so read it through its own container and let it win.
+        // Applied after `adults` decodes, so it moves the wage window onto the spending start
+        // rather than the other way round.
+        if let legacy = try? decoder.container(keyedBy: LegacyGoalKeys.self),
+           let v = (try? legacy.decodeIfPresent(Int.self, forKey: .retirementStartAge)) ?? nil {
+            retirementStartAge = v
+        }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .planToAge)) ?? nil { planToAge = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .legacyFloorUsd)) ?? nil { legacyFloorUsd = v }
         if let v = (try? c.decodeIfPresent(Bps.self, forKey: .lossToleranceBps)) ?? nil { lossToleranceBps = v }
@@ -829,7 +859,7 @@ public extension IntakeModel {
     func buildHousehold(asOf: IsoDate = Engine.planningAsOf) -> Household {
         let yr = Engine.year(asOf)
         let primaryAge = max(0, yr - (adults.first?.birthYear ?? 1975))
-        let retireStartYear = max(1, retirementStartAge - primaryAge)
+        let retireStartYear = max(1, (adults.first?.retirementAge ?? retirementStartAge) - primaryAge)
         let horizon = max(retireStartYear + 1, planToAge - primaryAge)
 
         // People + human capital + deferred comp.
