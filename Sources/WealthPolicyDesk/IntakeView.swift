@@ -792,8 +792,10 @@ struct IntakeWizard: View {
                 // step, shown again here because it is what starts the spending. Named so
                 // the shared binding is visible: two wheels that silently disagreed used to
                 // be one wheel-scroll away from a plan with a seven-year hole in it.
+                // Parenthesised rather than "<name> retires at age" — with no name entered
+                // the primary is "You", and "You retires at age" is not a sentence.
                 WheelRow(label: intake.adults.count > 1
-                            ? "\(intake.adults.first?.name.isEmpty == false ? intake.adults[0].name : "You") retires at age"
+                            ? "Retire at age (\(intake.adults.first.map { $0.name.isEmpty ? "you" : $0.name } ?? "you"))"
                             : "Retire at age",
                          selection: $intake.retirementStartAge, options: ages(45...75))
                 if intake.adults.count > 1 {
