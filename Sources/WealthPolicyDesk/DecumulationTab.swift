@@ -20,6 +20,18 @@ struct DecumulationTab: View {
         var id: String { "\(kind)-\(age)" }
     }
 
+    /// Why no RMD lands. `firstRmdAge == 0` reads as "the plan ends before RMDs begin", but
+    /// it is also what a household that CONVERTED its way out of them looks like, and a note
+    /// telling the reader to watch a step-up that never comes — with an em-dash where the age
+    /// should be — said neither.
+    private var noRmdReason: String {
+        let plan = self.plan
+        let everHeldDeferred = plan.years.contains { $0.endDeferredUsd > 0 } || plan.years.contains { $0.rothConversionUsd > 0 }
+        if !everHeldDeferred { return "no tax-deferred balance to draw from" }
+        if let last = plan.years.last, last.endDeferredUsd > 0 { return "the plan ends before the RMD age" }
+        return "the tax-deferred balance is exhausted before the RMD age"
+    }
+
     var body: some View {
         if plan.years.isEmpty {
             Card("Decumulation") {
@@ -31,8 +43,8 @@ struct DecumulationTab: View {
             StatGrid([
                 StatTile("Lifetime tax", Fmt.usdShort(plan.lifetimeFederalTaxUsd),
                          sub: strat.lifetimeTaxSavedUsd > 0 ? "with conversions" : "baseline", color: Theme.ink),
-                StatTile("First RMD", plan.firstRmdAge > 0 ? "age \(plan.firstRmdAge)" : "—",
-                         sub: "forced tax-deferred draw", color: Theme.accent),
+                StatTile("First RMD", plan.firstRmdAge > 0 ? "age \(plan.firstRmdAge)" : "none",
+                         sub: plan.firstRmdAge > 0 ? "forced tax-deferred draw" : noRmdReason, color: Theme.accent),
                 StatTile("Peak marginal rate", Fmt.pctBps(plan.peakMarginalRateBps),
                          sub: "highest bracket hit", color: plan.peakMarginalRateBps >= 2400 ? Theme.debt : Theme.ink),
                 StatTile("Lifetime IRMAA", Fmt.usdShort(plan.lifetimeIrmaaUsd),
@@ -68,7 +80,11 @@ struct DecumulationTab: View {
                     }
                     .padding(.top, 2)
                 }
-                Note("Ordinary income folds wages still being earned, the RMD, discretionary tax-deferred draws, pension, any Roth conversion, and the taxable portion of Social Security. Watch the marginal rate and IRMAA step up the year RMDs begin (age \(plan.firstRmdAge > 0 ? String(plan.firstRmdAge) : "—")).", icon: "arrow.up.right")
+                Note("Ordinary income folds wages still being earned, the RMD, discretionary tax-deferred draws, pension, any Roth conversion, and the taxable portion of Social Security. "
+                     + (plan.firstRmdAge > 0
+                        ? "Watch the marginal rate and IRMAA step up the year RMDs begin (age \(plan.firstRmdAge))."
+                        : "No RMD falls in this plan — \(noRmdReason) — so the RMD column stays empty and no forced draw ever lands."),
+                     icon: "arrow.up.right")
             }
         }
     }
