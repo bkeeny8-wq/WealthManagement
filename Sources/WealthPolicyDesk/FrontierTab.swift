@@ -23,7 +23,13 @@ struct FrontierTab: View {
         let f = chart
         Card("Efficient frontier") {
             Note("Risk (volatility) across the bottom, expected REAL return up the side. The curve is the app's own portfolios — the forecast-free solver swept from low to high equity, alts a fixed budget, bonds the residual — priced by the capital-market expectations (Econ tab). On it sit the forecast-free things the plan brings: what it NEEDS (the required-return line) and what the client can stomach and afford (the tolerance and capacity σ lines). We never optimize the weights to the forecast; we price the real menu. Expected returns are shown NET of the same fund-fee + annual-tax friction the Required Return and Resilience tabs subtract, so the curve and the required line sit on one after-tax basis.")
-            Toggle("Show the market frontier (CMA overlay)", isOn: $showCurve)
+            // Named for what it does. It used to read "Show the market frontier (CMA
+            // overlay)", which promised a second, forecast-optimised curve that this chart
+            // has never drawn — and gated the one curve it does draw, the solver's own
+            // swept menu. Turning it off deleted the app's portfolios, not an overlay. The
+            // old name also contradicted the doctrine the Note above states: the CME prices
+            // the menu, it never optimises it.
+            Toggle("Plot the solved portfolio menu", isOn: $showCurve)
                 .font(.system(size: 13, weight: .semibold)).tint(Theme.accent).padding(.vertical, 2)
             frontierChart(f).frame(height: 300)
             legend(f)
@@ -154,10 +160,13 @@ struct FrontierTab: View {
         } }
     }
 
+    /// Keys exactly what the chart draws: no key for the curve while it is hidden, and a
+    /// key for the current-holdings dot, which is always plotted and had none.
     private func legend(_ f: FrontierChart) -> some View {
         HStack(spacing: 14) {
-            legendKey("frontier", Theme.accent, line: true)
+            if showCurve { legendKey("menu", Theme.accent, line: true) }
             legendKey("target", Theme.asset, line: false)
+            legendKey("current", Theme.ink.opacity(0.45), line: false)
             legendKey("required", Theme.debt, line: true)
             if f.toleranceStated { legendKey("tolerance", Theme.amber, line: true) }
             Spacer()
