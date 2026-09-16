@@ -542,17 +542,36 @@ struct IntakeWizard: View {
                 }
             }
             Card("Spouse / partner") {
+                // Adding a spouse moves SINGLE to MFJ, and removing one moves it back.
+                // Married-filing-single is not a status that exists, but the form allowed it
+                // and the engine priced it — as MFS, costing 18 bps of required return and
+                // three points of funded ratio on a two-earner household. MFS and HOH are
+                // real choices for a couple, so only SINGLE is corrected, and the chips below
+                // stay live for anyone who wants one of the others.
                 Toggle("Include a second adult", isOn: Binding(
                     get: { intake.adults.count > 1 },
                     set: { on in
-                        if on && intake.adults.count == 1 { intake.adults.append(IntakeAdult()) }
-                        else if !on && intake.adults.count > 1 { intake.adults.removeLast() }
+                        if on && intake.adults.count == 1 {
+                            intake.adults.append(IntakeAdult())
+                            if intake.filingStatus == .single { intake.filingStatus = .mfj }
+                        } else if !on && intake.adults.count > 1 {
+                            intake.adults.removeLast()
+                            if intake.filingStatus == .mfj || intake.filingStatus == .mfs { intake.filingStatus = .single }
+                        }
+                        // Removing the spouse leaves HOH alone — a single filer with a
+                        // dependent is exactly who files it.
                     })).tint(Theme.ink)
                 if intake.adults.count > 1 { AdultForm(adult: $intake.adults[1], index: 1, showIncome: false) }
             }
             Card("Filing & residence") {
                 FieldLabel("Filing status") {
-                    ChoiceChips(FilingStatus.allCases.map { ($0, $0.rawValue.uppercased()) }, selection: intake.filingStatus) { intake.filingStatus = $0 }
+                    // SINGLE is not offered to a couple. MFS and HOH stay — both are real
+                    // choices for a married household. The single-filer side is left alone:
+                    // a one-adult roster filing MFJ is unusual but not impossible (a spouse
+                    // who died during the year), and nothing here has established otherwise.
+                    ChoiceChips(FilingStatus.allCases
+                        .filter { intake.adults.count > 1 ? $0 != .single : true }
+                        .map { ($0, $0.rawValue.uppercased()) }, selection: intake.filingStatus) { intake.filingStatus = $0 }
                 }
                 WheelRow(label: "State of residence", selection: stateSelection, options: USStates.pickerOptions)
             }

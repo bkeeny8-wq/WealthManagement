@@ -519,6 +519,20 @@ public struct IntakeModel: Codable, Hashable {
     /// spending schedule together, "otherwise saveYears/human-capital would extend past a
     /// spending start that didn't move" — but the intake path every client is onboarded
     /// through could still split them.
+    /// Married-filing-single is not a status that exists. The form used to allow it — add a
+    /// spouse and the chips stayed on SINGLE — and the engine priced it as MFS, costing 18 bps
+    /// of required return and three points of funded ratio on a two-earner household. The
+    /// chips are gated now, but plans saved before that gate (and any caller building an
+    /// `IntakeModel` directly) can still hold the combination, so it is corrected here, where
+    /// the household is actually handed to the engine.
+    ///
+    /// Only the impossible case is touched. MFS and HOH are real choices for a couple and are
+    /// passed through, as is a one-adult roster filing MFJ — unusual, but a spouse who died
+    /// during the year is exactly that.
+    var engineFilingStatus: FilingStatus {
+        adults.count > 1 && filingStatus == .single ? .mfj : filingStatus
+    }
+
     private enum LegacyGoalKeys: String, CodingKey { case retirementStartAge }
     public var retirementStartAge: Int {
         get { adults.first?.retirementAge ?? 65 }
@@ -1201,7 +1215,7 @@ public extension IntakeModel {
 
         var h = Household(
             id: "hh_custom", name: adults.first?.name.isEmpty == false ? "\(adults[0].name)'s plan" : "Your plan",
-            filingStatus: filingStatus, stateOfResidence: state, people: people, humanCapital: humanCapital,
+            filingStatus: engineFilingStatus, stateOfResidence: state, people: people, humanCapital: humanCapital,
             deferredComp: deferredComp, incomeProfile: incomeProfile, socialSecurity: ssProfiles, goals: goals,
             externalAssets: externalAssets, eligibilityTierId: tier, accounts: accounts, positions: positions,
             liabilities: liabilities, annualSavingsUsd: annualSavingsUsd, legacyFloorUsd: floor,
