@@ -178,7 +178,14 @@ public extension PracticeMetadata {
             stage: stage.rawValue, stageLabel: stage.label, leadSource: leadSource.rawValue, leadSourceLabel: leadSource.label,
             leadSourceDetail: leadSourceDetail, nextAction: nextAction, notes: notes, createdAt: createdAt, updatedAt: updatedAt,
             investableUsd: intake.totalInvestableUsd, tier: IntakeModel.tier(forInvestable: intake.totalInvestableUsd),
-            primaryAge: intake.primaryAge, filingStatus: intake.filingStatus.rawValue,
+            // The status the row's OWN numbers were solved on, not the stored one. They can
+            // differ: `engineFilingStatus` corrects a married roster still carrying `.single`
+            // (a plan saved before the intake gated that chip), and everything below this line
+            // — required return, funded ratio, after-tax net worth — comes from the evaluation
+            // of the corrected household. Exporting the raw field shipped a CRM row whose label
+            // said "single" beside figures solved on MFJ brackets, the MFJ standard deduction,
+            // the joint NIIT threshold and a two-head IRMAA count.
+            primaryAge: intake.primaryAge, filingStatus: intake.engineFilingStatus.rawValue,
             requiredRealReturnBps: e.requiredReturn.requiredRealReturnBps, afterTaxNetWorthUsd: e.balanceSheet.afterTaxNetWorthUsd,
             fundedRatioBps: e.balanceSheet.fundedRatioBps,
             hardFlags: hard.count, softFlags: soft.count, openHardRules: hard.map { $0.ruleId }.joined(separator: ";"))

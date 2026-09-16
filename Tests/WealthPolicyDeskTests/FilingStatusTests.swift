@@ -73,4 +73,58 @@ final class FilingStatusTests: XCTestCase {
         }
         XCTAssertGreaterThan(married, 0, "fixture check: the matrix holds no couples, so this asserts nothing")
     }
+
+    /// The exported row's label must be the status its own numbers were solved on. The CRM
+    /// record mixes the two sources — `filingStatus` came from the stored field while
+    /// `requiredRealReturnBps`, `fundedRatioBps` and `afterTaxNetWorthUsd` come from evaluating
+    /// the CORRECTED household — so a plan saved before the intake gate exported a row reading
+    /// "single" beside figures solved on MFJ brackets, the MFJ standard deduction, the joint
+    /// NIIT threshold and a two-head IRMAA count. Internally consistent and wrong beat
+    /// self-contradictory: the fix that corrected the pricing has to reach the label too.
+    func testTheExportedFilingStatusIsTheOneTheRowsNumbersWereSolvedOn() {
+        var m = household(adults: 2, filing: .mfj)
+        m.filingStatus = .single                      // the pre-gate state, set past the UI
+        let rec = ClientRecord(intake: m, practice: PracticeMetadata())
+        XCTAssertEqual(rec.household().filingStatus, .mfj, "fixture check: the correction fired")
+        XCTAssertEqual(rec.exportRecord().filingStatus, rec.household().filingStatus.rawValue,
+            "the exported filing_status disagrees with the status its own figures were priced on")
+    }
+
+    /// And the mirror: the export must not start overriding a status the household really has.
+    func testEveryHonestFilingStatusExportsAsItself() {
+        for (n, filing) in [(2, FilingStatus.mfj), (2, .mfs), (2, .hoh), (1, .single), (1, .hoh), (1, .mfj)] {
+            let rec = ClientRecord(intake: household(adults: n, filing: filing), practice: PracticeMetadata())
+            XCTAssertEqual(rec.exportRecord().filingStatus, filing.rawValue,
+                           "\(n) adult(s) filing \(filing) exported as something else")
+        }
+    }
+
+    /// A plan saved before the gate is repaired on the way IN, so the stored field and the
+    /// priced one never diverge in the first place. Without this the filing chips render a
+    /// legacy couple with nothing selected at all — `ChoiceChips` has no rendering for a
+    /// selection absent from its options, and the gate removes SINGLE from a couple's list.
+    func testALegacyCoupleFilingSingleIsRepairedOnDecode() throws {
+        let born = Engine.year(Engine.planningAsOf) - 55
+        let json = """
+        {"adults":[{"birthYear":\(born),"retirementAge":65,"salaryUsd":250000},
+                   {"birthYear":\(born),"retirementAge":65,"salaryUsd":150000}],
+         "filingStatus":"single","planToAge":92,"taxableUsd":2000000,"retirementSpendingUsd":220000}
+        """.data(using: .utf8)!
+        let m = try JSONDecoder().decode(IntakeModel.self, from: json)
+        XCTAssertEqual(m.filingStatus, .mfj, "a two-adult roster decoded still filing single")
+        XCTAssertEqual(m.filingStatus, m.buildHousehold().filingStatus,
+                       "the stored status and the priced status still disagree after decode")
+    }
+
+    /// The mirror again: decode must not rewrite a status that is possible.
+    func testDecodeLeavesEveryPossibleFilingStatusAlone() throws {
+        let born = Engine.year(Engine.planningAsOf) - 55
+        let one = "{\"birthYear\":\(born),\"retirementAge\":65,\"salaryUsd\":250000}"
+        for (roster, filing) in [("[\(one)]", "single"), ("[\(one)]", "mfj"), ("[\(one)]", "hoh"),
+                                 ("[\(one),\(one)]", "mfj"), ("[\(one),\(one)]", "mfs"), ("[\(one),\(one)]", "hoh")] {
+            let json = "{\"adults\":\(roster),\"filingStatus\":\"\(filing)\",\"planToAge\":92}".data(using: .utf8)!
+            let m = try JSONDecoder().decode(IntakeModel.self, from: json)
+            XCTAssertEqual(m.filingStatus.rawValue, filing, "decode rewrote a legitimate \(filing) roster")
+        }
+    }
 }

@@ -24,6 +24,9 @@ struct RebalanceTab: View {
     }
 
     private var altBudgetBps: Bps { eval.legacyPolicy.totalAltTargetBps }
+    private var altHeldBps: Bps { eval.altSizing.reduce(0) { $0 + $1.currentBps } }
+    private var altIsUnderweight: Bool { altBudgetBps - altHeldBps > 100 }
+    private var altGapUsd: Usd { (altBudgetBps - altHeldBps).frac * eval.household.portfolioValueUsd }
     private var altBudgetLabels: String {
         eval.legacyPolicy.altBudgets
             .filter { $0.targetBps > 0 }
@@ -81,24 +84,47 @@ struct RebalanceTab: View {
         Card("Drift by sleeve") {
             ForEach(p.sleeveGaps.filter { $0.currentBps > 0 || $0.targetBps > 0 }) { gapRow($0) }
             // The sleeves are the NON-ALT space, so their targets sum to the sleeve budget
-            // (~80%), not to 100%. Listed alone beside a current column that does sum to
-            // 100%, the table read as a plan with a fifth of the portfolio unallocated and
-            // nothing to say where it went. Disclose the alt budget that holds the rest.
+            // (~80%), not to 100%; the alt budget is the rest. An earlier version of this row
+            // printed only that BUDGET and a footer saying the alt budget "holds the balance",
+            // which asserted the money was there. On every household in the test matrix the
+            // alts held are ZERO against a 2000 bps target, and even the seeded sample holds
+            // 904 — so the 20-point gap the table appeared to leave unexplained was a REAL
+            // underweight, and stating the target as if it were the holding hid it.
+            //
+            // So show the alt budget the way every other row is shown: current -> target, with
+            // its dollar gap. It is still not traded by this plan — alternatives are sized by
+            // policy through a wrapper, not bought off a rebalance ticket — but "we do not
+            // trade it here" is a different statement from "it is already held".
             if altBudgetBps > 0 {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Alternatives — fixed budget").font(.system(size: 13.5)).foregroundStyle(Theme.muted)
-                        Text("\(Fmt.pctBps(altBudgetBps)) of the policy · \(altBudgetLabels)")
+                        HStack(spacing: 6) {
+                            Text("Alternatives — policy budget").font(.system(size: 13.5, weight: altIsUnderweight ? .semibold : .regular))
+                                .foregroundStyle(Theme.ink)
+                            if altIsUnderweight {
+                                Text("UNDERWEIGHT").font(.system(size: 8.5, weight: .heavy)).foregroundStyle(.white)
+                                    .padding(.horizontal, 5).padding(.vertical, 1.5).background(Theme.amber, in: Capsule())
+                            }
+                        }
+                        Text("\(Fmt.pctBps(altHeldBps)) → \(Fmt.pctBps(altBudgetBps)) · \(altBudgetLabels)")
                             .font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
                     }
                     Spacer()
-                    Text("not traded here").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(Fmt.usdSigned(altGapUsd)).font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundStyle(altIsUnderweight ? Theme.amber : Theme.muted)
+                        Text("not traded here").font(.system(size: 10.5)).foregroundStyle(Theme.muted)
+                    }
                 }
                 .padding(.vertical, 5)
                 .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
             }
             Note("Full gap to target shown; only sleeves tagged TRADE are outside their band and get a (partial) correction. "
-                 + "The sleeve targets above cover the non-alt space and sum to \(Fmt.pctBps(eval.legacyPolicy.totalSleeveTargetBps)); the alt budget holds the balance and is sized by policy, not rebalanced by this plan.",
+                 + "The sleeve targets above cover the non-alt space and sum to \(Fmt.pctBps(eval.legacyPolicy.totalSleeveTargetBps)); "
+                 + "the alt budget is the remaining \(Fmt.pctBps(altBudgetBps)), of which this household holds \(Fmt.pctBps(altHeldBps)). "
+                 + (altIsUnderweight
+                    ? "The shortfall is a real underweight, not a rounding gap — it is funded through a wrapper on the Allocation tab, not by a ticket on this one."
+                    : "Alternatives are sized by policy and are not rebalanced by this plan."),
                  color: Theme.muted)
         }
     }

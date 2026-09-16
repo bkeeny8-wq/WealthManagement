@@ -120,10 +120,16 @@ struct TaxTab: View {
         }
     }
 
-    private var stateProfile: StateTaxProfile { Seed.stateTaxProfile(for: eval.household.stateOfResidence) }
-    private var stateIncomeRate: Double { stateProfile.incomeRate }
-    private var estimatedStateGainTax: Usd {
-        max(0, embedded.shortTerm + embedded.longTerm) * stateIncomeRate
+    /// A state is only "on file" when the household actually named one. `Seed.stateTaxProfile`
+    /// falls back to a profile called "Unspecified" carrying the US-median-ish 4.50%, and
+    /// `IntakeModel.state` defaults to "" with "— not set —" leading the picker, so gating on a
+    /// non-zero RATE (as an earlier version of this card did) fabricates a named state tax for
+    /// every household that has not reached the residence wheel yet.
+    private var statedStateProfile: StateTaxProfile? {
+        let code = eval.household.stateOfResidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else { return nil }
+        let p = Seed.stateTaxProfile(for: code)
+        return p.code == Seed.stateTaxProfileFallback.code ? nil : p
     }
 
     @ViewBuilder private var embeddedGainsCard: some View {
@@ -134,17 +140,32 @@ struct TaxTab: View {
                 Note("The unrealized gains in your taxable, sellable holdings, split by how long each lot has been held. A short-term lot — under about a year — is taxed as ORDINARY income, not at the lower long-term rate, so realizing it costs more. Hold-to-step-up lots are excluded (they extinguish at death).")
                 LedgerRow("Long-term gain", Fmt.usd(e.longTerm), color: e.longTerm >= 0 ? Theme.asset : Theme.debt)
                 LedgerRow("Short-term gain", Fmt.usd(e.shortTerm), color: e.shortTerm > 0 ? Theme.amber : Theme.muted)
-                // `capitalGainsTax` is documented as FEDERAL tax, and this row dropped the
-                // word. For a California resident the state takes capital gain as ordinary
-                // income, so the true realize-today cost on this book is about half again
-                // the figure shown. Named, and the omission sized rather than hidden.
+                // `capitalGainsTax` is documented as FEDERAL tax, and this row dropped the word.
+                // Name it, and say plainly that state tax is not in it.
+                //
+                // No dollar estimate. An earlier version multiplied the gain by
+                // `StateTaxProfile.incomeRate` and called the result an upper bound from the
+                // state's "top marginal rate". Both halves were wrong. Seed.swift heads that
+                // table "EFFECTIVE state income and property tax rates ... these drive only the
+                // SALT/itemization estimate behind the muni-crossover and paydown comparisons,
+                // never a filed return", and the stored values agree with the effective reading,
+                // not the marginal one — NJ 6.37% against a 10.75% statutory top, CA 9.30%
+                // against 12.3% plus the 1% surcharge. So the figure was not a ceiling at all:
+                // it understated a top-bracket Californian by roughly a third, in a row that
+                // promised it could only be too high. Sizing this honestly needs sourced
+                // effective (or true marginal) capital-gain rates for all 51 jurisdictions,
+                // which is the same open data task as the SALT row's.
                 LedgerRow("Federal tax if realized today", Fmt.usd(e.taxUsd), color: Theme.ink, bold: true)
-                if stateIncomeRate > 0 {
-                    LedgerRow("State — \(stateProfile.name), estimated", Fmt.usd(estimatedStateGainTax),
-                              color: Theme.amber)
-                    Note("State tax is ON TOP of the federal figure and is not included in it. The estimate applies "
-                         + "\(stateProfile.name)'s top marginal rate of \(Fmt.pctBps(stateIncomeRate.bps)) to the whole gain — most states tax "
-                         + "capital gain as ordinary income — so it is an upper bound on a household below that bracket. Verify before use.",
+                if let sp = statedStateProfile {
+                    Note("This is the FEDERAL figure only. \(sp.name) taxes capital gain too, and that is ON TOP of "
+                         + "the number above — not included in it. The app does not size it: the state rates it carries "
+                         + "are a dated, teaching-grade snapshot scoped to the SALT and muni comparisons, not to a "
+                         + "realization decision. Get the state number from the client's preparer before acting on this row.",
+                         color: Theme.muted)
+                } else {
+                    Note("This is the FEDERAL figure only, and no state of residence is on file. Most states tax capital "
+                         + "gain as well — set the residence on the intake's Household step, then treat any state liability "
+                         + "as additional to the number above.",
                          color: Theme.muted)
                 }
                 if penalty > 100 {

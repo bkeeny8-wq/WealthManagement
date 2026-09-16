@@ -534,6 +534,8 @@ struct IntakeWizard: View {
 
     // MARK: steps
 
+    @State private var autoUpgradedFilingOnAdd = false
+
     private var householdStep: some View {
         VStack(spacing: 14) {
             Card("About you") {
@@ -553,13 +555,26 @@ struct IntakeWizard: View {
                     set: { on in
                         if on && intake.adults.count == 1 {
                             intake.adults.append(IntakeAdult())
-                            if intake.filingStatus == .single { intake.filingStatus = .mfj }
+                            // Only SINGLE is impossible for a couple, so only SINGLE is moved —
+                            // and remember that we moved it, so the toggle can undo exactly what
+                            // it did and nothing else.
+                            if intake.filingStatus == .single {
+                                intake.filingStatus = .mfj
+                                autoUpgradedFilingOnAdd = true
+                            }
                         } else if !on && intake.adults.count > 1 {
                             intake.adults.removeLast()
-                            if intake.filingStatus == .mfj || intake.filingStatus == .mfs { intake.filingStatus = .single }
+                            // Undo ONLY our own upgrade. The two branches used to disagree: add
+                            // rewrote just SINGLE, remove rewrote MFJ and MFS unconditionally, so
+                            // toggling on and off destroyed a deliberately chosen status. A widow
+                            // filing MFJ in the year of death, or a married client filing MFS with
+                            // the spouse not modelled, are both one-adult rosters this form should
+                            // preserve — and both are cases the filing gate exists to protect.
+                            if autoUpgradedFilingOnAdd && intake.filingStatus == .mfj {
+                                intake.filingStatus = .single
+                            }
+                            autoUpgradedFilingOnAdd = false
                         }
-                        // Removing the spouse leaves HOH alone — a single filer with a
-                        // dependent is exactly who files it.
                     })).tint(Theme.ink)
                 if intake.adults.count > 1 { AdultForm(adult: $intake.adults[1], index: 1, showIncome: false) }
             }
@@ -569,8 +584,15 @@ struct IntakeWizard: View {
                     // choices for a married household. The single-filer side is left alone:
                     // a one-adult roster filing MFJ is unusual but not impossible (a spouse
                     // who died during the year), and nothing here has established otherwise.
+                    //
+                    // The current selection is always kept in the list. ChoiceChips renders a
+                    // selection it cannot find as simply nothing highlighted, so filtering the
+                    // stored value out of a legacy couple's options showed the row with no chip
+                    // selected and no way to see what the plan was being priced on. Decode now
+                    // repairs that combination on load, and this keeps the picker honest for any
+                    // model built in memory that still holds it.
                     ChoiceChips(FilingStatus.allCases
-                        .filter { intake.adults.count > 1 ? $0 != .single : true }
+                        .filter { $0 == intake.filingStatus || intake.adults.count <= 1 || $0 != .single }
                         .map { ($0, $0.rawValue.uppercased()) }, selection: intake.filingStatus) { intake.filingStatus = $0 }
                 }
                 WheelRow(label: "State of residence", selection: stateSelection, options: USStates.pickerOptions)

@@ -89,24 +89,55 @@ final class RetirementAgeTests: XCTestCase {
             "fixture check: retiring fifteen years earlier barely moved the funded ratio — the comparison has no signal")
     }
 
-    /// A plan saved before the collapse carries the old household-level key, and it is the
-    /// one that drove the schedule the client was shown. It has to survive the round trip
-    /// and pull the wage window onto itself, not be silently dropped in favour of a
-    /// per-adult age the client may never have touched.
-    func testALegacyPlanWithTwoDisagreeingAgesCollapsesOntoTheSpendingStart() throws {
-        let json = """
-        {"adults":[{"birthYear":\(Engine.year(Engine.planningAsOf) - 55),"retirementAge":58,"salaryUsd":300000}],
-         "retirementStartAge":65,"planToAge":92,"taxableUsd":2500000,"retirementSpendingUsd":200000}
-        """.data(using: .utf8)!
-        let m = try JSONDecoder().decode(IntakeModel.self, from: json)
-        XCTAssertEqual(m.retirementStartAge, 65, "the saved spending start was dropped")
-        XCTAssertEqual(m.adults[0].retirementAge, 65, "the wage window did not follow the saved spending start")
+    /// Migrating a plan saved before the collapse. BOTH old fields were stored with a
+    /// synthesized encoder and BOTH defaulted to 65, so every legacy save carries a
+    /// household-level age whether or not the client ever opened that wheel. Letting it win
+    /// unconditionally let an untouched default overwrite a deliberately entered people-step
+    /// age — and in the flattering direction, handing the plan seven phantom earning years.
+    ///
+    /// Differing from the default is the only evidence available about which field the client
+    /// actually set, so that is what decides. All four combinations are asserted; a rule that
+    /// picks a side unconditionally fails two of them.
+    func testALegacyPlanMigratesOntoWhicheverAgeTheClientActuallySet() throws {
+        let born = Engine.year(Engine.planningAsOf) - 55
+        func migrate(perAdult: Int, household: Int) throws -> IntakeModel {
+            let json = """
+            {"adults":[{"birthYear":\(born),"retirementAge":\(perAdult),"salaryUsd":300000}],
+             "retirementStartAge":\(household),"planToAge":92,"taxableUsd":2500000,"retirementSpendingUsd":200000}
+            """.data(using: .utf8)!
+            return try JSONDecoder().decode(IntakeModel.self, from: json)
+        }
+        let d = IntakeModel.legacyDefaultRetirementAge
+        XCTAssertEqual(d, 65, "fixture check: the migration reasons about this default")
 
-        // And the plan it builds is coherent, which the saved one was not.
-        let h = m.buildHousehold()
-        let firstDraw = h.goals.filter { $0.kind == .spending }
-            .flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
-        let lastWage = (1...40).filter { Engine.wagesAtPlanYear(h, year: $0, asOf: Engine.planningAsOf) > 0 }.max() ?? 0
-        XCTAssertEqual(lastWage + 1, firstDraw, "the migrated plan still has a gap between the last wage and the first draw")
+        // Only the people step was touched — the household age is the untouched default.
+        XCTAssertEqual(try migrate(perAdult: 58, household: d).retirementStartAge, 58,
+            "an untouched default overwrote the age the client entered in the people step")
+        // Only the goals step was touched.
+        XCTAssertEqual(try migrate(perAdult: d, household: 70).retirementStartAge, 70,
+            "an untouched default overwrote the age the client entered in the goals step")
+        // Both touched and disagreeing — the real defect. The age that drove the spending
+        // schedule the client was shown wins.
+        XCTAssertEqual(try migrate(perAdult: 58, household: 70).retirementStartAge, 70,
+            "a plan whose two ages genuinely disagreed did not resolve onto its spending start")
+        // Neither touched.
+        XCTAssertEqual(try migrate(perAdult: d, household: d).retirementStartAge, d)
+    }
+
+    /// And whichever age wins, the migrated plan is COHERENT — which the saved one was not.
+    func testAMigratedPlanHasNoGapBetweenItsLastWageAndItsFirstDraw() throws {
+        let born = Engine.year(Engine.planningAsOf) - 55
+        for (perAdult, household) in [(58, 65), (65, 70), (58, 70), (65, 65)] {
+            let json = """
+            {"adults":[{"birthYear":\(born),"retirementAge":\(perAdult),"salaryUsd":300000}],
+             "retirementStartAge":\(household),"planToAge":92,"taxableUsd":2500000,"retirementSpendingUsd":200000}
+            """.data(using: .utf8)!
+            let h = try JSONDecoder().decode(IntakeModel.self, from: json).buildHousehold()
+            let firstDraw = h.goals.filter { $0.kind == .spending }
+                .flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
+            let lastWage = (1...40).filter { Engine.wagesAtPlanYear(h, year: $0, asOf: Engine.planningAsOf) > 0 }.max() ?? 0
+            XCTAssertEqual(lastWage + 1, firstDraw,
+                "legacy (\(perAdult), \(household)) migrated to a plan with a gap between the last wage and the first draw")
+        }
     }
 }

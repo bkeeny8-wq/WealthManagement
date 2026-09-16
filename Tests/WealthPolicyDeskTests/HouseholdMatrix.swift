@@ -58,6 +58,12 @@ enum HouseholdMatrix {
         m.planToAge = planTo
         m.state = "NJ"
         m.protectionReviewed = true
+        // A couple cannot file single. These fixtures used to leave the default in place, so
+        // every two-adult case held the impossible combination the intake now repairs on decode
+        // — which made them fail their own round-trip invariant and made them unusable as
+        // evidence about filing status. The built household is unchanged either way:
+        // `engineFilingStatus` was already pricing them as MFJ.
+        if adults.count > 1 { m.filingStatus = .mfj }
         return m
     }
 

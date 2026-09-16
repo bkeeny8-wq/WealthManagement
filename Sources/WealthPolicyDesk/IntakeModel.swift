@@ -533,6 +533,10 @@ public struct IntakeModel: Codable, Hashable {
         adults.count > 1 && filingStatus == .single ? .mfj : filingStatus
     }
 
+    /// What both pre-collapse retirement-age fields defaulted to. Used only to tell a value the
+    /// client set from one they never touched when migrating a plan saved before the collapse.
+    static let legacyDefaultRetirementAge = 65
+
     private enum LegacyGoalKeys: String, CodingKey { case retirementStartAge }
     public var retirementStartAge: Int {
         get { adults.first?.retirementAge ?? 65 }
@@ -627,6 +631,14 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent([IntakeAdult].self, forKey: .adults)) ?? nil { adults = v }
         if let v = (try? c.decodeIfPresent([Int].self, forKey: .childrenBirthYears)) ?? nil { childrenBirthYears = v }
         if let v = (try? c.decodeIfPresent(FilingStatus.self, forKey: .filingStatus)) ?? nil { filingStatus = v }
+        // Repaired here as well as at the engine boundary. `engineFilingStatus` keeps a married
+        // roster from being PRICED as a single filer, but it leaves the stored field alone, so a
+        // plan saved before the intake gated that chip loads with the two disagreeing — which
+        // showed up as a CRM row labelled "single" beside MFJ economics, and as a filing-status
+        // picker with no chip selected at all (the gate removes SINGLE from a couple's options,
+        // and ChoiceChips has no rendering for a selection that is not in its list). Repairing
+        // the impossible combination on the way in means stored and priced never diverge.
+        // Applied after `adults` decodes, whose count is what makes it impossible.
         if let v = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil { state = v }
         if let v = (try? c.decodeIfPresent(Bool.self, forKey: .survivableOnOneIncome)) ?? nil { survivableOnOneIncome = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .annualSavingsUsd)) ?? nil { annualSavingsUsd = v }
@@ -669,8 +681,23 @@ public struct IntakeModel: Codable, Hashable {
         // Applied after `adults` decodes, so it moves the wage window onto the spending start
         // rather than the other way round.
         if let legacy = try? decoder.container(keyedBy: LegacyGoalKeys.self),
-           let v = (try? legacy.decodeIfPresent(Int.self, forKey: .retirementStartAge)) ?? nil {
-            retirementStartAge = v
+           let saved = (try? legacy.decodeIfPresent(Int.self, forKey: .retirementStartAge)) ?? nil {
+            // BOTH old fields were stored with a synthesized encoder and BOTH defaulted to 65, so
+            // every legacy save carries a household-level age whether or not the client ever
+            // opened that wheel. Letting it win unconditionally — the first version of this
+            // migration — let an untouched default overwrite an explicitly entered people-step
+            // age, and in the flattering direction: a client who chose 58 reloaded as 65, gaining
+            // seven phantom years of salary and savings. Letting the per-adult age win
+            // unconditionally has the same fault mirrored.
+            //
+            // Neither field records whether it was touched, but differing from the default is the
+            // evidence available: whichever one moved is the one the client set. If BOTH moved
+            // they genuinely disagreed — that is the defect this collapse exists to end — and the
+            // household-level age wins, because it drove the spending schedule the client was
+            // actually shown.
+            let perAdult = adults.first?.retirementAge ?? Self.legacyDefaultRetirementAge
+            let d = Self.legacyDefaultRetirementAge
+            if saved != d || perAdult == d { retirementStartAge = saved }
         }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .planToAge)) ?? nil { planToAge = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .legacyFloorUsd)) ?? nil { legacyFloorUsd = v }
@@ -732,6 +759,8 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(Bool.self, forKey: .esppLookback)) ?? nil { esppLookback = v }
         if let v = (try? c.decodeIfPresent(QsbsStatus.self, forKey: .qsbsStatus)) ?? nil { qsbsStatus = v }
         if adults.isEmpty { adults = [IntakeAdult()] }
+        // Last, because it depends on the decoded adult count.
+        if adults.count > 1 && filingStatus == .single { filingStatus = .mfj }
     }
 
     // Derived conveniences
