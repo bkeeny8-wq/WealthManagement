@@ -1006,7 +1006,7 @@ public extension IntakeModel {
         }
         // Additional goals beyond retirement — each a dated spending claim.
         for (i, ag) in additionalGoals.enumerated() where ag.amountUsd > 0 {
-            let start = max(1, ag.targetYear - yr)
+            let start = max(0, ag.targetYear - yr)
             let span = max(1, ag.spanYears)
             let per = ag.amountUsd / Double(span)
             let outflows = (0..<span).map { Outflow(year: start + $0, amountUsd: per, inflationLinked: true) }
@@ -1037,15 +1037,22 @@ public extension IntakeModel {
         }
         // Education goals → inflated tuition ladders (education series), offset by any 529.
         for g in educationGoals where g.annualCostTodayUsd > 0 {
-            let startOffset = max(1, g.startYear - yr)
+            let startOffset = max(0, g.startYear - yr)
             let yrs = max(1, g.years)
             let gid = "g_edu_\(g.id.uuidString.prefix(8))"
             let childName = children.first(where: { $0.id == g.childId }).map { $0.name.isEmpty ? "Child" : $0.name }
-            goals.append(Goal(id: gid, label: childName.map { "\($0) — \(g.label)" } ?? g.label, kind: .spending, tier: .lifestyle,
-                              horizonYears: startOffset + yrs - 1,
-                              outflows: (0..<yrs).map { Outflow(year: startOffset + $0, amountUsd: g.annualCostTodayUsd, inflationLinked: true) },
-                              inflationSeries: .education, maxShortfallProbabilityBps: GoalTier.lifestyle.defaultShortfallBps, holdToStepUp: false,
-                              flexibility: GoalFlexibility(deferrableYears: 1, scalableDownBps: 3000, abandonable: false), policyId: "spending-glide"))
+            // Spread a 529 across the tuition years. The form promises an offset; the
+            // engine never read `offsetsClaimId` / `.education529`, so the full ladder
+            // was a liability and the 529 vanished. Netting here is the offset.
+            let offsetPerYear = g.five29BalanceUsd > 0 ? g.five29BalanceUsd / Double(yrs) : 0
+            let netAnnual = max(0, g.annualCostTodayUsd - offsetPerYear)
+            if netAnnual > 0 {
+                goals.append(Goal(id: gid, label: childName.map { "\($0) — \(g.label)" } ?? g.label, kind: .spending, tier: .lifestyle,
+                                  horizonYears: startOffset + yrs - 1,
+                                  outflows: (0..<yrs).map { Outflow(year: startOffset + $0, amountUsd: netAnnual, inflationLinked: true) },
+                                  inflationSeries: .education, maxShortfallProbabilityBps: GoalTier.lifestyle.defaultShortfallBps, holdToStepUp: false,
+                                  flexibility: GoalFlexibility(deferrableYears: 1, scalableDownBps: 3000, abandonable: false), policyId: "spending-glide"))
+            }
             if g.five29BalanceUsd > 0 {
                 externalAssets.append(ExternalAsset(id: "ext_529_\(g.id.uuidString.prefix(8))", label: "\(g.label) 529", kind: .education529,
                                                     valueUsd: g.five29BalanceUsd, offsetsClaimId: gid, offsetsFromYear: startOffset,
@@ -1197,7 +1204,7 @@ public extension IntakeModel {
         }
         let estateInputs = EstateInputs(heirCount: heirCount, heirBracketBps: expectedHeirBracket.bracketBps,
                                         bequestSource: charitableBequestSource, annualGivingUsd: annualGivingUsd,
-                                        qcdPlannedUsd: qcdPlannedUsd, dafBalanceUsd: dafExists ? dafBalanceUsd : 0,
+                                        qcdPlannedUsd: qcdEligible ? qcdPlannedUsd : 0, dafBalanceUsd: dafExists ? dafBalanceUsd : 0,
                                         hasWill: hasWill, hasRevocableTrust: hasRevocableTrust, hasFinancialPOA: hasFinancialPOA,
                                         hasHealthcareDirective: hasHealthcareDirective, beneficiaryDesignationsCurrent: beneficiaryDesignationsCurrent)
 
@@ -1250,9 +1257,14 @@ public extension IntakeModel {
         // Equity comp mechanics + options/ESPP legs (single-employer exposure).
         var equityMechanics: EquityCompMechanics? = nil
         if !equityGrantTypes.isEmpty {
+            let hasIso = equityGrantTypes.contains(.iso)
+            let has83b = equityGrantTypes.contains(.restrictedStock) || equityGrantTypes.contains(.founder)
             equityMechanics = EquityCompMechanics(grantTypes: equityGrantTypes, isInsider: isCompanyInsider, tradingWindow: tradingWindow,
-                                                  has10b51Plan: has10b51Plan, plannedExerciseAndHold: planningIsoExerciseAndHold,
-                                                  isoBargainElementUsd: isoBargainElementUsd, pending83bGrantDate: pending83bGrantDate, qsbs: qsbsStatus)
+                                                  has10b51Plan: has10b51Plan,
+                                                  plannedExerciseAndHold: hasIso && planningIsoExerciseAndHold,
+                                                  isoBargainElementUsd: hasIso ? isoBargainElementUsd : 0,
+                                                  pending83bGrantDate: has83b ? pending83bGrantDate : "",
+                                                  qsbs: qsbsStatus)
             let pid = people.first(where: { $0.role == .primary })?.id ?? "p_0"
             if (equityGrantTypes.contains(.iso) || equityGrantTypes.contains(.nso)) && isoUnexercisedValueUsd > 0 {
                 deferredComp.append(DeferredCompensation(id: "dc_opt", personId: pid, kind: .options, ticker: "EMPLOYER", grantValueUsd: isoUnexercisedValueUsd, subjectToEmployerCredit: false, tradingRestricted: tradingWindow != .open))

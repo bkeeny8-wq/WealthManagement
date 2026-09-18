@@ -168,14 +168,16 @@ struct PolicyStatementTab: View {
                                 minus: { o.wrappedValue.annualSavingsUsd = max(0, savings - 10_000) },
                                 plus:  { o.wrappedValue.annualSavingsUsd = savings + 10_000 })
                     miniStepper(isCouple ? "\(firstName(primary)) retires" : "Retire at age", "\(retAge)",
-                                minus: { o.wrappedValue.retirementAge = max(age + 1, retAge - 1) },
+                                // Floor is current age (retire this year → spending year 0).
+                                // `age + 1` made both minus and plus jump off an already-retired value.
+                                minus: { o.wrappedValue.retirementAge = max(age, retAge - 1) },
                                 plus:  { o.wrappedValue.retirementAge = min(longevity - 1, retAge + 1) })
                 }
                 if isCouple, let sp = spouse {
                     let spAge = Engine.age(birthDate: sp.birthDate, asOf: eval.asOf)
                     let spRet = sp.expectedRetirementAge
                     miniStepper("\(firstName(sp)) retires", "\(spRet)",
-                                minus: { o.wrappedValue.spouseRetirementAge = max(spAge + 1, spRet - 1) },
+                                minus: { o.wrappedValue.spouseRetirementAge = max(spAge, spRet - 1) },
                                 plus:  { o.wrappedValue.spouseRetirementAge = min(sp.longevityPercentileTarget - 1, spRet + 1) })
                 }
             }
