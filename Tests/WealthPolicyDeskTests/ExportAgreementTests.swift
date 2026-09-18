@@ -122,4 +122,20 @@ final class ExportAgreementTests: XCTestCase {
         XCTAssertEqual(rec.exportRecord().primaryAge, 56,
                        "a 2031 review must export age 56, not the 2026 age of 51")
     }
+
+    /// Roster `displayName` already falls back to the primary adult; CRM export and the
+    /// desk strip must use the same name when the envelope's clientName was left blank.
+    func testExportFallsBackToThePrimaryAdultName() {
+        var m = IntakeModel()
+        m.adults = [{ var a = IntakeAdult(); a.name = "Ada Lovelace"; a.birthYear = 1985
+                      a.retirementAge = 65; a.salaryUsd = 150_000; return a }()]
+        m.taxableUsd = 1_000_000
+        m.retirementSpendingUsd = 80_000
+        var practice = PracticeMetadata()
+        practice.clientName = ""
+        let rec = ClientRecord(intake: m, practice: practice)
+        XCTAssertEqual(rec.displayName, "Ada Lovelace")
+        XCTAssertEqual(rec.exportRecord().client, "Ada Lovelace")
+        XCTAssertEqual(practice.header(fallbackName: rec.displayName).title, "Ada Lovelace")
+    }
 }

@@ -54,6 +54,7 @@ struct PortfolioTab: View {
             }
         }
         .onAppear { if !loaded { draft = holdings; loaded = true } }
+        .onChange(of: holdings) { _, new in draft = new }
 
         if integ.hasHoldings {
             Card("Integration — how the book fits the model") {

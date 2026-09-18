@@ -20,7 +20,7 @@ struct PolicyStatementTab: View {
     /// The client's year-over-year review history, and the action that snapshots a new one
     /// (given the advisor's note and the section keys confirmed "still applicable").
     var reviews: [IPSReview] = []
-    var saveReview: ((String, [String]) -> Void)? = nil
+    var saveReview: ((String, [String]) -> Bool)? = nil
     /// Reviews persist only for a real client record; false on the sample (no record to save to).
     var canPersist: Bool = true
     /// True while uncommitted trades/tilts are staged on another tab — a review captures the
@@ -330,7 +330,7 @@ struct PolicyStatementTab: View {
 
     private var disclosuresSection: some View {
         section("9", "Assumptions and disclosures") {
-            p("Prepared as of \(eval.asOf) using a safe real rate of \(Fmt.pctBps(rr.safeRealRateBps)) and 2026 tax law under OBBBA (P.L. 119-21). Every figure rests on editable, effective-dated assumptions that must be verified before any client use.")
+            p("Prepared as of \(eval.asOf) using a safe real rate of \(Fmt.pctBps(rr.safeRealRateBps)) and 2026 federal tax estimates (last verified \(eval.tax.lastVerifiedAt)) under OBBBA (P.L. 119-21). Every figure rests on editable, effective-dated assumptions that must be verified before any client use.")
             p("This is a teaching and analysis document. It is not personalized investment, legal, or tax advice, nor a recommendation to buy or sell any security. Forward-looking figures — expected returns and shortfall probabilities — come from a labelled capital-market model and are estimates, not forecasts or guarantees of future results.")
         }
     }
@@ -365,9 +365,11 @@ struct PolicyStatementTab: View {
                 }
             } else {
                 Button {
-                    saveReview?(reviewNote.trimmingCharacters(in: .whitespacesAndNewlines),
-                                reviewSections.map { $0.key }.filter { confirmed.contains($0) })
-                    reviewNote = ""; confirmed = []
+                    let note = reviewNote.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let keys = reviewSections.map { $0.key }.filter { confirmed.contains($0) }
+                    if saveReview?(note, keys) == true {
+                        reviewNote = ""; confirmed = []
+                    }
                 } label: {
                     Label("Save as review", systemImage: "tray.and.arrow.down")
                         .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)

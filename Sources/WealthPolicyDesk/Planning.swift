@@ -85,7 +85,7 @@ public extension Household {
     /// funds the buy, so portfolio value is unchanged. The bought lot's basis is
     /// its purchase price (a fresh, at-market cost basis). A move whose sold
     /// holding no longer exists (e.g. after an intake change) is a safe no-op.
-    func applying(_ a: PlannedAction) -> Household {
+    func applying(_ a: PlannedAction, taxUsd: Usd? = nil) -> Household {
         var h = self
         let want = max(0, a.sellUsd)
         guard want > 0,
@@ -106,7 +106,11 @@ public extension Household {
         // A taxable sale realizes tax, paid in cash from the proceeds — so only the
         // remainder is reinvested and the portfolio genuinely shrinks by the tax.
         // In a sheltered account the tax is $0, so the full proceeds rotate.
-        let tax = h.treatment(of: sold) == .taxable ? Engine.capitalGainsTaxAggregate(self, shortTerm: stSold, longTerm: ltSold, asOf: planAsOf) : 0
+        // `taxUsd` lets a batch apply charge each leg its share of one stacked tax
+        // (see `applying([PlannedAction])`); nil = this move alone.
+        let computed = h.treatment(of: sold) == .taxable
+            ? Engine.capitalGainsTaxAggregate(self, shortTerm: stSold, longTerm: ltSold, asOf: planAsOf) : 0
+        let tax = taxUsd ?? computed
         let reinvest = max(0, proceeds - tax)
 
         // 1) Reduce (or remove) the sold position — the shrunk copy already has the sold
@@ -138,9 +142,62 @@ public extension Household {
         return h
     }
 
-    /// Fold a list of moves in order.
+    /// Fold a list of moves in order. Taxable gains are stacked and taxed once —
+    /// the same contract as the staging banner — then the stacked tax is allocated
+    /// across taxable legs by share of realized gain. Folding each move's own tax
+    /// independently understates progressive brackets and NIIT, so the committed
+    /// book would reinvest more than the preview promised.
     func applying(_ actions: [PlannedAction]) -> Household {
-        actions.reduce(self) { $0.applying($1) }
+        guard !actions.isEmpty else { return self }
+        if actions.count == 1 { return applying(actions[0]) }
+
+        var probe = self
+        var legs: [(action: PlannedAction, st: Usd, lt: Usd, taxable: Bool)] = []
+        var totalST: Usd = 0, totalLT: Usd = 0
+        for a in actions {
+            if let p = probe.positions.first(where: { $0.accountId == a.sellAccountId && $0.ticker == a.sellTicker }),
+               treatment(of: p) == .taxable {
+                let (st, lt) = p.realizedGainSplit(sellUsd: a.sellUsd, asOf: planAsOf)
+                totalST += st; totalLT += lt
+                legs.append((a, st, lt, true))
+            } else {
+                legs.append((a, 0, 0, false))
+            }
+            probe = probe.applying(a)
+        }
+        let stacked = Engine.capitalGainsTaxAggregate(self, shortTerm: totalST, longTerm: totalLT, asOf: planAsOf)
+        let gains = legs.map { $0.taxable ? max(0, $0.st + $0.lt) : 0 }
+        let gainSum = gains.reduce(0, +)
+        let lastTaxable = legs.indices.last { legs[$0].taxable }
+        var remaining = stacked
+        var h = self
+        for (i, leg) in legs.enumerated() {
+            let share: Usd
+            if !leg.taxable {
+                share = 0
+            } else if i == lastTaxable {
+                share = remaining
+            } else if gainSum > 0 {
+                share = stacked * (gains[i] / gainSum)
+                remaining -= share
+            } else {
+                share = 0
+            }
+            h = h.applying(leg.action, taxUsd: share)
+        }
+        return h
+    }
+
+    /// Desk preview: staged moves apply (with stacked tax) and staged tilts are
+    /// treated as committed so Allocation/Rebalance/Planning match the banner's
+    /// "Previewing". The plan of record still ignores `.staged` tilts.
+    func previewing(moves: [PlannedAction] = [], tilts: [TacticalTiltAction] = [],
+                    overrides: HouseholdOverrides = HouseholdOverrides()) -> Household {
+        var h = applying(moves)
+        h.tacticalTilts = tacticalTilts + tilts.map { t in
+            var t = t; t.status = .committed; return t
+        }
+        return h.withDriverOverrides(overrides)
     }
 
     /// Replay diagnostics: fold the actions and report, per action, whether it

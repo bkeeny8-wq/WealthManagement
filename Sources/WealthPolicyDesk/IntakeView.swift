@@ -76,7 +76,7 @@ public struct RootView: View {
                     // is non-nil, but presenting a cover/sheet can trigger a transient
                     // re-layout where a force-unwrapped optional binding would trap.
                     household: Binding(get: { household ?? Seed.sampleHousehold }, set: { household = $0 }),
-                    clientHeader: intake != nil ? practice.header : nil,
+                    clientHeader: intake != nil ? practice.header(fallbackName: intake?.adults.first?.name ?? "") : nil,
                     exportJSON: exportJSON, exportCSV: exportCSV,
                     committedStatuses: activeCommittedStatuses,
                     canPersist: activeId != nil,
@@ -613,7 +613,8 @@ struct IntakeWizard: View {
                             if intake.filingStatus == .single { intake.filingStatus = .mfj }
                         } else if !on && intake.adults.count > 1 {
                             intake.adults.removeLast()
-                            // Removing the spouse rewrites NOTHING. Every status is possible for a
+                            intake.clampHoldingsToAdultRoster()
+                            // Removing the spouse rewrites NOTHING about filing status. Every status is possible for a
                             // one-adult roster — MFJ is the year-of-death filing, MFS is a married
                             // client whose spouse is not modelled, HOH is a single filer with a
                             // dependent — so there is no impossible state to repair, and rewriting

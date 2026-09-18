@@ -236,4 +236,22 @@ final class PersistenceTests: XCTestCase {
         BookStore.directoryOverride = file
         XCTAssertFalse(BookStore.save([rec]), "save must report failure rather than pretending it wrote")
     }
+
+    /// Dropping a spouse used to leave `ownerIndex == 1` on disk. The engine clamped
+    /// those holdings to the primary until a new second adult was added, then they
+    /// silently reattached. The wizard must persist the clamp.
+    func testDroppingASpousePersistsOwnerIndexClamp() {
+        var m = IntakeModel()
+        var a = IntakeAdult(); a.name = "Primary"; a.birthYear = 1960; a.retirementAge = 65
+        var b = IntakeAdult(); b.name = "Spouse"; b.birthYear = 1962; b.retirementAge = 65
+        m.adults = [a, b]
+        var h = IntakeHeldPosition()
+        h.ticker = "VTIVX"; h.marketValueUsd = 100_000; h.treatment = .taxDeferred; h.ownerIndex = 1
+        m.heldAwayPositions = [h]
+        m.adults.removeLast()
+        m.clampHoldingsToAdultRoster()
+        XCTAssertEqual(m.adults.count, 1)
+        XCTAssertEqual(m.heldAwayPositions.first?.ownerIndex, 0,
+                       "a holding named for the removed spouse must stay with the remaining adult")
+    }
 }

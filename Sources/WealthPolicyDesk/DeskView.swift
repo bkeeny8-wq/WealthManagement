@@ -114,9 +114,7 @@ struct DeskView: View {
     /// The household everything on the desk is evaluated against — the record
     /// plus any staged (uncommitted) moves, tactical tilts, and policy edits.
     private var previewHousehold: Household {
-        var h = household.applying(staged)
-        h.tacticalTilts = household.tacticalTilts + stagedTilts
-        return h.withDriverOverrides(draftOverrides)
+        household.previewing(moves: staged, tilts: stagedTilts, overrides: draftOverrides)
     }
     private var eval: Evaluation { Engine.evaluate(previewHousehold) }
 
@@ -293,8 +291,10 @@ struct DeskView: View {
                                                   saveReview: { note, confirmed in
                                                       if onSaveReview(draftOverrides, note, confirmed) {
                                                           draftOverrides = HouseholdOverrides()
+                                                          return true
                                                       } else {
                                                           saveFailed = true
+                                                          return false
                                                       }
                                                   },
                                                   canPersist: canPersist,

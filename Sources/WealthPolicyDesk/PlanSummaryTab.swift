@@ -175,7 +175,7 @@ struct PlanSummaryTab: View {
     private var disclosuresCard: some View {
         Card("Assumptions & disclosures") {
             LedgerRow("Prepared as of", eval.asOf, color: Theme.muted)
-            LedgerRow("Tax year / law", "2026 · OBBBA (P.L. 119-21)", color: Theme.muted)
+            LedgerRow("Tax year / estimates", "2026 estimates · last verified \(eval.tax.lastVerifiedAt)", color: Theme.muted)
             LedgerRow("Safe real rate", Fmt.pctBps(rr.safeRealRateBps), color: Theme.muted)
             Note("This is a teaching and analysis document, not investment advice or a recommendation. Every figure uses editable, effective-dated assumptions that must be verified before any client use. Forward-looking figures (expected returns, shortfall odds) come from a labelled capital-market model and are estimates, not forecasts.", icon: "info.circle")
         }

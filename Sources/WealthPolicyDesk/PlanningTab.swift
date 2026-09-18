@@ -202,7 +202,7 @@ struct PlanningTab: View {
                 } else {
                     LedgerRow("Buy", "+\(Fmt.usd(sellAmt)) \(c.buyTicker)", color: Theme.asset, bold: true)
                 }
-                Note(taxNote(t, p), icon: t.taxable ? "percent" : "checkmark.circle", color: t.taxable ? Theme.amber : Theme.asset)
+                Note(taxNote(t, p, sellUsd: sellAmt), icon: t.taxable ? "percent" : "checkmark.circle", color: t.taxable ? Theme.amber : Theme.asset)
                 if isLoss {
                     Note("A realized loss can offset other gains (or up to $3k of income) — that benefit isn't credited in this preview.", icon: "arrow.down.circle", color: Theme.muted)
                 }
@@ -307,11 +307,17 @@ struct PlanningTab: View {
         thesis = ""; sellAll = true
     }
     private func accountLabel(_ id: String) -> String { base.account(id)?.label ?? id }
-    private func taxNote(_ t: (gainUsd: Usd, taxUsd: Usd, taxable: Bool, ordinaryTaxableUsd: Usd), _ p: Position) -> String {
+    private func taxNote(_ t: (gainUsd: Usd, taxUsd: Usd, taxable: Bool, ordinaryTaxableUsd: Usd),
+                         _ p: Position, sellUsd: Usd) -> String {
         if !t.taxable {
             let where_ = base.treatment(of: p) == .taxFree ? "a Roth (tax-free)" : "a tax-deferred account"
             return "Held in \(where_) — the sale realizes no current tax."
         }
-        return "Estimated long-term cap-gains tax (assumes a long-term holding), stacked on ~\(Fmt.usd(t.ordinaryTaxableUsd)) of ordinary income."
+        let (st, lt) = p.realizedGainSplit(sellUsd: sellUsd, asOf: current.planAsOf)
+        let period: String
+        if st > 1 && lt > 1 { period = "mixed short- and long-term" }
+        else if st > 1 { period = "short-term (ordinary-rate)" }
+        else { period = "long-term" }
+        return "Estimated \(period) cap-gains tax, stacked on ~\(Fmt.usd(t.ordinaryTaxableUsd)) of ordinary income."
     }
 }

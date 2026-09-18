@@ -31,7 +31,7 @@ struct SentimentTab: View {
                 Text("UNDERWEIGHT").font(.system(size: 10, weight: .heavy)).foregroundStyle(Theme.debt).padding(.top, 8)
                 ForEach(uw) { tiltRow($0) }
             }
-            Note("A strong ±3 composite earns a governed overweight/underweight; a ±1–2 lean is a candidate to watch, not yet an action. Sector tilts can be rotated in on the Planning tab (into the sector's SPDR); style, region, and bond tilts surface here as budgeted-tilt candidates but aren't wired into Planning yet.", color: Theme.muted)
+            Note("A strong ±3 composite earns a governed overweight/underweight; a ±1–2 lean is a candidate to watch, not yet an action. Sector, style, region, and bond tilts that Planning can stage are live on that tab — not a separate, unwired list.", color: Theme.muted)
         }
 
         Card("The board — \(tilts.count) candidates") {

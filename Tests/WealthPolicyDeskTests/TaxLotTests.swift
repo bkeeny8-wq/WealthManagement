@@ -143,4 +143,44 @@ final class TaxLotTests: XCTestCase {
         XCTAssertEqual(Engine.capitalGainsTax(shortTerm: 20_000, longTerm: -50_000,
                                               grossOrdinary: 200_000, ordinaryTaxable: 180_000, filing: .single, tax: tax), 0)
     }
+
+    /// Two large short-term sales stacked once must shrink the book by that stacked tax,
+    /// not by the sum of each sale taxed in isolation (the staging banner's contract).
+    func testTwoTaxableMovesShrinkByStackedTax() {
+        var m = IntakeModel()
+        var adult = IntakeAdult(); adult.birthYear = 1980; adult.retirementAge = 65; adult.salaryUsd = 40_000
+        m.adults = [adult]
+        m.taxableUsd = 50_000
+        m.retirementSpendingUsd = 40_000
+        var h = m.buildHousehold(asOf: asOf)
+        func stLot(_ ticker: String) -> Position {
+            Position(id: ticker, accountId: "acct_taxable", ticker: ticker, sleeveId: nil,
+                     marketValueUsd: 250_000, costBasisUsd: 20_000, layer: .strategic,
+                     disposition: .consume, holdToStepUp: false,
+                     lots: [TaxLot(id: ticker + "_l", marketValueUsd: 250_000, costBasisUsd: 20_000,
+                                   acquisitionDate: "2026-06-01")])
+        }
+        h.positions.append(contentsOf: [stLot("AAA"), stLot("BBB")])
+        let a1 = PlannedAction(sellAccountId: "acct_taxable", sellTicker: "AAA",
+                               sellUsd: 250_000, buyTicker: "BND")
+        let a2 = PlannedAction(sellAccountId: "acct_taxable", sellTicker: "BBB",
+                               sellUsd: 250_000, buyTicker: "BND")
+        var probe = h
+        var st: Usd = 0, lt: Usd = 0
+        for move in [a1, a2] {
+            if let p = probe.positions.first(where: { $0.accountId == move.sellAccountId && $0.ticker == move.sellTicker }) {
+                let split = p.realizedGainSplit(sellUsd: move.sellUsd, asOf: h.planAsOf)
+                st += split.0; lt += split.1
+            }
+            probe = probe.applying(move)
+        }
+        let stacked = Engine.capitalGainsTaxAggregate(h, shortTerm: st, longTerm: lt, asOf: h.planAsOf)
+        let batch = h.applying([a1, a2])
+        let independent = h.applying(a1).applying(a2)
+        XCTAssertEqual(h.portfolioValueUsd - batch.portfolioValueUsd, stacked, accuracy: 1.0,
+                       "committed replay must shrink by the stacked tax the banner quotes")
+        XCTAssertGreaterThan(h.portfolioValueUsd - batch.portfolioValueUsd,
+                             h.portfolioValueUsd - independent.portfolioValueUsd - 0.5,
+                             "taxing each move alone understates the bill two large ordinary gains owe together")
+    }
 }

@@ -73,9 +73,21 @@ public struct PracticeMetadata: Codable, Hashable, Identifiable {
     public mutating func touch() { updatedAt = Date() }
 
     /// Header view-model for the desk's client strip.
-    public var header: ClientProfileHeader {
-        ClientProfileHeader(
-            title: clientName.isEmpty ? "New relationship" : clientName,
+    public var header: ClientProfileHeader { header(fallbackName: "") }
+
+    /// When the CRM name was left blank, fall back to the primary adult — the same
+    /// rule the roster `displayName` uses — so the strip and the export agree.
+    public func header(fallbackName: String) -> ClientProfileHeader {
+        let title: String
+        if !clientName.isEmpty {
+            title = clientName
+        } else if !fallbackName.isEmpty {
+            title = fallbackName
+        } else {
+            title = "New client"
+        }
+        return ClientProfileHeader(
+            title: title,
             subtitle: advisorName.isEmpty ? "Unassigned" : advisorName,
             badge: stage.label,
             caption: leadSource.label + (leadSourceDetail.isEmpty ? "" : " · " + leadSourceDetail),
@@ -178,7 +190,13 @@ public extension PracticeMetadata {
         let hard = e.findings.filter { $0.severity == .hard }
         let soft = e.findings.filter { $0.severity == .soft }
         return CRMExportRecord(
-            advisor: advisorName, client: clientName, email: contactEmail, phone: contactPhone, state: intake.state,
+            advisor: advisorName,
+            client: {
+                if !clientName.isEmpty { return clientName }
+                let n = intake.adults.first?.name ?? ""
+                return n.isEmpty ? "New client" : n
+            }(),
+            email: contactEmail, phone: contactPhone, state: intake.state,
             stage: stage.rawValue, stageLabel: stage.label, leadSource: leadSource.rawValue, leadSourceLabel: leadSource.label,
             leadSourceDetail: leadSourceDetail, nextAction: nextAction, notes: notes, createdAt: createdAt, updatedAt: updatedAt,
             investableUsd: intake.totalInvestableUsd, tier: IntakeModel.tier(forInvestable: intake.totalInvestableUsd),

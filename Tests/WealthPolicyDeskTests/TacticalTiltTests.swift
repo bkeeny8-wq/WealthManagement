@@ -84,4 +84,16 @@ final class TacticalTiltTests: XCTestCase {
         XCTAssertEqual(Engine.applyTacticalTilts(policy, tilts: tilts).sleeves,
                        Engine.applyTacticalTilts(policy, tilts: tilts).sleeves)
     }
+
+    /// The desk banner says "Previewing N tilt(s)". The plan of record still ignores
+    /// `.staged`; only `previewing` maps them to committed so Allocation/Rebalance move.
+    func testPreviewingMapsStagedTiltsOntoTheCommittedPath() {
+        let staged = tilt("us_sector_tilt", 300, status: .staged)
+        XCTAssertEqual(Engine.applyTacticalTilts(policy, tilts: [staged]).sleeves, policy.sleeves,
+                       "the plan of record must not apply a staged tilt")
+        let preview = Seed.sampleHousehold.previewing(tilts: [staged])
+        XCTAssertNotEqual(Engine.applyTacticalTilts(policy, tilts: preview.tacticalTilts).sleeves,
+                          policy.sleeves,
+                          "the desk preview must apply staged tilts as if committed")
+    }
 }

@@ -146,7 +146,7 @@ public enum Teach {
         GlossaryTerm(name: "Illiquidity premium", plain: "Extra return for locking money up.", desk: "Compensation for giving up access — not a diversifier. Private credit is credit beta with smoothed marks."),
         GlossaryTerm(name: "Convexity", plain: "A payoff that grows fast in exactly the bad scenario.", desk: "Trend / commodities / gold — the alt function that works in the inflation shock where bonds fail."),
         GlossaryTerm(name: "Ladder", plain: "A row of bonds maturing in successive years to pay known bills.", desk: "Liability-matched FI whose length is the funded-liability gap, not a risk-tolerance output."),
-        GlossaryTerm(name: "Glide", plain: "Slowly shifting toward safer assets as a goal approaches.", desk: "A ratcheting, valuation-modulated equity path with a hard deadline — spending claim only; the legacy claim never glides."),
+        GlossaryTerm(name: "Glide", plain: "Slowly shifting toward safer assets as a goal approaches.", desk: "A funded-status path that reduces equity as the spending claim is better covered — spending claim only; the legacy claim never glides. Not a valuation-timed market call."),
     ]
 
     public static let disclosure = "A teaching and analysis tool. Nothing here is investment advice or a recommendation. Figures use editable, effective-dated assumptions that must be verified before any client use."

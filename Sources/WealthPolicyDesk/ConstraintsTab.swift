@@ -53,7 +53,7 @@ struct ConstraintsTab: View {
                 .padding(.vertical, 5)
                 .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
             }
-            Note("The value is as much in what does not fire as in what does. Move the muni into the IRA in the editor and watch this list react.")
+            Note("The value is as much in what does not fire as in what does. Changing a holding's account on the Portfolio tab re-derives this list.")
         }
     }
 }

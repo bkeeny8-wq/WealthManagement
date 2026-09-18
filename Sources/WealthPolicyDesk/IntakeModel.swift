@@ -801,6 +801,17 @@ public struct IntakeModel: Codable, Hashable {
         return (hp.ownerIndex >= 0 && hp.ownerIndex < adults.count) ? hp.ownerIndex : 0
     }
 
+    /// Persist the same clamp `ownerIndexResolved` uses. Dropping a spouse left
+    /// `ownerIndex == 1` on disk; the engine treated those holdings as primary until a
+    /// new second adult was added, at which point they silently reattached.
+    public mutating func clampHoldingsToAdultRoster() {
+        for i in heldAwayPositions.indices {
+            if heldAwayPositions[i].ownerIndex < 0 || heldAwayPositions[i].ownerIndex >= adults.count {
+                heldAwayPositions[i].ownerIndex = 0
+            }
+        }
+    }
+
     /// True when any adult's Social Security is still the salary-derived approximation
     /// rather than a figure taken from their statement. The form uses this to say so.
     public var socialSecurityIsEstimated: Bool { adults.contains { $0.socialSecurityMonthlyUsd <= 0 } }

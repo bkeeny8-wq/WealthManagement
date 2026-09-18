@@ -87,7 +87,11 @@ struct TaxTab: View {
 
         Card("Roth-conversion window") {
             if let w = eval.policy.withdrawal.conversionWindow {
-                LedgerRow("Bracket-fill target", Fmt.pctBps(eval.policy.withdrawal.targetBracketRateBps), color: Theme.ink)
+                LedgerRow("Bracket-fill target",
+                          eval.decumulation.targetBracketBps > 0
+                            ? Fmt.pctBps(eval.decumulation.targetBracketBps)
+                            : "none — conversions do not reduce lifetime tax",
+                          color: Theme.ink)
                 LedgerRow("Conversion window", "age \(w.fromAge)–\(w.toAge)", color: Theme.ink)
                 LedgerRow("Cliffs watched", eval.policy.withdrawal.cliffAwareness.joined(separator: ", ").uppercased(), color: Theme.amber)
                 Note("This card names the window. The Decumulation tab sizes the conversions — a lowest-lifetime-tax path filling these years, not a market call. Federal estimates as of \(eval.tax.lastVerifiedAt); verify before acting.")
