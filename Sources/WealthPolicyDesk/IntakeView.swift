@@ -39,6 +39,32 @@ public struct RootView: View {
     @State private var wizardSeed = IntakeModel()
     @State private var wizardPractice = PracticeMetadata()
     @State private var wizardEditingId: UUID?    // nil ⇒ creating a new client
+    @State private var bookNotice: BookNotice? = nil
+
+    private enum BookNotice: Identifiable {
+        case saveFailed
+        case corrupt(String)
+        var id: String {
+            switch self {
+            case .saveFailed: return "save"
+            case .corrupt(let n): return "corrupt-\(n)"
+            }
+        }
+        var title: String {
+            switch self {
+            case .saveFailed: return "Couldn't save the book"
+            case .corrupt: return "A previous book file was unreadable"
+            }
+        }
+        var message: String {
+            switch self {
+            case .saveFailed:
+                return "The last change is still on screen but was not written to disk. Check available storage and try again — uncommitted work has not been discarded."
+            case .corrupt(let name):
+                return "The unreadable file was moved aside as \(name). The book is empty until you add a client; the backup is still on the device if you need to recover it."
+            }
+        }
+    }
 
     public init() {}
 
@@ -54,10 +80,11 @@ public struct RootView: View {
                     exportJSON: exportJSON, exportCSV: exportCSV,
                     committedStatuses: activeCommittedStatuses,
                     canPersist: activeId != nil,
-                    onCommit: commitActions,
+                    onCommit: persistStaged,
                     onCommitTilts: commitTilts,
                     onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
                     currentHoldings: intake?.heldAwayPositions ?? [],
+                    adults: intake?.adults ?? [],
                     onUpdateHoldings: updateHoldings,
                     onLoadSample: openSample,
                     onClose: closeToBook,
@@ -84,7 +111,20 @@ public struct RootView: View {
                 )
             }
         }
-        .onAppear { if !loaded { book = BookStore.load(); loaded = true } }
+        .onAppear {
+            if !loaded {
+                book = BookStore.load(); loaded = true
+                if let name = BookStore.lastCorruptBackupFilename { bookNotice = .corrupt(name) }
+            }
+        }
+        .alert(bookNotice?.title ?? "Notice", isPresented: Binding(
+            get: { bookNotice != nil },
+            set: { if !$0 { bookNotice = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(bookNotice?.message ?? "")
+        }
         .fullScreenCover(isPresented: $showEcon) {
             EconView(onClose: { showEcon = false })
         }
@@ -92,7 +132,7 @@ public struct RootView: View {
         // swipe/tap-outside dismissal would silently discard everything typed so far.
         .fullScreenCover(isPresented: $showWizard) {
             IntakeWizard(intake: wizardSeed, practice: wizardPractice) { builtIntake, builtPractice in
-                saveFromWizard(builtIntake, builtPractice); showWizard = false
+                if saveFromWizard(builtIntake, builtPractice) { showWizard = false }
             } onCancel: { showWizard = false }
         }
     }
@@ -115,15 +155,22 @@ public struct RootView: View {
     }
     private func toggleArchive(_ id: UUID) {
         guard let i = book.firstIndex(where: { $0.id == id }) else { return }
-        book[i].archived.toggle(); book[i].touch(); BookStore.save(book)
+        let snapshot = book[i]
+        book[i].archived.toggle(); book[i].touch()
+        if !BookStore.save(book) { book[i] = snapshot; bookNotice = .saveFailed }
     }
     private func deleteClient(_ id: UUID) {
-        book.removeAll { $0.id == id }; BookStore.save(book)
+        let snapshot = book
+        book.removeAll { $0.id == id }
+        if !BookStore.save(book) { book = snapshot; bookNotice = .saveFailed }
     }
 
     /// Persist the wizard's result into the book — updating the edited record or
-    /// appending a new one — then open it on the desk.
-    private func saveFromWizard(_ builtIntake: IntakeModel, _ builtPractice: PracticeMetadata) {
+    /// appending a new one — then open it on the desk. Returns whether the write
+    /// succeeded; the wizard stays open on failure so the answers are not discarded.
+    @discardableResult
+    private func saveFromWizard(_ builtIntake: IntakeModel, _ builtPractice: PracticeMetadata) -> Bool {
+        let snapshot = book
         let id: UUID
         if let editId = wizardEditingId, let i = book.firstIndex(where: { $0.id == editId }) {
             book[i].intake = builtIntake; book[i].practice = builtPractice; book[i].touch()
@@ -132,64 +179,65 @@ public struct RootView: View {
             let rec = ClientRecord(intake: builtIntake, practice: builtPractice, planAsOf: todayIsoDate(Date()))
             book.append(rec); id = rec.id
         }
-        BookStore.save(book)
+        guard BookStore.save(book) else {
+            book = snapshot
+            bookNotice = .saveFailed
+            return false
+        }
         activeId = id; intake = builtIntake; practice = builtPractice
         // Keep any committed moves layered on the freshly rebuilt household.
         household = book.first(where: { $0.id == id })?.household() ?? builtIntake.buildHousehold()
+        return true
     }
 
-    /// Commit staged moves onto the open client's plan of record, persist, and
-    /// rebuild the household so the desk shows the new baseline. For the sample
-    /// (no book record) the moves apply in memory only — nothing is persisted.
-    private func commitActions(_ committed: [PlannedAction]) {
-        guard !committed.isEmpty else { return }
+    /// Commit staged moves, tilts, and policy edits in one write so a failed save
+    /// cannot clear the desk's staging while leaving the book unchanged (or half-written).
+    @discardableResult
+    private func persistStaged(_ actions: [PlannedAction], _ tilts: [TacticalTiltAction], _ overrides: HouseholdOverrides) -> Bool {
+        if actions.isEmpty && tilts.isEmpty && overrides.isEmpty { return true }
         if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
-            book[i].actions.append(contentsOf: committed)
+            let snapshot = book[i]
+            if !actions.isEmpty { book[i].actions.append(contentsOf: actions) }
+            if !tilts.isEmpty { book[i].tilts.append(contentsOf: tilts) }
+            if !overrides.isEmpty { book[i].driverOverrides.merge(overrides) }
             book[i].touch()
-            BookStore.save(book)
+            guard BookStore.save(book) else {
+                book[i] = snapshot
+                return false
+            }
             household = book[i].household()
-        } else {
-            household = (household ?? Seed.sampleHousehold).applying(committed)
+            return true
         }
+        var h = household ?? Seed.sampleHousehold
+        if !actions.isEmpty { h = h.applying(actions) }
+        if !tilts.isEmpty { h.tacticalTilts.append(contentsOf: tilts) }
+        if !overrides.isEmpty { h = h.withDriverOverrides(overrides) }
+        household = h
+        return true
     }
 
     /// Persist committed tactical tilts onto the open client's plan of record (or,
     /// for the sample, apply them in memory only).
-    private func commitTilts(_ committed: [TacticalTiltAction]) {
-        guard !committed.isEmpty else { return }
-        if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
-            book[i].tilts.append(contentsOf: committed)
-            book[i].touch()
-            BookStore.save(book)
-            household = book[i].household()
-        } else {
-            var h = household ?? Seed.sampleHousehold
-            h.tacticalTilts.append(contentsOf: committed)
-            household = h
-        }
+    @discardableResult
+    private func commitTilts(_ committed: [TacticalTiltAction]) -> Bool {
+        persistStaged([], committed, HouseholdOverrides())
     }
 
     /// Persist foundational-assumption edits (legacy floor, risk tolerance) made from the
     /// Policy Statement onto the open client's plan of record (or, for the sample, in memory).
-    private func commitOverrides(_ o: HouseholdOverrides) {
-        guard !o.isEmpty else { return }
-        if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
-            book[i].driverOverrides.merge(o)
-            book[i].touch()
-            BookStore.save(book)
-            household = book[i].household()
-        } else if let h = household {
-            household = h.withDriverOverrides(o)
-        }
+    @discardableResult
+    private func commitOverrides(_ o: HouseholdOverrides) -> Bool {
+        persistStaged([], [], o)
     }
 
     /// Clear all foundational-assumption edits, returning to the standardized,
     /// intake-derived plan (or, for the sample, the seed household).
     private func resetOverrides() {
         if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
+            let snapshot = book[i]
             book[i].driverOverrides = HouseholdOverrides()
             book[i].touch()
-            BookStore.save(book)
+            guard BookStore.save(book) else { book[i] = snapshot; bookNotice = .saveFailed; return }
             household = book[i].household()
         } else {
             household = Seed.sampleHousehold
@@ -200,19 +248,22 @@ public struct RootView: View {
     /// rebuild so the desk re-derives against the real book. Sample has no record — no-op.
     private func updateHoldings(_ holdings: [IntakeHeldPosition]) {
         guard let id = activeId, let i = book.firstIndex(where: { $0.id == id }) else { return }
+        let snapshot = book[i]
         book[i].intake.heldAwayPositions = holdings
         book[i].touch()
-        BookStore.save(book)
+        guard BookStore.save(book) else { book[i] = snapshot; bookNotice = .saveFailed; return }
         intake = book[i].intake
         household = book[i].household()
     }
 
     /// Commit any staged driver edits and snapshot the resulting plan as a dated review.
-    private func saveReview(_ staged: HouseholdOverrides, note: String, confirmed: [String]) {
+    @discardableResult
+    private func saveReview(_ staged: HouseholdOverrides, note: String, confirmed: [String]) -> Bool {
         guard let id = activeId, let i = book.firstIndex(where: { $0.id == id }) else {
             if let h = household { household = h.withDriverOverrides(staged) }   // sample: apply, no review saved
-            return
+            return true
         }
+        let snapshot = book[i]
         book[i].driverOverrides.merge(staged)
         // A review is the moment the plan is re-drawn, so advance its as-of date. Ages,
         // horizons and save-years all move with it — which is what makes the annual review
@@ -222,8 +273,9 @@ public struct RootView: View {
         book[i].reviews.append(IPSReview.from(Engine.evaluate(hh), overrides: book[i].driverOverrides, at: Date(),
                                               note: note, confirmedSections: confirmed))
         book[i].touch()
-        BookStore.save(book)
+        guard BookStore.save(book) else { book[i] = snapshot; return false }
         household = hh
+        return true
     }
 
     private var activeReviews: [IPSReview] {
@@ -977,8 +1029,7 @@ struct IntakeWizard: View {
                 LedgerRow("× behavior (history + reaction)", String(format: "%.2f×", intake.behaviorTemperMultiplier), color: Theme.muted)
                 LedgerRow("× outlook", String(format: "%.2f×", intake.worry.toleranceTiltMultiplier), color: Theme.muted)
                 LedgerRow("Effective max drawdown", Fmt.pctBps(intake.effectiveMaxDrawdownBps), color: Theme.ink, bold: true)
-                LedgerRow("Implies an equity ceiling near", Fmt.pctBps(intake.impliedEquityCeilingBps), color: Theme.asset, bold: true)
-                Note("This is TOLERANCE. Your situation's CAPACITY — horizon, income stability, funded status — is computed on the desk, and the plan binds to the lower of the two: never more risk than you can afford or will stomach.", icon: "info.circle", color: Theme.muted)
+                Note("This is TOLERANCE. Your situation's CAPACITY — horizon, income stability, funded status — is computed on the desk, and the plan binds to the lower of the two: never more risk than you can afford or will stomach. The equity ceiling lives there, not as a 2× rule of thumb here.", icon: "info.circle", color: Theme.muted)
             }
             Card("Is leaving a legacy…") {
                 ChoiceChips(LegacyPriority.allCases.map { ($0, $0.label) }, selection: intake.legacyPriority) { intake.legacyPriority = $0 }

@@ -60,8 +60,11 @@ final class ExportAgreementTests: XCTestCase {
         let a = base.exportRecord(), b = raised.exportRecord()
         XCTAssertNotEqual(a.requiredRealReturnBps, b.requiredRealReturnBps,
                           "an override that changes savings by $155k must move the exported required return")
-        XCTAssertGreaterThan(a.requiredRealReturnBps, b.requiredRealReturnBps,
+        XCTAssertGreaterThan(a.requiredRealReturnBps ?? 0, b.requiredRealReturnBps ?? 0,
                              "saving more must lower the required return")
+        XCTAssertEqual(a.solved, true)
+        XCTAssertNotNil(a.requiredRealReturnBps)
+        XCTAssertNotNil(a.fundedRatioBps)
     }
 
     /// And the equity-style tilt, which re-flavours the synthesized proxies before committed
@@ -86,5 +89,37 @@ final class ExportAgreementTests: XCTestCase {
         rec.archived = true
         XCTAssertEqual(BookExport.ndjson([rec]), "", "an archived client is not part of the roster export")
         XCTAssertFalse(rec.exportRecord().client.isEmpty, "but the record itself still builds")
+    }
+
+    /// Unsolvable plans must not ship the 20% / 999% clamp as a CRM rate.
+    func testUnsolvablePlansExportASolvedFlagAndOmitSentinelRates() {
+        var m = IntakeModel()
+        m.adults = [{ var a = IntakeAdult(); a.birthYear = 1985; a.retirementAge = 65
+                      a.salaryUsd = 150_000; return a }()]
+        m.taxableUsd = 25_000
+        m.emergencyReserveUsd = 50_000
+        m.retirementSpendingUsd = 20_000
+        let rec = ClientRecord(intake: m, practice: PracticeMetadata())
+        let row = rec.exportRecord()
+        XCTAssertFalse(row.solved)
+        XCTAssertNil(row.requiredRealReturnBps, "a 20% ceiling is a sentinel, not a required return")
+        XCTAssertNil(row.fundedRatioBps)
+        let csv = row.csvRow()
+        XCTAssertTrue(csv.contains("false"), "CSV must flag solved=false")
+        XCTAssertTrue(csv.contains("—"), "CSV must not print the clamp as a number")
+    }
+
+    /// Export age follows the plan date, not the intake module's pinned 2026.
+    func testExportedPrimaryAgeFollowsThePlanDate() {
+        var m = IntakeModel()
+        m.adults = [{ var a = IntakeAdult(); a.birthYear = 1975; a.retirementAge = 65
+                      a.salaryUsd = 200_000; return a }()]
+        m.taxableUsd = 1_000_000
+        m.retirementSpendingUsd = 80_000
+        var rec = ClientRecord(intake: m, practice: PracticeMetadata())
+        rec.planAsOf = "2031-06-30"
+        XCTAssertEqual(m.primaryAge, 51, "fixture check: the intake wheel still uses 2026")
+        XCTAssertEqual(rec.exportRecord().primaryAge, 56,
+                       "a 2031 review must export age 56, not the 2026 age of 51")
     }
 }

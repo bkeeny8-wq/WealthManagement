@@ -114,14 +114,20 @@ struct PlanSummaryTab: View {
                     StatTile("Will stomach", Fmt.pctBps(risk.toleranceImpliedEquityBps), sub: "risk tolerance", color: Theme.ink),
                     StatTile("Equity ceiling", Fmt.pctBps(risk.bindingEquityBps), sub: "the lower of the two", color: Theme.accent),
                 ])
-                LedgerRow("Chance of missing the goal", Fmt.pctBps(shortfall.shortfallProbBps, 0), color: shortfall.shortfallProbBps > 5000 ? Theme.debt : (shortfall.shortfallProbBps > 3000 ? Theme.amber : Theme.asset), bold: true)
-                Note("The plan CAPS TOTAL equity at the lower of what you can afford and what you can stomach. Two "
-                     + "things sit under that ceiling: the growth allocation shown below, and the equity beta the alt "
-                     + "sleeves carry — buffered equity counts about half, private credit and PE about seven tenths, "
-                     + "trend and gold none. So the growth figure is smaller than this number by roughly the alt "
-                     + "budget's beta even when the ceiling is fully spent. The funded-status glide can dial the "
-                     + "target further below it as the plan improves.", icon: "info.circle")
-                Note("The shortfall figure compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis; a thin margin reflects the forecast's own uncertainty, so read it as roughly funded, not a cushion.", icon: "info.circle")
+                if eval.isSolvable {
+                    LedgerRow("Chance of missing the goal", Fmt.pctBps(shortfall.shortfallProbBps, 0), color: shortfall.shortfallProbBps > 5000 ? Theme.debt : (shortfall.shortfallProbBps > 3000 ? Theme.amber : Theme.asset), bold: true)
+                    Note("The plan CAPS TOTAL equity at the lower of what you can afford and what you can stomach. Two "
+                         + "things sit under that ceiling: the growth allocation shown below, and the equity beta the alt "
+                         + "sleeves carry — buffered equity counts about half, private credit and PE about seven tenths, "
+                         + "trend and gold none. So the growth figure is smaller than this number by roughly the alt "
+                         + "budget's beta even when the ceiling is fully spent. The funded-status glide can dial the "
+                         + "target further below it as the plan improves.", icon: "info.circle")
+                    Note("The shortfall figure compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis; a thin margin reflects the forecast's own uncertainty, so read it as roughly funded, not a cushion.", icon: "info.circle")
+                } else {
+                    Note("The plan CAPS TOTAL equity at the lower of what you can afford and what you can stomach. Two "
+                         + "things sit under that ceiling: the growth allocation shown below, and the equity beta the alt "
+                         + "sleeves carry. A chance of missing the goal is not stated until the required return has a real solution.", icon: "info.circle")
+                }
             } else {
                 Note("Risk tolerance isn't on file yet — answer the risk questions to see the equity ceiling and the chance of missing the goal.", icon: "questionmark.circle")
             }
@@ -233,10 +239,16 @@ struct PlanSummaryTab: View {
             steps.append("The plan estimates about \(Fmt.usdShort(eval.decumulation.lifetimeTaxSavedUsd)) of lifetime tax saved from Roth conversions in low-bracket years — the Decumulation tab lays out the year-by-year path.")
         }
         for f in hardFindings.prefix(2) { steps.append("A hard limit to resolve — \(f.title): \(f.detail)") }
-        if !isFunded {
+        if eval.isSolvable && !isFunded {
             steps.append("The plan funds \(Fmt.pctBps(bs.fundedRatioBps)) of its goals; closing the gap is a matter of return, savings, or flexing a goal.")
         }
-        if steps.isEmpty { steps.append("The plan is funded, inside every guardrail, and near its policy target — nothing is flagged. Worth a review annually or on a life change.") }
+        if steps.isEmpty {
+            if eval.isSolvable {
+                steps.append("The plan is funded, inside every guardrail, and near its policy target — nothing is flagged. Worth a review annually or on a life change.")
+            } else {
+                steps.append("Nothing to solve yet — add account balances and retirement spending before next steps can be drawn from a funded ratio.")
+            }
+        }
         return Array(steps.prefix(5))
     }
 

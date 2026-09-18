@@ -247,9 +247,9 @@ public enum Engine {
         let alloc = resolveAllocation(h, policy: tacticalPolicy, strategic: derivedPolicy)
         let alts = resolveAltSizing(h, policy: derivedPolicy)
         let item = analyzeItemization(itemizationInput(for: h, asOf: asOf), tax: tax)
-        let disp = dispositions(h, tax: tax)
-        let mc = muniCrossover(h, tax: tax, muniYieldBps: assumedMuniYieldBps, treasuryYieldBps: 430, corporateYieldBps: 520)
-        let pays = h.liabilities.filter { $0.isFixedIncomeOffset }.map { paydown($0, household: h, tax: tax) }
+        let disp = dispositions(h, tax: tax, asOf: asOf)
+        let mc = muniCrossover(h, tax: tax, asOf: asOf, muniYieldBps: assumedMuniYieldBps, treasuryYieldBps: 430, corporateYieldBps: 520)
+        let pays = h.liabilities.filter { $0.isFixedIncomeOffset }.map { paydown($0, household: h, tax: tax, asOf: asOf) }
         let decum = rothStrategy(h, tax: tax, rr: rr, asOf: asOf)
         let findings = evaluateConstraints(h, policy: derivedPolicy, tax: tax, asOf: asOf,
                                            balanceSheet: bs, allocation: alloc, altSizing: alts, ladder: lad,
@@ -466,7 +466,10 @@ public enum Engine {
             }
             liabilityPv += (grossOut + (annualTaxUsd[t] ?? 0)) / disc
             externalPv += (socialSecurityAnnual(h, year: t, asOf: asOf) + pensionAnnual(h, year: t) + homeEquityOffset(h, year: t)) / disc
-            if t >= 1 && t <= saveYears { savingsPv += h.annualSavingsUsd / disc }
+            if t >= 1 && t <= saveYears {
+                let capped = min(h.annualSavingsUsd, wagesAtPlanYear(h, year: t, asOf: asOf))
+                if capped > 0 { savingsPv += capped / disc }
+            }
         }
         // The legacy floor is itself a liability the resources must cover, in PV.
         let floorPv = legacyFloor / pow(1 + safeRealRate, Double(horizon))

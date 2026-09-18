@@ -133,4 +133,32 @@ final class PlanDateTests: XCTestCase {
         c.year = 2027; c.month = 1; c.day = 5
         XCTAssertEqual(todayIsoDate(cal.date(from: c)!), "2027-01-05", "single digits are zero-padded")
     }
+
+    /// Side paths that used to pin `Engine.planningAsOf` / `"2026-01-01"` must follow the
+    /// household's own date: MAGI/itemization tax year, buy-lot vintage, and ST vs LT on replay.
+    func testSidePathsHonorALaterPlanDate() {
+        var h = Seed.sampleHousehold
+        h.planAsOf = later
+
+        let e = Engine.evaluate(h)
+        XCTAssertEqual(e.asOf, later)
+        XCTAssertEqual(e.itemization.input.taxYear, 2031,
+                       "muni / paydown / itemization MAGI must use 2031, not a leftover 2026 pin")
+
+        guard let vea = h.positions.first(where: { $0.ticker == "VEA" }) else {
+            return XCTFail("fixture check: sample holds VEA")
+        }
+        let action = PlannedAction(sellAccountId: vea.accountId, sellTicker: "VEA",
+                                   sellUsd: 10_000, buyTicker: "XLP")
+        let after = h.applying(action)
+        let bought = after.positions.first { $0.ticker == "XLP" }
+        XCTAssertEqual(bought?.lots.last?.acquisitionDate, later,
+                       "a buy lot must be dated on the household's plan date, not the 2026 pin")
+
+        // The 2026-03-15 VEA lot is short-term as of the pin and long-term by 2031.
+        let (stPin, _) = vea.realizedGainSplit(sellUsd: 90_000, asOf: Engine.planningAsOf)
+        let (stLater, _) = vea.realizedGainSplit(sellUsd: 90_000, asOf: later)
+        XCTAssertGreaterThan(stPin, 0, "fixture check: the recent lot is short-term on the pin")
+        XCTAssertEqual(stLater, 0, accuracy: 0.5, "five years on, that lot is long-term")
+    }
 }

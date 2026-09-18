@@ -832,7 +832,13 @@ public struct IntakeModel: Codable, Hashable {
     /// The stated balances alone, before any itemisation is reconciled against them. Kept for
     /// the places that genuinely mean "what the client typed in the balance fields".
     public var statedInvestableUsd: Usd { taxableUsd + traditionalUsd + rothUsd }
-    public var primaryAge: Int { max(0, Self.currentYear - (adults.first?.birthYear ?? 1975)) }
+    /// Age of the primary adult in calendar year `currentYear`. Intake wheels still use the
+    /// module year; CRM export and the engine must call `primaryAge(asOf:)` so a 2027 review
+    /// does not ship a 2026 age next to 2027 economics.
+    public var primaryAge: Int { primaryAge(asOf: "\(Self.currentYear)-01-01") }
+    public func primaryAge(asOf: IsoDate) -> Int {
+        max(0, Engine.year(asOf) - (adults.first?.birthYear ?? 1975))
+    }
 }
 
 // MARK: - Persistence (on-device JSON)
@@ -893,9 +899,8 @@ public extension IntakeModel {
         return max(500, min(5000, Int(v.rounded())))
     }
 
-    /// The equity ceiling that drawdown tolerance implies (equities fall ~50% in a
-    /// crash, so ceiling ≈ 2×). Mirrors Engine.toleranceEquityBps; a frontier-derived
-    /// mapping replaces the 2× rule once the frontier lands.
+    /// Historical 2× drawdown→equity rule of thumb. The engine binds to frontier /
+    /// tolerance equity (alts carry beta), so this is not shown on intake review.
     var impliedEquityCeilingBps: Bps { min(10000, effectiveMaxDrawdownBps * 2) }
 
     /// Build the engine household as of a given date. The date is a PARAMETER rather than
@@ -905,7 +910,8 @@ public extension IntakeModel {
     func buildHousehold(asOf: IsoDate = Engine.planningAsOf) -> Household {
         let yr = Engine.year(asOf)
         let primaryAge = max(0, yr - (adults.first?.birthYear ?? 1975))
-        let retireStartYear = max(1, (adults.first?.retirementAge ?? retirementStartAge) - primaryAge)
+        // Already retired → year 0 (this year's draw). Accumulators keep an empty year 0.
+        let retireStartYear = max(0, (adults.first?.retirementAge ?? retirementStartAge) - primaryAge)
         let horizon = max(retireStartYear + 1, planToAge - primaryAge)
 
         // People + human capital + deferred comp.

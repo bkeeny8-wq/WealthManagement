@@ -15,6 +15,7 @@ import SwiftUI
 struct PortfolioTab: View {
     let eval: Evaluation
     var holdings: [IntakeHeldPosition] = []
+    var adults: [IntakeAdult] = []
     var canEdit: Bool = false
     var onApply: ([IntakeHeldPosition]) -> Void = { _ in }
 
@@ -32,7 +33,7 @@ struct PortfolioTab: View {
                 Note("Open a saved client to enter and apply holdings. (The sample is read-only.)", icon: "lock", color: Theme.muted)
             } else {
                 ForEach($draft) { $p in
-                    HeldPositionForm(position: $p) { draft.removeAll { $0.id == p.id } }
+                    HeldPositionForm(position: $p, adults: adults) { draft.removeAll { $0.id == p.id } }
                 }
                 HStack {
                     Button { draft.append(IntakeHeldPosition()) } label: {

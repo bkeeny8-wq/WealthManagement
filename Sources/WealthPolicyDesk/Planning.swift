@@ -101,12 +101,12 @@ public extension Household {
 
         // Sell the SPECIFIC lots (tax-first order), realizing their short/long-term gain
         // and leaving the seasoned lots behind — so lot vintage stays accurate move over move.
-        let (stSold, ltSold, shrunk) = sold.afterSelling(sellUsd: proceeds, asOf: Engine.planningAsOf)
+        let (stSold, ltSold, shrunk) = sold.afterSelling(sellUsd: proceeds, asOf: planAsOf)
 
         // A taxable sale realizes tax, paid in cash from the proceeds — so only the
         // remainder is reinvested and the portfolio genuinely shrinks by the tax.
         // In a sheltered account the tax is $0, so the full proceeds rotate.
-        let tax = h.treatment(of: sold) == .taxable ? Engine.capitalGainsTaxAggregate(self, shortTerm: stSold, longTerm: ltSold) : 0
+        let tax = h.treatment(of: sold) == .taxable ? Engine.capitalGainsTaxAggregate(self, shortTerm: stSold, longTerm: ltSold, asOf: planAsOf) : 0
         let reinvest = max(0, proceeds - tax)
 
         // 1) Reduce (or remove) the sold position — the shrunk copy already has the sold
@@ -120,7 +120,7 @@ public extension Household {
         // 2) Grow an existing bought lot, or create one, in the same account. A freshly
         //    bought lot is dated today, so it is correctly short-term until it seasons.
         let freshLot = TaxLot(id: "\(a.sellAccountId)_\(a.buyTicker)_\(a.id.uuidString.prefix(8))",
-                              marketValueUsd: reinvest, costBasisUsd: reinvest, acquisitionDate: Engine.planningAsOf)
+                              marketValueUsd: reinvest, costBasisUsd: reinvest, acquisitionDate: planAsOf)
         let sleeveForBuy = a.buySleeveId ?? sold.sleeveId
         if let j = h.positions.firstIndex(where: { $0.accountId == a.sellAccountId && $0.ticker == a.buyTicker }) {
             h.positions[j].marketValueUsd += reinvest
@@ -236,12 +236,7 @@ public extension Engine {
         // where the projection it claims to mirror implied 0%/15%.
         let wages = wagesAtPlanYear(h, year: 0, asOf: asOf)
         let pension = pensionAnnual(h, year: 0)
-        var rmd: Usd = 0
-        if let primary = h.primary {
-            let a = age(birthDate: primary.birthDate, asOf: asOf)
-            let rmdAge = rmdStartAge(birthDate: primary.birthDate, default: tax.rmdStartAge)
-            if a >= rmdAge { rmd = h.value(in: .taxDeferred) / uniformLifetimeDivisor(a) }
-        }
+        let rmd = currentYearRmd(h, asOf: asOf, tax: tax)
         let ordinaryExSS = wages + pension + rmd
         let ss = socialSecurityAnnual(h, year: 0, asOf: asOf)
         let ssTaxable = taxableSocialSecurity(ss: ss, otherIncome: ordinaryExSS + capGains, filing: filing)

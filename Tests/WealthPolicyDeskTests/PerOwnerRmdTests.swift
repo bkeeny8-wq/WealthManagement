@@ -76,6 +76,57 @@ final class PerOwnerRmdTests: XCTestCase {
                       "nothing may distribute before the owner reaches her own required age")
     }
 
+    /// The realized-gain / ordinary-income preview must use the same per-owner RMD as
+    /// decumulation. Pooling the whole deferred book on the primary invents or omits a
+    /// spouse's distribution when staging a taxable rotate.
+    func testCurrentOrdinaryIncomeUsesEachOwnersRmd() {
+        var h = Seed.sampleHousehold
+        h.people = h.people.map { p in
+            var q = p
+            if q.role == .primary { q.birthDate = "1962-01-01"; q.expectedRetirementAge = 62 }   // 64, RMDs at 75
+            if q.role == .spouse  { q.birthDate = "1951-01-01"; q.expectedRetirementAge = 62 }   // 75, RMDs at 73
+            return q
+        }
+        h.positions = h.positions.map { p in
+            guard h.treatment(of: p) == .taxDeferred else { return p }
+            var q = p; q.accountId = "acct_401k"; return q
+        }
+        let deferred = h.value(in: .taxDeferred)
+        XCTAssertGreaterThan(deferred, 0, "fixture check")
+        let spouseAge = Engine.age(birthDate: "1951-01-01", asOf: asOf)
+        let expectedRmd = deferred / Engine.uniformLifetimeDivisor(spouseAge)
+
+        var noDeferred = h
+        noDeferred.positions = noDeferred.positions.filter { h.treatment(of: $0) != .taxDeferred }
+        let with = Engine.currentOrdinaryIncome(h, asOf: asOf, capGains: 0)
+        let without = Engine.currentOrdinaryIncome(noDeferred, asOf: asOf, capGains: 0)
+        XCTAssertEqual(with.gross - without.gross, expectedRmd, accuracy: 1.0,
+                       "the spouse's RMD must land in the sell preview even though the primary is under RMD age")
+        XCTAssertGreaterThan(with.gross - without.gross, 1,
+                             "gating the whole pool on the primary would report $0 extra ordinary income")
+    }
+
+    /// The mirror: a young spouse's IRA must not be invented onto a primary who is past RMD age.
+    func testCurrentOrdinaryIncomeDoesNotInventAnRmdFromAYoungerOwnersAccount() {
+        var h = Seed.sampleHousehold
+        h.people = h.people.map { p in
+            var q = p
+            if q.role == .primary { q.birthDate = "1950-01-01"; q.expectedRetirementAge = 62 }   // 76, past RMD
+            if q.role == .spouse  { q.birthDate = "1975-01-01"; q.expectedRetirementAge = 62 }   // 51, RMDs at 75
+            return q
+        }
+        h.positions = h.positions.map { p in
+            guard h.treatment(of: p) == .taxDeferred else { return p }
+            var q = p; q.accountId = "acct_401k"; return q
+        }
+        var noDeferred = h
+        noDeferred.positions = noDeferred.positions.filter { h.treatment(of: $0) != .taxDeferred }
+        let with = Engine.currentOrdinaryIncome(h, asOf: asOf, capGains: 0)
+        let without = Engine.currentOrdinaryIncome(noDeferred, asOf: asOf, capGains: 0)
+        XCTAssertEqual(with.gross, without.gross, accuracy: 1.0,
+                       "a 51-year-old's 401(k) must not produce an RMD on the 76-year-old primary's birthday")
+    }
+
     /// Joint and unowned accounts have no owner to follow, so they fall to the primary
     /// rather than dropping out of the projection.
     func testUnownedAccountsFallToThePrimaryAndStillDistribute() {

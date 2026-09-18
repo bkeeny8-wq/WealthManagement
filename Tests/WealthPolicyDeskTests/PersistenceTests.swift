@@ -160,4 +160,61 @@ final class PersistenceTests: XCTestCase {
     /// The whole persisted record — transitively re-locks every nested type as it is
     /// actually stored in wealth-policy-book.json.
     func testClientRecordRoundTrips() throws { try assertRoundTrips(populatedRecord(), "ClientRecord") }
+
+    // MARK: - BookStore corrupt backup + save result
+
+    override func tearDown() {
+        BookStore.directoryOverride = nil
+        super.tearDown()
+    }
+
+    private func isolatedDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wp-book-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        BookStore.directoryOverride = dir
+        return dir
+    }
+
+    func testCorruptBackupFilenameIsTimestamped() {
+        var c = DateComponents(); c.year = 2031; c.month = 6; c.day = 30; c.hour = 12; c.minute = 4; c.second = 5
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(secondsFromGMT: 0)
+        let name = BookStore.corruptBackupFilename(at: cal.date(from: c)!)
+        XCTAssertEqual(name, "wealth-policy-book.corrupt-20310630-120405.json")
+        XCTAssertFalse(name.contains(":"), "colons are hostile on some filesystems")
+    }
+
+    func testACorruptBookIsMovedAsideUnderATimestampAndClearsTheLivePath() throws {
+        let dir = try isolatedDir()
+        let live = dir.appendingPathComponent("wealth-policy-book.json")
+        try Data("not-json".utf8).write(to: live)
+        let loaded = BookStore.load()
+        XCTAssertTrue(loaded.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: live.path),
+                       "a known-bad file must not stay at the live path")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasPrefix("wealth-policy-book.corrupt-") }
+        XCTAssertEqual(backups.count, 1, "the corrupt bytes must land in a timestamped backup")
+        XCTAssertEqual(BookStore.lastCorruptBackupFilename, backups.first)
+
+        // A second corruption must not overwrite the first backup.
+        try Data("also-not-json".utf8).write(to: live)
+        _ = BookStore.load()
+        let backups2 = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasPrefix("wealth-policy-book.corrupt-") }
+        XCTAssertEqual(backups2.count, 2, "each failure keeps its own backup")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: live.path))
+    }
+
+    func testSaveReturnsTrueOnSuccessAndFalseWhenThePathCannotBeWritten() throws {
+        let dir = try isolatedDir()
+        let rec = populatedRecord()
+        XCTAssertTrue(BookStore.save([rec]))
+        XCTAssertEqual(BookStore.load().count, 1)
+
+        // Point the store at a FILE, not a directory, so the atomic write cannot succeed.
+        let file = dir.appendingPathComponent("not-a-dir")
+        FileManager.default.createFile(atPath: file.path, contents: Data())
+        BookStore.directoryOverride = file
+        XCTAssertFalse(BookStore.save([rec]), "save must report failure rather than pretending it wrote")
+    }
 }

@@ -240,12 +240,12 @@ enum HouseholdMatrix {
               return m }())
 
         // A savings window that OUTLASTS the plan horizon. The primary is already retired and
-        // drawing today, so the first spending year is 1, while a much younger spouse keeps
-        // `householdSaveYears` running past the end of the plan. Under the shipped anchor the
-        // shock lands in year 1; under the savings-window anchor the whole pattern falls off the
-        // end and every stress silently reproduces the UNSHOCKED corpus — the state
-        // `testEveryStressActuallyShocksThePlan` was written for and which no other household in
-        // this matrix could reach (measured: saveYears < horizon on all 27).
+        // drawing today (plan year 0 after the year-0 retiree fix), while a much younger spouse
+        // keeps `householdSaveYears` running past the end of the plan. Resilience still shocks
+        // from plan year 1 (its outflow loop starts there). Under the savings-window anchor the
+        // whole pattern falls off the end and every stress silently reproduces the UNSHOCKED
+        // corpus — the state `testEveryStressActuallyShocksThePlan` was written for and which no
+        // other household in this matrix could reach (measured: saveYears < horizon on all 27).
         add("savings window outlasts the plan horizon",
             base([adult("A", born: bornAged(70), retireAt: 62, salary: 0,
                         traditional: 900_000, ssMonthly: 3_400, claimAt: 67),
