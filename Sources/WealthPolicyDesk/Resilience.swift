@@ -109,18 +109,17 @@ public extension Engine {
             }
         }
 
-        // Same year-0 gate as requiredReturn: only a primary already retired draws
-        // today off the top. An accumulator can have SS/pension at t=0; booking those
-        // as a pre-compound credit would disagree with the solve (startT == 1).
-        let primaryRetiredNow = h.primary.map {
-            age(birthDate: $0.birthDate, asOf: asOf) >= $0.expectedRetirementAge
-        } ?? false
+        // Same year-0 gate as requiredReturn: book today's claim off the top when the
+        // solve does (retiree draw, or an accumulator extra/education dated this year).
+        // Accumulators with no year-0 claim stay at startT == 1 so SS/pension at t=0 is
+        // not a pre-compound credit the solve never took.
+        let startT = corpusStartT(h, asOf: asOf)
 
         // Run the corpus at a per-year return, scaling the spending component by `mult`.
         func run(_ ret: (Int) -> Double, mult: Double = 1) -> (terminal: Usd, depletion: Int?) {
             var b = A, dep: Int? = nil
             // Year 0 is today's draw: no growth year precedes it (same as requiredReturn.terminal).
-            if primaryRetiredNow, spend.count > 0 {
+            if startT == 0, spend.count > 0 {
                 b -= mult * spend[0] + (other.isEmpty ? 0 : other[0])
                 if b <= 0 { return (0, 0) }
             }

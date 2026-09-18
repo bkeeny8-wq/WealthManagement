@@ -88,4 +88,32 @@ final class IntakeClaimWiringTests: XCTestCase {
         XCTAssertFalse(ids.contains("83b_window"),
                        "an ISO-only grant set must not keep a hidden 83(b) date")
     }
+
+    /// The education form can bind a goal to a named child. `buildHousehold` already
+    /// labels from `childId`; without a picker the field stayed nil and every College
+    /// row read as unlabeled "College".
+    func testEducationGoalBoundToAChildCarriesTheName() {
+        var m = base()
+        var c = IntakeChild(); c.name = "Ada"
+        m.children = [c]
+        var g = IntakeEducationGoal(); g.annualCostTodayUsd = 40_000; g.years = 1
+        g.startYear = yr + 10; g.childId = c.id
+        m.educationGoals = [g]
+        let label = m.buildHousehold(asOf: asOf).goals.first { $0.id.hasPrefix("g_edu_") }?.label ?? ""
+        XCTAssertTrue(label.hasPrefix("Ada"), "bound childId must surface on the claim: \(label)")
+    }
+
+    /// Batch 6 dated a this-year extra goal as plan year 0; the required-return solve
+    /// still started at t=1 for workers, so the claim never entered the rate.
+    func testThisYearExtraGoalMovesAWorkersRequiredReturn() {
+        var now = base(); var later = base()
+        var gNow = IntakeGoal(); gNow.label = "Home"; gNow.amountUsd = 200_000; gNow.targetYear = yr; gNow.spanYears = 1
+        var gLater = gNow; gLater.targetYear = yr + 1
+        now.additionalGoals = [gNow]
+        later.additionalGoals = [gLater]
+        let rNow = Engine.requiredReturn(now.buildHousehold(asOf: asOf), asOf: asOf)
+        let rLater = Engine.requiredReturn(later.buildHousehold(asOf: asOf), asOf: asOf)
+        XCTAssertGreaterThan(rNow.requiredRealReturnBps, rLater.requiredRealReturnBps,
+                             "a worker's this-year extra claim must raise required return vs next year")
+    }
 }

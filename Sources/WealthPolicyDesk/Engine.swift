@@ -371,6 +371,21 @@ public enum Engine {
 
     // MARK: - Required return (pure arithmetic, no CMAs)
 
+    /// Plan year the corpus recursion starts. 0 when THIS year has a claim the portfolio
+    /// must fund off the top — a retiree's spending, or an accumulator's extra / education
+    /// goal dated this calendar year. Otherwise 1, so a working household with no year-0
+    /// claim keeps the historical accumulator frame. Savings never book at t=0.
+    static func corpusStartT(_ h: Household, asOf: IsoDate) -> Int {
+        if h.primary.map({ age(birthDate: $0.birthDate, asOf: asOf) >= $0.expectedRetirementAge }) ?? false {
+            return 0
+        }
+        let year0Claim = h.goals.contains { g in
+            (g.kind == .spending || g.kind == .reserve)
+                && g.outflows.contains { $0.year == 0 && $0.amountUsd > 1 }
+        }
+        return year0Claim ? 0 : 1
+    }
+
     /// `annualTaxUsd` (plan-year t → projected federal tax + IRMAA) makes the recursion
     /// AFTER-TAX: the corpus must fund spending PLUS the tax the withdrawals generate.
     /// Empty ⇒ the pre-tax number.
@@ -378,12 +393,7 @@ public enum Engine {
         let A = h.portfolioValueUsd
         let saveYears = householdSaveYears(h, asOf: asOf)
         let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
-        // A primary already at/past retirement is drawing down THIS year, and the
-        // decumulation feeder keys that current-year tax at t=0. Fund year 0 too, so it
-        // isn't silently dropped. An accumulator has no year-0 outflow, so the frame is
-        // unchanged for them (and savings are never added at t=0 — see below).
-        let primaryRetiredNow = h.primary.map { age(birthDate: $0.birthDate, asOf: asOf) >= $0.expectedRetirementAge } ?? false
-        let startT = primaryRetiredNow ? 0 : 1
+        let startT = corpusStartT(h, asOf: asOf)
 
         // Real cashflows by year, net of external income, plus the decumulation tax.
         // `annualTaxUsd` carries only the tax the PORTFOLIO pays: decumulation settles a

@@ -96,4 +96,28 @@ final class ResilienceTests: XCTestCase {
         XCTAssertGreaterThan(withYear0.currentSpendUsd, 50_000,
                              "today's-only draw must still be the spend the stress corpus scales")
     }
+
+    /// A worker's extra claim dated this year used to sit in outflowComponents[0] and
+    /// then get skipped by `run` (retiree-only gate). Resilience must book it the same
+    /// way requiredReturn does.
+    func testAccumulatorResilienceBooksAThisYearExtraClaim() {
+        var m = IntakeModel()
+        var a = IntakeAdult(); a.birthYear = Engine.year(asOf) - 45; a.retirementAge = 65
+        m.adults = [a]
+        m.taxableUsd = 800_000
+        m.retirementSpendingUsd = 90_000
+        var g = IntakeGoal(); g.label = "Home"; g.amountUsd = 200_000
+        g.targetYear = Engine.year(asOf); g.spanYears = 1
+        m.additionalGoals = [g]
+        let h = m.buildHousehold(asOf: asOf)
+        XCTAssertEqual(Engine.corpusStartT(h, asOf: asOf), 0)
+        let (spend, _) = Engine.outflowComponents(h, asOf: asOf, annualTaxUsd: [:])
+        XCTAssertGreaterThan(spend[0], 100_000, "this-year extra claim is plan year 0")
+        let res = Engine.resilience(h, tax: Seed.tax2026,
+                                    rr: Engine.requiredReturn(h, asOf: asOf),
+                                    asOf: asOf, policy: Engine.evaluate(h).legacyPolicy,
+                                    annualTaxUsd: [:])
+        XCTAssertGreaterThan(res.currentSpendUsd, 100_000,
+                             "the stress corpus must scale today's extra claim, not skip it")
+    }
 }

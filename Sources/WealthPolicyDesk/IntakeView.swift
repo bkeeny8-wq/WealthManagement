@@ -819,6 +819,7 @@ struct IntakeWizard: View {
                     Card("ESPP") {
                         MoneyField(label: "Annual ESPP contribution", value: $intake.esppAnnualContributionUsd)
                         FormToggle(label: "Lookback provision", isOn: $intake.esppLookback)
+                        Note("The contribution is on the cash-flow. Lookback is recorded on the file; it does not change bargain-element math.")
                     }
                 }
                 Card("QSBS") {
@@ -838,7 +839,7 @@ struct IntakeWizard: View {
                 MoneyField(label: "Individual DI benefit (monthly)", value: $intake.disabilityIndividualMonthlyUsd)
                 FormToggle(label: "Group benefit is taxable (employer-paid premium)", isOn: $intake.disabilityBenefitsTaxable)
                 FormToggle(label: "Own-occupation definition", isOn: $intake.disabilityOwnOccupation)
-                Note("Disability is the income that funds the whole plan. Group-only, taxable coverage replaces ~28% less than it appears to.")
+                Note("Disability is the income that funds the whole plan. Group-only, taxable coverage replaces ~28% less than it appears to. Own-occupation is recorded on the file; the gap uses the taxable-group flag, not this definition.")
             }
             Card("Life") {
                 MoneyField(label: "Life insurance in force", value: $intake.lifeInForceUsd)
@@ -846,6 +847,7 @@ struct IntakeWizard: View {
                     ChoiceChips(LifeKind.allCases.map { ($0, $0.label) }, selection: intake.lifeKind) { intake.lifeKind = $0 }
                 }
                 FormToggle(label: "Held in an irrevocable trust (ILIT)", isOn: $intake.lifeInIrrevocableTrust)
+                Note("Recorded on the file. Life proceeds are not in the estate math, so this does not change inclusion.")
             }
             Card("Long-term care") {
                 FieldLabel("Funding approach") {
@@ -976,7 +978,7 @@ struct IntakeWizard: View {
             Card("Education goals") {
                 Note("Education is the one goal whose date can't move, and it grows above CPI. Enter it in today's dollars; the engine inflates each year on the education series and a 529 balance offsets it.")
                 ForEach($intake.educationGoals) { $g in
-                    EducationGoalForm(goal: $g) { intake.educationGoals.removeAll { $0.id == g.id } }
+                    EducationGoalForm(goal: $g, children: intake.children) { intake.educationGoals.removeAll { $0.id == g.id } }
                 }
                 Button { intake.educationGoals.append(IntakeEducationGoal()) } label: {
                     Label("Add an education goal", systemImage: "plus.circle").font(.system(size: 14, weight: .semibold))
@@ -1471,6 +1473,7 @@ struct ChildForm: View {
 
 struct EducationGoalForm: View {
     @Binding var goal: IntakeEducationGoal
+    var children: [IntakeChild] = []
     var onRemove: () -> Void
     var body: some View {
         VStack(spacing: 0) {
@@ -1482,6 +1485,13 @@ struct EducationGoalForm: View {
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+            if !children.isEmpty {
+                FieldLabel("Whose education") {
+                    let options: [(UUID?, String)] = [(nil, "Unassigned")]
+                        + children.map { ($0.id, $0.name.isEmpty ? "Child" : $0.name) }
+                    ChoiceChips(options, selection: goal.childId) { goal.childId = $0 }
+                }
+            }
             FieldLabel("Cost tier") {
                 ChoiceChips(EducationCostPreset.allCases.map { ($0, $0.label) }, selection: goal.costPreset) { p in
                     goal.costPreset = p
