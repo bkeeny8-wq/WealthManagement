@@ -254,6 +254,13 @@ public func todayIsoDate(_ now: Date) -> IsoDate {
     return String(format: "%04d-%02d-%02d", c.year ?? 2026, c.month ?? 1, c.day ?? 1)
 }
 
+/// Date the intake wizard's review figures must age against. Editing reuses the
+/// record's stamped plan date so a review-advanced client is not rewound to the
+/// module pin. A new client uses today. The engine never reads a clock.
+public func intakePreviewAsOf(editingPlanAsOf: IsoDate?, today: IsoDate) -> IsoDate {
+    editingPlanAsOf ?? today
+}
+
 public extension Engine {
     static let planningAsOf: IsoDate = "2026-08-11"
 

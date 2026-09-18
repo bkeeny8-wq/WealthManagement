@@ -250,6 +250,23 @@ public struct ChoiceChips<T: Hashable>: View {
     }
 }
 
+/// One-tap trash used to drop a holding, child, or goal with no undo. Confirm first.
+struct ConfirmTrashButton: View {
+    var onRemove: () -> Void
+    var title: String = "Remove this row?"
+    @State private var confirm = false
+    var body: some View {
+        Button(role: .destructive) { confirm = true } label: {
+            Image(systemName: "trash").font(.system(size: 14))
+        }
+        .buttonStyle(.plain).foregroundStyle(Theme.debt)
+        .confirmationDialog(title, isPresented: $confirm, titleVisibility: .visible) {
+            Button("Remove", role: .destructive, action: onRemove)
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+}
+
 /// Horizontal capsule chips with multi-selection (membership in a set).
 public struct MultiChips<T: Hashable>: View {
     let options: [(T, String)]

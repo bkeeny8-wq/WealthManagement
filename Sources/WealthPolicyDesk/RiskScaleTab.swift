@@ -15,6 +15,17 @@ struct RiskScaleTab: View {
     }
 
     var body: some View {
+        if eval.isSolvable { solvedBody } else { notSolvableNotice }
+    }
+
+    private var notSolvableNotice: some View {
+        Card("Risk is a dial, not a number") {
+            Note("Nothing to solve yet. The spectrum below would be priced off a funded-ratio clamp, not this household. Enter the account balances and the retirement spending first.",
+                 icon: "questionmark.circle", color: Theme.muted)
+        }
+    }
+
+    @ViewBuilder private var solvedBody: some View {
         Card("Risk is a dial, not a number") {
             Note("Your allocation is a function of how much drawdown you can stomach. Below is the same plan across the risk spectrum — each rung is the solver's output at that tolerance, priced as if the plan actually held that much equity. Your CAPACITY (what the situation can afford) caps every rung: you can't dial past it. No market forecast is used.")
             if let rp = eval.riskProfile {

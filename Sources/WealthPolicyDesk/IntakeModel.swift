@@ -801,6 +801,16 @@ public struct IntakeModel: Codable, Hashable {
         return (hp.ownerIndex >= 0 && hp.ownerIndex < adults.count) ? hp.ownerIndex : 0
     }
 
+    /// Dropping a named child must unbind education rows that pointed at them, or the
+    /// picker still shows a UUID with no roster match and the goal labels as unlabeled
+    /// "College".
+    public mutating func removeChild(_ id: UUID) {
+        children.removeAll { $0.id == id }
+        for i in educationGoals.indices where educationGoals[i].childId == id {
+            educationGoals[i].childId = nil
+        }
+    }
+
     /// Persist the same clamp `ownerIndexResolved` uses. Dropping a spouse left
     /// `ownerIndex == 1` on disk; the engine treated those holdings as primary until a
     /// new second adult was added, at which point they silently reattached.

@@ -230,11 +230,11 @@ struct PolicyStatementTab: View {
 
     private func riskObjectiveSection(editable: Bool) -> some View {
         section("4", "Investment objective — risk") {
-            if let r = eval.riskProfile {
+            if !eval.isSolvable {
+                p("No risk objective can be stated yet: this household has no solvable required return, so the equity ceiling that would fall out of funded status is not a number that describes this client. Complete the balances and the retirement spending first.")
+            } else if let r = eval.riskProfile {
                 p("Risk tolerance is the lower of the household's ABILITY and WILLINGNESS to bear risk. Ability (capacity), reflecting the funded ratio, time horizon, and human capital, supports up to \(Fmt.pctBps(r.capacityEquityBps)) in equities. Willingness, from a stated maximum tolerable one-year drawdown of about \(Fmt.pctBps(h.statedToleranceMaxDrawdownBps)), supports up to \(Fmt.pctBps(r.toleranceImpliedEquityBps)). Prudence binds the portfolio to the lower of the two — an equity ceiling of \(Fmt.pctBps(r.bindingEquityBps)).")
-                if eval.isSolvable {
-                    p("At the policy allocation, the modelled probability of failing to meet the goal over the \(horizonYears)-year horizon is approximately \(Fmt.pctBps(shortfall.shortfallProbBps, 0)). This is a model estimate, not a guarantee; it compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis, and a thin margin — reflecting the forecast's own uncertainty — should be read as roughly funded rather than a cushion.")
-                }
+                p("At the policy allocation, the modelled probability of failing to meet the goal over the \(horizonYears)-year horizon is approximately \(Fmt.pctBps(shortfall.shortfallProbBps, 0)). This is a model estimate, not a guarantee; it compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis, and a thin margin — reflecting the forecast's own uncertainty — should be read as roughly funded rather than a cushion.")
             } else {
                 p("A formal risk tolerance is not yet on file. Completing the household's risk assessment — its maximum tolerable drawdown and its behavioural response to loss — is required before the equity ceiling and shortfall probability that anchor this policy can be set.")
             }

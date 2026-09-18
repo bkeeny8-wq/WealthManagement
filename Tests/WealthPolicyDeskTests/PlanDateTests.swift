@@ -134,6 +134,18 @@ final class PlanDateTests: XCTestCase {
         XCTAssertEqual(todayIsoDate(cal.date(from: c)!), "2027-01-05", "single digits are zero-padded")
     }
 
+    /// Wizard review used to call `buildHousehold()` with no date, so figures aged off
+    /// `Engine.planningAsOf` while save stamped `todayIsoDate`. A 2027 onboard would preview
+    /// as 2026. Editing must also keep the record's date, or an annual review rewinds.
+    func testIntakePreviewUsesTodayForANewClientAndKeepsAStampedEditDate() {
+        XCTAssertEqual(intakePreviewAsOf(editingPlanAsOf: nil, today: "2027-03-04"), "2027-03-04",
+                       "a new client's review must age off today, not the module pin")
+        XCTAssertEqual(intakePreviewAsOf(editingPlanAsOf: later, today: "2027-03-04"), later,
+                       "editing must keep the record's plan date so a review-advanced client is not rewound")
+        XCTAssertNotEqual(intakePreviewAsOf(editingPlanAsOf: nil, today: "2027-03-04"), Engine.planningAsOf,
+                          "today in a later year must not collapse onto the pin")
+    }
+
     /// Side paths that used to pin `Engine.planningAsOf` / `"2026-01-01"` must follow the
     /// household's own date: MAGI/itemization tax year, buy-lot vintage, and ST vs LT on replay.
     func testSidePathsHonorALaterPlanDate() {

@@ -131,7 +131,10 @@ public struct RootView: View {
         // Full-screen (not a sheet): the intake is a long single page, and a form-sheet's
         // swipe/tap-outside dismissal would silently discard everything typed so far.
         .fullScreenCover(isPresented: $showWizard) {
-            IntakeWizard(intake: wizardSeed, practice: wizardPractice) { builtIntake, builtPractice in
+            IntakeWizard(intake: wizardSeed, practice: wizardPractice,
+                         previewAsOf: intakePreviewAsOf(
+                            editingPlanAsOf: wizardEditingId.flatMap { id in book.first { $0.id == id }?.planAsOf },
+                            today: todayIsoDate(Date()))) { builtIntake, builtPractice in
                 if saveFromWizard(builtIntake, builtPractice) { showWizard = false }
             } onCancel: { showWizard = false }
         }
@@ -186,7 +189,12 @@ public struct RootView: View {
         }
         activeId = id; intake = builtIntake; practice = builtPractice
         // Keep any committed moves layered on the freshly rebuilt household.
-        household = book.first(where: { $0.id == id })?.household() ?? builtIntake.buildHousehold()
+        // Never fall back to the module pin — a 2027 onboard would age as 2026.
+        if let rec = book.first(where: { $0.id == id }) {
+            household = rec.household()
+        } else {
+            household = builtIntake.buildHousehold(asOf: todayIsoDate(Date()))
+        }
         return true
     }
 
@@ -304,7 +312,7 @@ public struct RootView: View {
     /// record path already folds committed moves, committed tilts AND driver overrides.
     private func exportHousehold(_ intake: IntakeModel) -> Household {
         if let id = activeId, let rec = book.first(where: { $0.id == id }) { return rec.household() }
-        return intake.buildHousehold()
+        return intake.buildHousehold(asOf: todayIsoDate(Date()))
     }
 
     /// The per-client CRM record, built by the SAME method the roster export uses, so the
@@ -378,6 +386,9 @@ struct WelcomeView: View {
 struct IntakeWizard: View {
     @State var intake: IntakeModel
     @State var practice: PracticeMetadata
+    /// Age the review card against this date — today for a new client, the record's
+    /// `planAsOf` when editing — never the module pin.
+    var previewAsOf: IsoDate = Engine.planningAsOf
     var onComplete: (IntakeModel, PracticeMetadata) -> Void
     var onCancel: () -> Void
 
@@ -969,7 +980,7 @@ struct IntakeWizard: View {
         VStack(spacing: 14) {
             Card("Children & dependents") {
                 ForEach($intake.children) { $c in
-                    ChildForm(child: $c) { intake.children.removeAll { $0.id == c.id } }
+                    ChildForm(child: $c) { intake.removeChild(c.id) }
                 }
                 Button { intake.children.append(IntakeChild()) } label: {
                     Label("Add a child", systemImage: "plus.circle").font(.system(size: 14, weight: .semibold))
@@ -1063,7 +1074,7 @@ struct IntakeWizard: View {
     }
 
     private var reviewFigures: some View {
-        let h = intake.buildHousehold()
+        let h = intake.buildHousehold(asOf: previewAsOf)
         let e = Engine.evaluate(h)
         return VStack(spacing: 14) {
             Card("The figures your statement will anchor on") {
@@ -1416,8 +1427,7 @@ struct HeldPositionForm: View {
                     .textInputAutocapitalization(.characters)
                     .font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button(role: .destructive, action: onRemove) { Image(systemName: "trash").font(.system(size: 14)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.debt)
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this holding?")
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
@@ -1458,8 +1468,7 @@ struct ChildForm: View {
             HStack {
                 TextField("Name", text: $child.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button(role: .destructive, action: onRemove) { Image(systemName: "trash").font(.system(size: 14)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.debt)
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this child?")
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
@@ -1480,8 +1489,7 @@ struct EducationGoalForm: View {
             HStack {
                 Text(goal.label).font(.system(size: 15, weight: .semibold, design: .serif)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button(role: .destructive, action: onRemove) { Image(systemName: "trash").font(.system(size: 14)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.debt)
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this education goal?")
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
@@ -1517,8 +1525,7 @@ struct AdditionalGoalForm: View {
             HStack {
                 Text(goal.label.isEmpty ? goal.type.label : goal.label).font(.system(size: 15, weight: .semibold, design: .serif)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button(role: .destructive, action: onRemove) { Image(systemName: "trash").font(.system(size: 14)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.debt)
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this goal?")
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)

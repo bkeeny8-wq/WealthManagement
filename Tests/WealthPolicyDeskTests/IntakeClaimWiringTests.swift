@@ -103,6 +103,24 @@ final class IntakeClaimWiringTests: XCTestCase {
         XCTAssertTrue(label.hasPrefix("Ada"), "bound childId must surface on the claim: \(label)")
     }
 
+    /// Dropping a child used to leave `educationGoals[].childId` pointing at a UUID
+    /// with no roster match, so the picker showed a dangling id and the goal still
+    /// labelled as that child's college.
+    func testRemovingAChildUnbindsEducationGoals() {
+        var m = base()
+        var c = IntakeChild(); c.name = "Ada"
+        m.children = [c]
+        var g = IntakeEducationGoal(); g.annualCostTodayUsd = 40_000; g.years = 1
+        g.startYear = yr + 10; g.childId = c.id
+        m.educationGoals = [g]
+        m.removeChild(c.id)
+        XCTAssertTrue(m.children.isEmpty)
+        XCTAssertNil(m.educationGoals.first?.childId,
+                     "a deleted child's id must not linger on the education row")
+        let label = m.buildHousehold(asOf: asOf).goals.first { $0.id.hasPrefix("g_edu_") }?.label ?? ""
+        XCTAssertEqual(label, "College", "unbound goal must drop the deleted child's name: \(label)")
+    }
+
     /// Batch 6 dated a this-year extra goal as plan year 0; the required-return solve
     /// still started at t=1 for workers, so the claim never entered the rate.
     func testThisYearExtraGoalMovesAWorkersRequiredReturn() {
