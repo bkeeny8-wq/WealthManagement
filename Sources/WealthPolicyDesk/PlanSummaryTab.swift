@@ -235,7 +235,7 @@ struct PlanSummaryTab: View {
         if eval.allocation.contains(where: { $0.status != .within }) {
             steps.append("The book has drifted off its policy target — some sleeves sit outside their band. The Rebalance tab shows the tax-aware trades that would close the gap.")
         }
-        if eval.decumulation.lifetimeTaxSavedUsd > 10_000 {
+        if eval.isSolvable && eval.decumulation.lifetimeTaxSavedUsd > 10_000 {
             steps.append("The plan estimates about \(Fmt.usdShort(eval.decumulation.lifetimeTaxSavedUsd)) of lifetime tax saved from Roth conversions in low-bracket years — the Decumulation tab lays out the year-by-year path.")
         }
         for f in hardFindings.prefix(2) { steps.append("A hard limit to resolve — \(f.title): \(f.detail)") }

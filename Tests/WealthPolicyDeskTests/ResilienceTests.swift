@@ -60,4 +60,40 @@ final class ResilienceTests: XCTestCase {
         XCTAssertEqual(a.stressesSurvived, b.stressesSurvived)
         XCTAssertEqual(a.sensitivities.map(\.terminalBalanceUsd), b.sensitivities.map(\.terminalBalanceUsd))
     }
+
+    /// Year-0 retiree spending used to sit outside the stress corpus (the loop started at
+    /// plan year 1, so index 0 was next year's draw — the same dollar for a level
+    /// schedule, which would not fail). A household whose ONLY spending is today's draw
+    /// must still book that outflow; the old 1-based loop saw an empty path.
+    func testRetireeResilienceBooksTodaysDraw() {
+        var m = IntakeModel()
+        var a = IntakeAdult(); a.birthYear = Engine.year(asOf) - 70; a.retirementAge = 62
+        a.traditionalUsd = 900_000; a.socialSecurityMonthlyUsd = 0
+        m.adults = [a]
+        m.taxableUsd = 800_000
+        m.retirementSpendingUsd = 110_000
+        m.legacyFloorUsd = 0
+        var h = m.buildHousehold(asOf: asOf)
+        let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
+        let (full, _) = Engine.outflowComponents(h, asOf: asOf, annualTaxUsd: [:])
+        XCTAssertEqual(full.count, horizon + 1, "index 0 is plan year 0, not year 1")
+        XCTAssertGreaterThan(full[0], 50_000, "plan year 0 is today's spending, not an empty slot")
+
+        h.goals = h.goals.map { g in
+            guard g.kind == .spending else { return g }
+            var g = g
+            g.outflows = g.outflows.filter { $0.year == 0 }
+            return g
+        }
+        let (onlyToday, _) = Engine.outflowComponents(h, asOf: asOf, annualTaxUsd: [:])
+        XCTAssertGreaterThan(onlyToday[0], 50_000)
+        XCTAssertEqual(onlyToday.dropFirst().reduce(0, +), 0, accuracy: 1,
+                       "later years must be empty so a 1-based loop cannot fake a pass")
+        let withYear0 = Engine.resilience(h, tax: Seed.tax2026,
+                                          rr: Engine.requiredReturn(h, asOf: asOf),
+                                          asOf: asOf, policy: Engine.evaluate(h).legacyPolicy,
+                                          annualTaxUsd: [:])
+        XCTAssertGreaterThan(withYear0.currentSpendUsd, 50_000,
+                             "today's-only draw must still be the spend the stress corpus scales")
+    }
 }

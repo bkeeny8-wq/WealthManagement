@@ -251,9 +251,18 @@ public enum Engine {
         let mc = muniCrossover(h, tax: tax, asOf: asOf, muniYieldBps: assumedMuniYieldBps, treasuryYieldBps: 430, corporateYieldBps: 520)
         let pays = h.liabilities.filter { $0.isFixedIncomeOffset }.map { paydown($0, household: h, tax: tax, asOf: asOf) }
         let decum = rothStrategy(h, tax: tax, rr: rr, asOf: asOf)
+        // Solvable is known before findings: an unsolvable plan must not emit a
+        // Roth-conversion "opportunity" grown at the ±5%/20% clamp.
+        let spendingUsd = h.goals.filter { $0.kind == .spending }
+            .flatMap(\.outflows).reduce(0) { $0 + $1.amountUsd }
+        let returnSolveRanOff = rr.requiredRealReturnBps >= requiredReturnCeilingBps
+            || rr.requiredRealReturnBps <= requiredReturnFloorBps
+        let fundedRatioClamped = bs.fundedRatioBps >= fundedRatioCeilingBps
+        let solvable = h.portfolioValueUsd > 0 && spendingUsd > 0
+            && !returnSolveRanOff && !fundedRatioClamped
         let findings = evaluateConstraints(h, policy: derivedPolicy, tax: tax, asOf: asOf,
                                            balanceSheet: bs, allocation: alloc, altSizing: alts, ladder: lad,
-                                           rothTaxSavedUsd: decum.lifetimeTaxSavedUsd)
+                                           rothTaxSavedUsd: solvable ? decum.lifetimeTaxSavedUsd : 0)
         let resil = resilience(h, tax: tax, rr: rr, asOf: asOf, policy: derivedPolicy, annualTaxUsd: taxByYear)
         // Nothing to solve without both a portfolio and a spending claim to fund from it —
         // AND the solve has to have converged inside its own bracket.
@@ -266,13 +275,6 @@ public enum Engine {
         // headline directly above "your resources cover your goals", because the funded
         // ratio counts human capital while the required return is asked of the portfolio
         // alone. Both figures are defensible separately and contradict each other on screen.
-        let spendingUsd = h.goals.filter { $0.kind == .spending }
-            .flatMap(\.outflows).reduce(0) { $0 + $1.amountUsd }
-        let returnSolveRanOff = rr.requiredRealReturnBps >= requiredReturnCeilingBps
-            || rr.requiredRealReturnBps <= requiredReturnFloorBps
-        let fundedRatioClamped = bs.fundedRatioBps >= fundedRatioCeilingBps
-        let solvable = h.portfolioValueUsd > 0 && spendingUsd > 0
-            && !returnSolveRanOff && !fundedRatioClamped
         return Evaluation(isSolvable: solvable,
                           household: h, policy: policy, legacyPolicy: derivedPolicy, tax: tax, asOf: asOf,
                           balanceSheet: bs, requiredReturn: rr, allocation: alloc, altSizing: alts,
@@ -477,9 +479,13 @@ public enum Engine {
         let fundedRatio = netLiabilityPv > 0 ? ((A + savingsPv) / netLiabilityPv) : 9.99
 
         // Balance projection at the required return (ends at the legacy floor).
+        // Same year-0 subtract as `terminal()` — otherwise the chart starts at today's
+        // pre-draw corpus and never books the draw the solve just funded, so a retiree's
+        // path disagrees with the rate printed above it.
         var proj: [YearBalance] = []
         var b = A
-        proj.append(YearBalance(year: year(asOf), balanceUsd: b))
+        if startT == 0 { b -= netOutflow(0, deferYears: 0, scaleDownBps: 0) }
+        proj.append(YearBalance(year: year(asOf), balanceUsd: max(0, b)))
         for t in 1...horizon {
             b = b * (1 + r) - netOutflow(t, deferYears: 0, scaleDownBps: 0)
             proj.append(YearBalance(year: year(asOf) + t, balanceUsd: max(0, b)))

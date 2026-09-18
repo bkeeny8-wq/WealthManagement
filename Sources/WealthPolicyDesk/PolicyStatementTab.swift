@@ -435,7 +435,7 @@ struct PolicyStatementTab: View {
                 Spacer(minLength: 8)
                 Text("\(r.confirmedSections.count)/\(reviewSections.count) confirmed").font(.system(size: 10.5)).foregroundStyle(Theme.muted)
             }
-            Text("Required \(Fmt.solvedPctBps(r.requiredRealReturnBps, solved: r.solved))\(delta(r.requiredRealReturnBps, prior?.requiredRealReturnBps)) · Funded \(Fmt.solvedPctBps(r.fundedRatioBps, solved: r.solved))\(delta(r.fundedRatioBps, prior?.fundedRatioBps)) · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
+            Text("Required \(Fmt.solvedPctBps(r.requiredRealReturnBps, solved: r.solved))\(rateDelta(r.requiredRealReturnBps, prior?.requiredRealReturnBps, nowSolved: r.solved, priorSolved: prior?.solved ?? true)) · Funded \(Fmt.solvedPctBps(r.fundedRatioBps, solved: r.solved))\(rateDelta(r.fundedRatioBps, prior?.fundedRatioBps, nowSolved: r.solved, priorSolved: prior?.solved ?? true)) · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             if !r.note.isEmpty {
                 Text("“\(r.note)”").font(.system(size: 12)).italic().foregroundStyle(Theme.ink.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
@@ -447,6 +447,12 @@ struct PolicyStatementTab: View {
 
     /// A "(▲ 0.3%)" delta suffix vs the prior review; empty when the change is invisible at
     /// the displayed 0.1% precision (so we never print an arrow beside a "0.0%" magnitude).
+    /// Unsolved snapshots store clamp bps — never delta those as if they were rates.
+    private func rateDelta(_ now: Bps, _ prior: Bps?, nowSolved: Bool, priorSolved: Bool) -> String {
+        guard nowSolved, priorSolved else { return "" }
+        return delta(now, prior)
+    }
+
     private func delta(_ now: Bps, _ prior: Bps?) -> String {
         guard let prior, Fmt.pctBps(now) != Fmt.pctBps(prior) else { return "" }
         return " (\(now > prior ? "▲" : "▼") \(Fmt.pctBps(abs(now - prior))))"
@@ -467,8 +473,14 @@ struct PolicyStatementTab: View {
                     comparePicker("To", sorted, to.id) { compareToId = $0 }
                     Spacer()
                 }
-                compareRow("Required real return", Fmt.pctBps(from.requiredRealReturnBps), Fmt.pctBps(to.requiredRealReturnBps), delta(to.requiredRealReturnBps, from.requiredRealReturnBps))
-                compareRow("Funded ratio", Fmt.pctBps(from.fundedRatioBps), Fmt.pctBps(to.fundedRatioBps), delta(to.fundedRatioBps, from.fundedRatioBps))
+                compareRow("Required real return",
+                           Fmt.solvedPctBps(from.requiredRealReturnBps, solved: from.solved),
+                           Fmt.solvedPctBps(to.requiredRealReturnBps, solved: to.solved),
+                           from.solved && to.solved ? delta(to.requiredRealReturnBps, from.requiredRealReturnBps) : "")
+                compareRow("Funded ratio",
+                           Fmt.solvedPctBps(from.fundedRatioBps, solved: from.solved),
+                           Fmt.solvedPctBps(to.fundedRatioBps, solved: to.solved),
+                           from.solved && to.solved ? delta(to.fundedRatioBps, from.fundedRatioBps) : "")
                 compareRow("Equity ceiling", Fmt.pctBps(from.equityCeilingBps), Fmt.pctBps(to.equityCeilingBps), delta(to.equityCeilingBps, from.equityCeilingBps))
                 compareRow("After-tax net worth", Fmt.usdShort(from.afterTaxNetWorthUsd), Fmt.usdShort(to.afterTaxNetWorthUsd), usdDelta(to.afterTaxNetWorthUsd, from.afterTaxNetWorthUsd))
                 compareRow("Goals on file", "\(from.goalCount)", "\(to.goalCount)", countDelta(to.goalCount, from.goalCount))

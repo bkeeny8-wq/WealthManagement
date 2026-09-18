@@ -32,6 +32,8 @@ final class RequiredReturnTests: XCTestCase {
         let rLater = Engine.requiredReturn(retiree(extraOutflowAtYear: 1, amount: 500_000), asOf: asOf)
         XCTAssertGreaterThan(rNow.requiredRealReturnBps, rLater.requiredRealReturnBps,
                              "a retiree's current-year draw must be funded, not dropped")
+        XCTAssertLessThan(rNow.projection.first!.balanceUsd, rNow.currentAssetsUsd - 1,
+                          "the required-return chart must start after today's draw, matching the solve")
     }
 
     /// An accumulator (primary not yet retired) has no year-0 drawdown slot by design, so a
@@ -47,5 +49,8 @@ final class RequiredReturnTests: XCTestCase {
         XCTAssertEqual(Engine.requiredReturn(withYear0, asOf: asOf).requiredRealReturnBps,
                        Engine.requiredReturn(Seed.sampleHousehold, asOf: asOf).requiredRealReturnBps,
                        "an accumulator's year-0 outflow is not part of the corpus math")
+        let sample = Engine.requiredReturn(Seed.sampleHousehold, asOf: asOf)
+        XCTAssertEqual(sample.projection.first!.balanceUsd, sample.currentAssetsUsd, accuracy: 0.5,
+                       "an accumulator's chart starts at today's corpus — no year-0 subtract")
     }
 }

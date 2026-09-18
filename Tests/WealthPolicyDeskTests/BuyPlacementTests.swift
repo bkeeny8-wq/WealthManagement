@@ -139,6 +139,8 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertFalse(e.isSolvable, "no portfolio and no spending goal means nothing to solve")
         // The clamps are still there; the point is that nothing presents them as answers.
         XCTAssertEqual(e.household.portfolioValueUsd, 0, accuracy: 0.5)
+        XCTAssertFalse(e.findings.contains { $0.ruleId == "roth_conversion_opportunity" },
+                       "a clamp-grown conversion 'saving' must not surface as a planning flag")
 
         let cme = Engine.capitalMarketExpectations(Seed.macroIndicators, regime: Engine.macroRegime(Seed.macroIndicators))
         let f = Engine.frontier(e, cme: cme)
@@ -181,6 +183,8 @@ final class PlanSolvabilityTests: XCTestCase {
                        "fixture check: the solve runs off the top of its bracket")
         XCTAssertFalse(e.isSolvable,
                        "a bisection that ran off its bracket is a sentinel, not a 20% return the portfolio can be asked to earn")
+        XCTAssertFalse(e.findings.contains { $0.ruleId == "roth_conversion_opportunity" },
+                       "Roth savings grown at the 20% clamp must not appear as a constraint")
     }
 
     /// A funded ratio sitting on its own 9.99x clamp is a sentinel too.
@@ -234,6 +238,11 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertEqual(Fmt.solvedPctBps(Engine.requiredReturnCeilingBps, solved: false), "—")
         XCTAssertEqual(Fmt.solvedPctBps(Engine.fundedRatioCeilingBps, solved: false), "—")
         XCTAssertEqual(Fmt.solvedPctBps(479, solved: true), Fmt.pctBps(479), "a solved figure renders normally")
+        let unsolved = IPSReview.from(Engine.evaluate(IntakeModel().buildHousehold()),
+                                      overrides: HouseholdOverrides(),
+                                      at: Date(timeIntervalSinceReferenceDate: 700_000_000))
+        XCTAssertEqual(Fmt.solvedPctBps(unsolved.requiredRealReturnBps, solved: unsolved.solved), "—")
+        XCTAssertEqual(Fmt.solvedPctBps(unsolved.fundedRatioBps, solved: unsolved.solved), "—")
     }
 
     /// And a real plan must still be solvable, or the gate would hide every client's numbers.
