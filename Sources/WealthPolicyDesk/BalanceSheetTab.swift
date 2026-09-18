@@ -21,12 +21,12 @@ struct BalanceSheetTab: View {
 
         StatGrid([
             StatTile("Net fixed income", Fmt.usd(bs.netFixedIncomeUsd), sub: bs.netFixedIncomeUsd < 0 ? "Net SHORT duration" : "Net long", color: netFIColor),
-            StatTile("Funded ratio", Fmt.solvedPctBps(bs.fundedRatioBps, solved: eval.isSolvable), sub: eval.isSolvable ? "Resources ÷ liabilities" : "not yet solvable", color: bs.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber),
+            StatTile("Funded ratio", Fmt.solvedPctBps(bs.fundedRatioBps, solved: eval.isSolvable), sub: eval.isSolvable ? "Resources ÷ liabilities" : "not yet solvable", color: eval.isSolvable ? (bs.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber) : Theme.muted),
             StatTile("Total B/S equity", Fmt.pctBps(bs.totalBalanceSheetEquityBps), sub: "Incl. human-capital beta", color: Theme.ink),
             StatTile("Net duration", Fmt.yrs(bs.netHouseholdDurationYears), sub: "Household, incl. debt", color: Theme.ink),
         ])
 
-        if let rp = eval.riskProfile {
+        if eval.isSolvable, let rp = eval.riskProfile {
             Card("Risk — capacity vs tolerance") {
                 StatGrid([
                     StatTile("Capacity", Fmt.pctBps(rp.capacityEquityBps), sub: "equity you CAN hold", color: Theme.ink),

@@ -1082,7 +1082,7 @@ struct IntakeWizard: View {
                 LedgerRow("After-tax net worth", Fmt.usd(e.balanceSheet.afterTaxNetWorthUsd), color: Theme.ink, bold: true)
                 LedgerRow("Required real return", Fmt.solvedPctBps(e.requiredReturn.requiredRealReturnBps, solved: e.isSolvable), color: Theme.ink)
                 LedgerRow("Net fixed income", Fmt.usd(e.netFixedIncomeUsd), color: e.netFixedIncomeUsd < 0 ? Theme.debt : Theme.asset)
-                LedgerRow("Funded ratio", Fmt.solvedPctBps(e.balanceSheet.fundedRatioBps, solved: e.isSolvable), color: e.balanceSheet.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber)
+                LedgerRow("Funded ratio", Fmt.solvedPctBps(e.balanceSheet.fundedRatioBps, solved: e.isSolvable), color: e.isSolvable ? (e.balanceSheet.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber) : Theme.muted)
                 LedgerRow("Legacy floor", intake.legacyFloorUsd > 0 || intake.legacyPriority != .none ? Fmt.usd(h.legacyFloorUsd) : "$0", color: Theme.ink)
                 if !e.isSolvable {
                     Note("Rates stay blank until this household has balances and spending to solve. That is an empty intake, not a broken desk.", icon: "info.circle", color: Theme.muted)

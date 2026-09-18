@@ -305,6 +305,13 @@ struct PolicyStatementTab: View {
 
     private var allocationSection: some View {
         section("6", "Strategic asset allocation") {
+            // Sleeve targets on an unsolvable plan are either the seed template (empty
+            // book, nothing to size) or the overfunded glide of a funded-ratio clamp.
+            // Printing either as this client's derived policy puts a mix in a signed
+            // document that describes nobody.
+            if !eval.isSolvable {
+                p("No strategic allocation can be stated yet: this household has no solvable required return, so the sleeve targets that would fall out of funded status are not a policy that describes this client. Complete the balances and the retirement spending, and this section will derive the mix those inputs imply.")
+            } else {
             p("The strategic allocation below is DERIVED from the objectives and constraints above — from the household's goals, funded status, and risk ceiling — rather than set to a fixed 60/40. Equity is held at or below the risk ceiling; the cash sleeve carries the liquidity floor; the balance is diversified across defensive and real-diversifying assets and a functional alternatives budget.")
             VStack(spacing: 0) {
                 ForEach(allocationBuckets, id: \.label) { b in
@@ -313,6 +320,7 @@ struct PolicyStatementTab: View {
             }
             .padding(.vertical, 2)
             p("Each sleeve is managed within a tolerance band around its target; the intra-equity and intra-bond composition follows a diversified structural template. The current portfolio is compared against these targets, sleeve by sleeve, on the Allocation tab, and the trades required to close any gap are set out on the Rebalance tab.")
+            }
         }
     }
 

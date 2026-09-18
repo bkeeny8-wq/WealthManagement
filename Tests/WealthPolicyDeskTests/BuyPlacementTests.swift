@@ -194,6 +194,35 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertFalse(e.isSolvable)
     }
 
+    /// Sleeve targets on an unsolvable plan are not a client policy: an empty book
+    /// returns the seed template (nothing to size), and a corpus whose funded ratio
+    /// is the human-capital clamp glides as if the plan were overfunded. A signed
+    /// IPS / Plan Summary must not print either mix as derived from this household.
+    func testUnsolvableSleeveTargetsAreTheTemplateOrAClampGlide() {
+        func growth(_ e: Evaluation) -> Bps {
+            e.legacyPolicy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
+        }
+        let empty = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertFalse(empty.isSolvable)
+        XCTAssertEqual(growth(empty),
+                       Seed.legacyPolicy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps },
+                       "an empty book has nothing to size, so the mix is the seed template")
+
+        var m = IntakeModel()
+        m.adults = [{ var a = IntakeAdult(); a.birthYear = 1985; a.retirementAge = 65
+                      a.salaryUsd = 150_000; return a }()]
+        m.taxableUsd = 25_000
+        m.emergencyReserveUsd = 50_000
+        m.retirementSpendingUsd = 20_000
+        let clamped = Engine.evaluate(m.buildHousehold())
+        XCTAssertFalse(clamped.isSolvable)
+        XCTAssertGreaterThan(clamped.household.portfolioValueUsd, 0, "fixture check: there is a corpus to size")
+        XCTAssertGreaterThanOrEqual(clamped.balanceSheet.fundedRatioBps, Engine.fundedCeilBps,
+                                    "fixture check: the clamp sits past the derisk point, so the mix is the overfunded glide")
+        XCTAssertNotEqual(growth(clamped), growth(empty),
+                          "a corpus still glides; that mix is still not a solved client policy")
+    }
+
     /// The BOTTOM of the bracket is the same artifact as the top. `solve` early-returns −5%
     /// when the plan is funded even there, so materially different households all report
     /// exactly −5.0% as though it were a computed rate. Only the ceiling was being gated.

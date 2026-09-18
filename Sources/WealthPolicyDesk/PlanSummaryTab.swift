@@ -108,26 +108,23 @@ struct PlanSummaryTab: View {
 
     private var riskCard: some View {
         Card("How much risk the plan takes") {
-            if let risk = eval.riskProfile {
+            if !eval.isSolvable {
+                Note("Nothing to solve yet. Capacity and the equity ceiling that would fall out of funded status are not numbers that describe this client until the required return has a real solution.",
+                     icon: "questionmark.circle", color: Theme.muted)
+            } else if let risk = eval.riskProfile {
                 StatGrid([
                     StatTile("Can afford", Fmt.pctBps(risk.capacityEquityBps), sub: "equity capacity", color: Theme.ink),
                     StatTile("Will stomach", Fmt.pctBps(risk.toleranceImpliedEquityBps), sub: "risk tolerance", color: Theme.ink),
                     StatTile("Equity ceiling", Fmt.pctBps(risk.bindingEquityBps), sub: "the lower of the two", color: Theme.accent),
                 ])
-                if eval.isSolvable {
-                    LedgerRow("Chance of missing the goal", Fmt.pctBps(shortfall.shortfallProbBps, 0), color: shortfall.shortfallProbBps > 5000 ? Theme.debt : (shortfall.shortfallProbBps > 3000 ? Theme.amber : Theme.asset), bold: true)
-                    Note("The plan CAPS TOTAL equity at the lower of what you can afford and what you can stomach. Two "
-                         + "things sit under that ceiling: the growth allocation shown below, and the equity beta the alt "
-                         + "sleeves carry — buffered equity counts about half, private credit and PE about seven tenths, "
-                         + "trend and gold none. So the growth figure is smaller than this number by roughly the alt "
-                         + "budget's beta even when the ceiling is fully spent. The funded-status glide can dial the "
-                         + "target further below it as the plan improves.", icon: "info.circle")
-                    Note("The shortfall figure compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis; a thin margin reflects the forecast's own uncertainty, so read it as roughly funded, not a cushion.", icon: "info.circle")
-                } else {
-                    Note("The plan CAPS TOTAL equity at the lower of what you can afford and what you can stomach. Two "
-                         + "things sit under that ceiling: the growth allocation shown below, and the equity beta the alt "
-                         + "sleeves carry. A chance of missing the goal is not stated until the required return has a real solution.", icon: "info.circle")
-                }
+                LedgerRow("Chance of missing the goal", Fmt.pctBps(shortfall.shortfallProbBps, 0), color: shortfall.shortfallProbBps > 5000 ? Theme.debt : (shortfall.shortfallProbBps > 3000 ? Theme.amber : Theme.asset), bold: true)
+                Note("The plan CAPS TOTAL equity at the lower of what you can afford and what you can stomach. Two "
+                     + "things sit under that ceiling: the growth allocation shown below, and the equity beta the alt "
+                     + "sleeves carry — buffered equity counts about half, private credit and PE about seven tenths, "
+                     + "trend and gold none. So the growth figure is smaller than this number by roughly the alt "
+                     + "budget's beta even when the ceiling is fully spent. The funded-status glide can dial the "
+                     + "target further below it as the plan improves.", icon: "info.circle")
+                Note("The shortfall figure compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis; a thin margin reflects the forecast's own uncertainty, so read it as roughly funded, not a cushion.", icon: "info.circle")
             } else {
                 Note("Risk tolerance isn't on file yet — answer the risk questions to see the equity ceiling and the chance of missing the goal.", icon: "questionmark.circle")
             }
@@ -136,11 +133,16 @@ struct PlanSummaryTab: View {
 
     private var allocationCard: some View {
         Card("Your policy allocation") {
-            StackBar(allocationBuckets.map { StackSegment($0.label, Double($0.bps), $0.color) })
-            ForEach(allocationBuckets, id: \.label) { r in
-                LedgerRow(r.label, Fmt.pctBps(r.bps), color: r.color)
+            if !eval.isSolvable {
+                Note("Nothing to solve yet. The mix that would print here would be the seed template or the overfunded glide of a funded-ratio clamp — not a policy derived from this household. Enter the account balances and the retirement spending first.",
+                     icon: "questionmark.circle", color: Theme.muted)
+            } else {
+                StackBar(allocationBuckets.map { StackSegment($0.label, Double($0.bps), $0.color) })
+                ForEach(allocationBuckets, id: \.label) { r in
+                    LedgerRow(r.label, Fmt.pctBps(r.bps), color: r.color)
+                }
+                Note("This is the target the plan steers to — DERIVED from your goals, funded status, and risk, not a fixed 60/40. Alternatives are sized by function (convexity, defined-outcome, illiquidity premium) and may narrow to what's available at your account tier. Change a goal and the target moves; your current mix is compared against it on the Allocation tab.")
             }
-            Note("This is the target the plan steers to — DERIVED from your goals, funded status, and risk, not a fixed 60/40. Alternatives are sized by function (convexity, defined-outcome, illiquidity premium) and may narrow to what's available at your account tier. Change a goal and the target moves; your current mix is compared against it on the Allocation tab.")
         }
     }
 
@@ -232,7 +234,7 @@ struct PlanSummaryTab: View {
     // The two or three concrete moves, drawn from the analysis.
     private var nextSteps: [String] {
         var steps: [String] = []
-        if eval.allocation.contains(where: { $0.status != .within }) {
+        if eval.isSolvable && eval.allocation.contains(where: { $0.status != .within }) {
             steps.append("The book has drifted off its policy target — some sleeves sit outside their band. The Rebalance tab shows the tax-aware trades that would close the gap.")
         }
         if eval.isSolvable && eval.decumulation.lifetimeTaxSavedUsd > 10_000 {
