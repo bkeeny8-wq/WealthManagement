@@ -139,6 +139,13 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertFalse(e.isSolvable, "no portfolio and no spending goal means nothing to solve")
         // The clamps are still there; the point is that nothing presents them as answers.
         XCTAssertEqual(e.household.portfolioValueUsd, 0, accuracy: 0.5)
+
+        let cme = Engine.capitalMarketExpectations(Seed.macroIndicators, regime: Engine.macroRegime(Seed.macroIndicators))
+        let f = Engine.frontier(e, cme: cme)
+        XCTAssertNotEqual(f.requiredRealBps, Engine.requiredReturnCeilingBps,
+                          "the frontier must not treat the 20% clamp as a required-return hurdle")
+        XCTAssertFalse(f.meetsRequiredWithinTolerance,
+                       "an empty intake must not be scored as reaching a clamp nobody can earn")
     }
 
     func testAPortfolioWithNoSpendingGoalIsNotSolvable() {

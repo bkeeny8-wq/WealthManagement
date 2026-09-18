@@ -121,7 +121,7 @@ public extension Engine {
         // Risk Scale), not the growth-only share of the curve point — the two differ
         // by the alt equity-beta that also counts against the budget.
         let frontierTolEquity: Bps? = hasBand ? (eval.riskProfile?.toleranceImpliedEquityBps ?? withinTol.map { $0.equityBps }.max()) : nil
-        let required = eval.requiredReturn.requiredRealReturnBps
+        let required = eval.isSolvable ? eval.requiredReturn.requiredRealReturnBps : 0
 
         return FrontierChart(
             curve: curve, target: target, current: current, requiredRealBps: required,
@@ -129,7 +129,7 @@ public extension Engine {
             minDrawdownBps: minDrawdown, capacityEquityBps: capEquity, capacityVolBps: capVol,
             hasTolerableBand: hasBand, frontierToleranceEquityBps: frontierTolEquity,
             flatToleranceEquityBps: min(10000, stated * 2), reachableWithinToleranceBps: reachable,
-            meetsRequiredWithinTolerance: hasBand && (reachable ?? 0) >= required,
+            meetsRequiredWithinTolerance: eval.isSolvable && hasBand && (reachable ?? 0) >= required,
             targetExceedsToleranceBps: toleranceStated ? max(0, target.drawdownBps - stated) : 0
         )
     }

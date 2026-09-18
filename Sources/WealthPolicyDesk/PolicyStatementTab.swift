@@ -287,7 +287,7 @@ struct PolicyStatementTab: View {
     }
 
     private var taxText: String {
-        var s = "The household files \(h.filingStatus.label) and resides in \(h.stateOfResidence). Assets are held across taxable and tax-advantaged accounts, and the portfolio is managed on an after-tax basis: embedded and deferred taxes of approximately \(Fmt.usd(deferredTax)) are treated as a real liability, and asset location and tax-aware rebalancing are integral to the policy. Planning reflects 2026 federal law under OBBBA (P.L. 119-21)."
+        var s = "The household files \(h.filingStatus.label) and resides in \(h.stateOfResidence). Assets are held across taxable and tax-advantaged accounts, and the portfolio is managed on an after-tax basis: embedded and deferred taxes of approximately \(Fmt.usd(deferredTax)) are treated as a real liability, and asset location and tax-aware rebalancing are integral to the policy. Planning reflects 2026 federal estimates under OBBBA (P.L. 119-21), last verified \(eval.tax.lastVerifiedAt) — not IRS Rev. Proc. tables, and not state income tax on the return solve."
         if let ec = h.equityComp, ec.isoBargainElementUsd > 0 {
             s += " Concentrated equity compensation is present; incentive-stock-option exercises are managed for alternative-minimum-tax exposure and single-employer concentration."
         }

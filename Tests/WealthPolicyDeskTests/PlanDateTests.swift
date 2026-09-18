@@ -160,5 +160,21 @@ final class PlanDateTests: XCTestCase {
         let (stLater, _) = vea.realizedGainSplit(sellUsd: 90_000, asOf: later)
         XCTAssertGreaterThan(stPin, 0, "fixture check: the recent lot is short-term on the pin")
         XCTAssertEqual(stLater, 0, accuracy: 0.5, "five years on, that lot is long-term")
+
+        let pinTax = Engine.realizedGainTaxOn(h, vea, sellUsd: 90_000, asOf: Engine.planningAsOf)
+        let laterTax = Engine.realizedGainTaxOn(h, vea, sellUsd: 90_000, asOf: later)
+        XCTAssertGreaterThan(pinTax.taxUsd, laterTax.taxUsd,
+                             "the planning-tab preview must tax the same lot as ordinary on the pin and as LTCG five years on")
+    }
+
+    /// Disability-gap PV is years-to-retirement × the monthly gap. A later plan date
+    /// must shorten that window; pinning 2026 would overstate the lump for an aging client.
+    func testDisabilityGapPvFollowsThePlanDate() {
+        var h = Seed.sampleHousehold
+        let pin = Engine.disabilityGapPv(h, asOf: Engine.planningAsOf)
+        XCTAssertGreaterThan(pin, 0, "fixture check: the Harrisons carry a disability gap")
+        h.planAsOf = later
+        let laterPv = Engine.disabilityGapPv(h, asOf: h.planAsOf)
+        XCTAssertLessThan(laterPv, pin, "five fewer working years must shrink the unfunded disability lump")
     }
 }

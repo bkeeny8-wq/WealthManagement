@@ -84,6 +84,7 @@ final class PersistenceTests: XCTestCase {
         var h = IntakeHeldPosition()
         h.id = uuid(5); h.ticker = "AAPL"; h.marketValueUsd = 300_000; h.costBasisUsd = 90_000
         h.treatment = other(h.treatment); h.plan = other(h.plan); h.unwindYears = 5
+        h.ownerIndex = 1                  // non-default ⇒ teeth for whose-IRA decode
         h.isConcentrated = true; h.acquisitionDate = "2019-03-15"
         h.sector = .technology        // non-nil ⇒ teeth for the single-stock sector write
         return h
@@ -158,6 +159,7 @@ final class PersistenceTests: XCTestCase {
     func testPlannedActionRoundTrips() throws { try assertRoundTrips(populatedAction(), "PlannedAction") }
     func testPracticeMetadataRoundTrips() throws { try assertRoundTrips(populatedPractice(), "PracticeMetadata") }
     func testIntakeAdultRoundTrips() throws { try assertRoundTrips(populatedAdult(), "IntakeAdult") }
+    func testIntakeHeldPositionRoundTrips() throws { try assertRoundTrips(populatedHeldPosition(), "IntakeHeldPosition") }
     func testIntakeModelRoundTrips() throws { try assertRoundTrips(populatedIntake(), "IntakeModel") }
 
     /// A book written before `status` existed must reopen as staged work, not as the plan of record.

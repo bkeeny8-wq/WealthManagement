@@ -24,6 +24,19 @@ struct FrontierTab: View {
     private var altEquivBps: Bps { Engine.altEquityEquivalentBps(eval.legacyPolicy) }
 
     var body: some View {
+        if eval.isSolvable { solvedBody } else { notSolvableNotice }
+    }
+
+    @ViewBuilder
+    private var notSolvableNotice: some View {
+        Card("Efficient frontier") {
+            Note("Nothing to solve yet. Enter the account balances and the retirement spending this household is planning for, and this chart will price the menu against the required return — not against the 20% clamp an empty plan used to print as a hurdle.",
+                 icon: "questionmark.circle", color: Theme.muted)
+        }
+    }
+
+    @ViewBuilder
+    private var solvedBody: some View {
         let f = chart
         Card("Efficient frontier") {
             Note("Risk (volatility) across the bottom, expected REAL return up the side. The curve is the app's own portfolios — the forecast-free solver swept from low to high equity, alts a fixed budget, bonds the residual — priced by the capital-market expectations (Econ tab). On it sit the forecast-free things the plan brings: what it NEEDS (the required-return line) and what the client can stomach and afford (the tolerance and capacity σ lines). We never optimize the weights to the forecast; we price the real menu. Expected returns are shown NET of the same fund-fee + annual-tax friction the Required Return and Resilience tabs subtract, so the curve and the required line sit on one after-tax basis.")

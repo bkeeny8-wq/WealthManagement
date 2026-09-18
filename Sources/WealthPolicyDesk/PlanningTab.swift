@@ -181,7 +181,7 @@ struct PlanningTab: View {
 
     @ViewBuilder private var candidatePreview: some View {
         if let c = candidate, let p = effSell {
-            let t = Engine.realizedGainTax(current, c)
+            let t = Engine.realizedGainTax(current, c, asOf: current.planAsOf)
             let sellAmt = min(c.sellUsd, p.marketValueUsd)
             let reinvest = max(0, sellAmt - t.taxUsd)
             let isLoss = t.gainUsd < 0

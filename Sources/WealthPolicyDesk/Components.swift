@@ -168,7 +168,7 @@ public struct FindingCard: View {
 /// Horizontal stacked bar of labelled dollar segments. The signature
 /// balance-sheet / allocation element.
 public struct StackSegment: Identifiable {
-    public let id = UUID()
+    public var id: String { label }
     public let label: String
     public let value: Double
     public let color: Color
