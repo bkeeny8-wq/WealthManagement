@@ -92,8 +92,8 @@ public struct StatTile: View {
     }
 }
 
-/// Responsive grid of stat tiles: flows 2-up when narrow (portrait / inspector
-/// open) and up to 4-up when the detail column is wide (landscape).
+/// Responsive grid of stat tiles: flows 2-up when the detail column is narrow
+/// (portrait) and up to 4-up when it is wide (landscape).
 public struct StatGrid: View {
     let tiles: [StatTile]
     var minTileWidth: CGFloat = 160

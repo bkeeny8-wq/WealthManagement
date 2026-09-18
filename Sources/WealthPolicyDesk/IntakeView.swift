@@ -1,10 +1,10 @@
 //  IntakeView.swift
 //  WealthPolicyDesk
 //
-//  The entrance experience: a welcome, an 8-step questionnaire, and the routing
+//  The entrance experience: a welcome, a 15-section questionnaire, and the routing
 //  that turns answers into a live desk. RootView is the app's entry point — it
-//  owns the household, loads/saves the intake on-device, and swaps between the
-//  welcome, the wizard, and the desk.
+//  owns the book of business, loads/saves on-device, and swaps between the
+//  welcome, the wizard, the roster, and the desk.
 
 import SwiftUI
 #if canImport(UIKit)
@@ -340,9 +340,12 @@ struct WelcomeView: View {
                 Spacer()
                 VStack(spacing: 8) {
                     Text("Wealth Policy").font(.system(size: 44, weight: .bold, design: .serif)).foregroundStyle(Theme.ink)
-                    Text("Answer a short intake and it drafts a full Investment Policy Statement — your objectives, constraints, and strategic allocation — which you can then walk, edit live, export, and review year over year.")
+                    Text("Answer a short intake and it drafts a full Investment Policy Statement — objectives, constraints, and strategic allocation — which you can then walk, edit live, export, and review year over year.")
                         .font(.system(size: 16)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                         .frame(maxWidth: 520).fixedSize(horizontal: false, vertical: true)
+                    Text("One household or a book of clients — same desk. After the first save, home is the roster, not a different product.")
+                        .font(.system(size: 13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                        .frame(maxWidth: 480).fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(spacing: 12) {
                     Button(action: onStart) {
@@ -451,7 +454,7 @@ struct IntakeWizard: View {
                 actionBar
             }
             .background(Theme.paper.ignoresSafeArea())
-            .navigationTitle("Set up my plan").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Household intake").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { dismissKeyboard() } }
             }
@@ -954,7 +957,7 @@ struct IntakeWizard: View {
                 FieldLabel("Lead source") { ChoiceChips(LeadSource.allCases.map { ($0, $0.label) }, selection: practice.leadSource) { practice.leadSource = $0 } }
                 FormText(label: "Lead source detail", value: $practice.leadSourceDetail)
                 FormText(label: "Next action", value: $practice.nextAction)
-                Note("This is the CRM envelope — it never touches the engine, lives in its own file, and is exportable as JSON or CSV from the desk. Contact details stay on this device.")
+                Note("This is the CRM envelope — it never touches the engine. Contact details stay on this device unless you export JSON, CSV, or NDJSON from the desk or roster; those files include names, email, phone, and notes.")
             }
         }
     }
@@ -1067,6 +1070,9 @@ struct IntakeWizard: View {
                 LedgerRow("Net fixed income", Fmt.usd(e.netFixedIncomeUsd), color: e.netFixedIncomeUsd < 0 ? Theme.debt : Theme.asset)
                 LedgerRow("Funded ratio", Fmt.solvedPctBps(e.balanceSheet.fundedRatioBps, solved: e.isSolvable), color: e.balanceSheet.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber)
                 LedgerRow("Legacy floor", intake.legacyFloorUsd > 0 || intake.legacyPriority != .none ? Fmt.usd(h.legacyFloorUsd) : "$0", color: Theme.ink)
+                if !e.isSolvable {
+                    Note("Rates stay blank until this household has balances and spending to solve. That is an empty intake, not a broken desk.", icon: "info.circle", color: Theme.muted)
+                }
             }
             Card("Your Investment Policy Statement will set out") {
                 ForEach(["Objectives — the real, after-tax return your goals require and the risk the plan may take",

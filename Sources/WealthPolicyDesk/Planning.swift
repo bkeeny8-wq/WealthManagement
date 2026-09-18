@@ -73,7 +73,7 @@ public struct PlannedAction: Codable, Identifiable, Hashable, Sendable {
         buySectorRaw = (try? c.decodeIfPresent(String.self, forKey: .buySectorRaw)) ?? nil
         thesis = ((try? c.decodeIfPresent(String.self, forKey: .thesis)) ?? nil) ?? ""
         reviewDate = (try? c.decodeIfPresent(Date.self, forKey: .reviewDate)) ?? nil
-        status = ((try? c.decodeIfPresent(Status.self, forKey: .status)) ?? nil) ?? .committed
+        status = ((try? c.decodeIfPresent(Status.self, forKey: .status)) ?? nil) ?? .staged
     }
 }
 

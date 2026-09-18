@@ -153,11 +153,21 @@ public enum BookStore {
     }
 
     /// Atomic write (temp file + rename) so a crash or full disk can't truncate the
-    /// book into a corrupt half-file. Returns whether the write durably succeeded.
+    /// book into a corrupt half-file. On iOS the replacement is also
+    /// `completeUnlessOpen` so the JSON is unreadable while the device is locked.
+    /// Returns whether the write durably succeeded.
     @discardableResult
     public static func save(_ book: [ClientRecord]) -> Bool {
         guard let url, let data = try? encoder.encode(book) else { return false }
-        do { try data.write(to: url, options: .atomic); return true } catch { return false }
+        do { try data.write(to: url, options: atomicWriteOptions); return true } catch { return false }
+    }
+
+    private static var atomicWriteOptions: Data.WritingOptions {
+        #if os(iOS)
+        [.atomic, .completeFileProtectionUnlessOpen]
+        #else
+        .atomic
+        #endif
     }
 
     /// Move a corrupt book aside under a timestamped name so a later failure cannot

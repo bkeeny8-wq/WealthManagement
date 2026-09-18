@@ -169,7 +169,7 @@ public struct TacticalTiltAction: Codable, Identifiable, Hashable, Sendable {
         sourceName = ((try? c.decodeIfPresent(String.self, forKey: .sourceName)) ?? nil) ?? ""
         thesis = ((try? c.decodeIfPresent(String.self, forKey: .thesis)) ?? nil) ?? ""
         reviewDate = (try? c.decodeIfPresent(Date.self, forKey: .reviewDate)) ?? nil
-        status = ((try? c.decodeIfPresent(Status.self, forKey: .status)) ?? nil) ?? .committed
+        status = ((try? c.decodeIfPresent(Status.self, forKey: .status)) ?? nil) ?? .staged
     }
 
     public var short: String { "\(deviationBps >= 0 ? "OW" : "UW") \(Fmt.bpsSigned(deviationBps))" }

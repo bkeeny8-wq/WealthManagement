@@ -48,16 +48,16 @@ final class PersistenceTests: XCTestCase {
     }
 
     private func populatedTilt() -> TacticalTiltAction {
-        // status: .staged, NOT the decoder's ?? .committed fallback — so a dropped status key is caught.
+        // status: .committed ≠ the missing-key default (.staged), so a dropped decode line is caught.
         TacticalTiltAction(id: uuid(1), createdAt: d1, sleeveId: "us_sector_tilt", deviationBps: 300,
                            sourceName: "Energy", ticker: "XLE",   // non-default ⇒ teeth for the instrument write
-                           thesis: "real-asset convexity", reviewDate: d2, status: .staged)
+                           thesis: "real-asset convexity", reviewDate: d2, status: .committed)
     }
 
     private func populatedAction() -> PlannedAction {
         PlannedAction(id: uuid(2), createdAt: d1, sellAccountId: "acct_taxable", sellTicker: "XLK",
                       sellUsd: 120_000, buyTicker: "XLP", buySleeveId: "us_sector_tilt", buySectorRaw: "consumer_staples",
-                      thesis: "rotate defensive", reviewDate: d2, status: .staged)   // .staged ≠ decoder fallback .committed
+                      thesis: "rotate defensive", reviewDate: d2, status: .committed)   // .committed ≠ missing-key default .staged
     }
 
     private func populatedPractice() -> PracticeMetadata {
@@ -75,6 +75,8 @@ final class PersistenceTests: XCTestCase {
         a.salaryUsd = 250_000; a.bonusUsd = 40_000; a.bonusStability = other(a.bonusStability)
         a.incomeCharacter = other(a.incomeCharacter); a.sector = .energy
         a.employerStockUsd = 80_000; a.deferredCashUsd = 25_000
+        a.traditionalUsd = 510_000; a.rothUsd = 88_000
+        a.socialSecurityMonthlyUsd = 3_200; a.ssClaimAge = 70
         return a
     }
 
@@ -155,7 +157,22 @@ final class PersistenceTests: XCTestCase {
     func testTacticalTiltActionRoundTrips() throws { try assertRoundTrips(populatedTilt(), "TacticalTiltAction") }
     func testPlannedActionRoundTrips() throws { try assertRoundTrips(populatedAction(), "PlannedAction") }
     func testPracticeMetadataRoundTrips() throws { try assertRoundTrips(populatedPractice(), "PracticeMetadata") }
+    func testIntakeAdultRoundTrips() throws { try assertRoundTrips(populatedAdult(), "IntakeAdult") }
     func testIntakeModelRoundTrips() throws { try assertRoundTrips(populatedIntake(), "IntakeModel") }
+
+    /// A book written before `status` existed must reopen as staged work, not as the plan of record.
+    func testMissingPlannedActionStatusDecodesAsStaged() throws {
+        XCTAssertEqual(try decodeOmittingKey(populatedAction(), "status").status, .staged)
+    }
+    func testMissingTiltStatusDecodesAsStaged() throws {
+        XCTAssertEqual(try decodeOmittingKey(populatedTilt(), "status").status, .staged)
+    }
+
+    private func decodeOmittingKey<T: Codable>(_ x: T, _ key: String) throws -> T {
+        var obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(x)) as! [String: Any]
+        obj.removeValue(forKey: key)
+        return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: obj))
+    }
 
     /// The whole persisted record — transitively re-locks every nested type as it is
     /// actually stored in wealth-policy-book.json.

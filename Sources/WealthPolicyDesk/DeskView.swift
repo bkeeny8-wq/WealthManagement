@@ -200,6 +200,12 @@ struct DeskView: View {
                         miniStat("Net FI", Fmt.usdShort(e.netFixedIncomeUsd), e.netFixedIncomeUsd < 0 ? Theme.debt : Theme.asset)
                     }
                     .padding(.top, 2)
+                    if !e.isSolvable {
+                        Text("No solution yet — add balances and spending in the client profile. Blank rates are an empty intake, not a broken desk.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 4)
+                    }
                 }
                 .padding(.vertical, 4)
             }
@@ -259,11 +265,17 @@ struct DeskView: View {
                     Button { onEcon() } label: { Label("Econ backdrop", systemImage: "globe.americas") }
                     Button { confirm = .reset } label: { Label("Reset policy edits to standard", systemImage: "arrow.uturn.backward") }
                     Button { requestLoadSample() } label: { Label("Load sample (Harrisons)", systemImage: "person.2") }
-                    if let json = exportJSON {
-                        ShareLink(item: json, preview: SharePreview("Client record (JSON)")) { Label("Export record (JSON)", systemImage: "square.and.arrow.up") }
-                    }
-                    if let csv = exportCSV {
-                        ShareLink(item: csv, preview: SharePreview("Client record (CSV)")) { Label("Export record (CSV)", systemImage: "tablecells") }
+                    if exportJSON != nil || exportCSV != nil {
+                        Section {
+                            if let json = exportJSON {
+                                ShareLink(item: json, preview: SharePreview("Client record (JSON)")) { Label("Export record (JSON)", systemImage: "square.and.arrow.up") }
+                            }
+                            if let csv = exportCSV {
+                                ShareLink(item: csv, preview: SharePreview("Client record (CSV)")) { Label("Export record (CSV)", systemImage: "tablecells") }
+                            }
+                        } header: {
+                            Text("Includes names, email, phone, and notes")
+                        }
                     }
                     Divider()
                     Button { requestClose() } label: { Label("Back to book", systemImage: "rectangle.stack") }
