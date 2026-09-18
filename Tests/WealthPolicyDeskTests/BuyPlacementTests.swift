@@ -223,6 +223,20 @@ final class PlanSolvabilityTests: XCTestCase {
                           "a corpus still glides; that mix is still not a solved client policy")
     }
 
+    /// Allocation compares current bps to those targets. An empty book is 0 vs the
+    /// seed template, which `resolveAllocation` scores as an outer breach (it uses
+    /// `max(1, portfolio)` so drift is defined). Allocation / Rebalance must not
+    /// present that as a mandatory correction.
+    func testAnEmptyBooksAllocationReadsAsATemplateBreach() {
+        let e = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertFalse(e.isSolvable)
+        XCTAssertTrue(e.allocation.contains { $0.status == .outerBreach && $0.targetBps > 0 && $0.currentBps == 0 },
+                      "0 vs seed-template targets is an outer breach; the workbench must not present it as a policy ticket")
+        let plan = Engine.rebalancePlan(e.household, policy: e.legacyPolicy, tax: e.tax, asOf: e.asOf)
+        XCTAssertTrue(plan.sleeveGaps.contains { $0.targetBps > 0 && $0.currentBps == 0 },
+                      "rebalance drift against the template is the same non-policy")
+    }
+
     /// The BOTTOM of the bracket is the same artifact as the top. `solve` early-returns −5%
     /// when the plan is funded even there, so materially different households all report
     /// exactly −5.0% as though it were a computed rate. Only the ceiling was being gated.

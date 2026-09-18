@@ -50,6 +50,20 @@ struct RebalanceTab: View {
     }
 
     var body: some View {
+        if eval.isSolvable { solvedBody } else { notSolvableNotice }
+    }
+
+    /// Trades on this tab close a gap to the derived policy. On an unsolvable plan that
+    /// "policy" is the seed template or a clamp-glide, so the ticket list is not a
+    /// rebalance for this household.
+    private var notSolvableNotice: some View {
+        Card("Rebalance to policy") {
+            Note("Nothing to solve yet. The trades that would appear here would close a gap to the seed template or a clamp-glide, not a policy derived from this household. Enter the account balances and the retirement spending first.",
+                 icon: "questionmark.circle", color: Theme.muted)
+        }
+    }
+
+    @ViewBuilder private var solvedBody: some View {
         let p = plan
         let sells = p.trades.filter { $0.side == .sell }
         let buys = p.trades.filter { $0.side == .buy }

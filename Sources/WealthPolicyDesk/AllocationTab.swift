@@ -16,6 +16,20 @@ struct AllocationTab: View {
     }
 
     var body: some View {
+        if eval.isSolvable { solvedBody } else { notSolvableNotice }
+    }
+
+    /// Sleeve targets on an unsolvable plan are the seed template (empty book) or the
+    /// overfunded glide of a funded-ratio clamp. Showing 0 vs those targets as
+    /// "outer band — mandatory correction" is a rebalance ticket for nobody.
+    private var notSolvableNotice: some View {
+        Card("Allocation is an output", help: Teach.help("allocation")) {
+            Note("Nothing to solve yet. The sleeve targets on this tab would be the seed template or the overfunded glide of a funded-ratio clamp, not a policy derived from this household — and every row would read as a mandatory correction against that mix. Enter the account balances and the retirement spending first.",
+                 icon: "questionmark.circle", color: Theme.muted)
+        }
+    }
+
+    @ViewBuilder private var solvedBody: some View {
         Card("Allocation is an output", help: Teach.help("allocation")) {
             StackBar(eval.allocation.filter { $0.currentBps > 0 }.map {
                 StackSegment($0.label, Double($0.currentBps), sleeveColor[$0.sleeveId] ?? Theme.muted)
