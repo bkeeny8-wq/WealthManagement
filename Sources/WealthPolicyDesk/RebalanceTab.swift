@@ -55,7 +55,7 @@ struct RebalanceTab: View {
         let buys = p.trades.filter { $0.side == .buy }
 
         Card("Rebalance to policy") {
-            Note("The concrete trades that close the gap between the book and its DERIVED target — the same target the Allocation tab measures drift against, tilts included. Each trade closes \(Fmt.pctBps(p.correctionFractionBps)) of the gap (the policy's partial-correction rule — let momentum run), only for sleeves outside their no-trade band. Selling is tax-aware and honors every hold-to-step-up / gift / charitable lot. A proposal to verify and place — the app never executes.")
+            Note("The concrete trades that close the gap between the book and its DERIVED target — the same target the Allocation tab measures drift against, tilts included. Each trade closes \(Fmt.pctBps(p.correctionFractionBps)) of the gap (the policy's partial-correction rule — let momentum run), only for sleeves outside their no-trade band. Selling is tax-aware and honors every hold-to-step-up / gift lot and ladder rung. Charitable routing is not a lock. A proposal to verify and place — the app never executes.")
             LedgerRow("Trade volume", Fmt.usd(p.totalSellsUsd + p.totalBuysUsd), color: Theme.ink, bold: true)
             LedgerRow("Sell → buy", "\(Fmt.usdShort(p.totalSellsUsd)) → \(Fmt.usdShort(p.totalBuysUsd))", color: Theme.muted)
             LedgerRow("Turnover", Fmt.pctBps(p.turnoverBps), color: Theme.muted)

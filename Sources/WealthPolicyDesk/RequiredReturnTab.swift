@@ -95,7 +95,7 @@ struct RequiredReturnTab: View {
             .frame(height: 180)
             Note(rr.legacyFloorUsd > 0
                  ? "The corpus is drawn down to fund net outflows, then held so it ENDS at the \(Fmt.usdShort(rr.legacyFloorUsd)) legacy floor — the perpetual corpus, preserved. External income is netted before the draw."
-                 : "The corpus is drawn down to fund net outflows and lands near zero at horizon — the definition of the required return. External income (Social Security, pension, home equity) is netted before the draw.")
+                 : "The corpus is drawn down to fund net outflows and lands near zero at horizon — the definition of the required return. External income (Social Security, pension) is netted before the draw. Home equity is not treated as an annuity.")
         }
 
         Card("The funding equation") {

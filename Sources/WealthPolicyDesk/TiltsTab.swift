@@ -11,6 +11,7 @@ import SwiftUI
 
 struct TiltsTab: View {
     let eval: Evaluation
+    var styleLocked: Bool = false
     var onSetStyle: (USEquityStyleTilt) -> Void = { _ in }
     private var tilts: [TacticalTiltAction] { eval.household.tacticalTilts }
     private var budget: TiltPolicy { Seed.tiltPolicy }
@@ -71,6 +72,9 @@ struct TiltsTab: View {
         let valueTilt = fx.tilts.first { $0.axis == .value }?.tilt ?? 0
         return Card("US equity style — value ⇄ growth") {
             Note("Tilt each US size bucket toward value or growth. This is a COMPOSITION change only — it swaps which style ETF is held (e.g. VOO → VTV value or VUG growth), never how much equity you hold or the risk level the solver set. It flows into the factor look-through and the rebalancer.", icon: "dial.medium")
+            if styleLocked {
+                Note("Commit or discard staged Planning sells before changing style — a ticker rewrite would orphan those tickets.", icon: "lock", color: Theme.amber)
+            }
             ForEach(USSizeBucket.allCases, id: \.self) { b in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -81,8 +85,10 @@ struct TiltsTab: View {
                             .foregroundStyle(st.style(for: b) == .blend ? Theme.muted : Theme.accent)
                     }
                     ChoiceChips(EquityStyle.allCases.map { ($0, $0.label) }, selection: st.style(for: b)) { newStyle in
+                        guard !styleLocked else { return }
                         var ns = st; ns.set(newStyle, for: b); onSetStyle(ns)
                     }
+                    .disabled(styleLocked)
                 }
                 .padding(.vertical, 7)
                 .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
@@ -95,7 +101,7 @@ struct TiltsTab: View {
                 Button { onSetStyle(USEquityStyleTilt()) } label: {
                     Label("Reset to cap-weighted blend", systemImage: "arrow.uturn.backward")
                         .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accent)
-                }.buttonStyle(.plain).padding(.top, 4)
+                }.buttonStyle(.plain).padding(.top, 4).disabled(styleLocked)
             }
         }
     }

@@ -14,7 +14,7 @@ struct SentimentTab: View {
 
     var body: some View {
         Card("Tactical sentiment") {
-            Note("Equity and bond exposures scored on Value · Momentum · Sentiment · Cycle-fit → an overweight / lean / neutral / underweight stance (a strong ±3 composite is a governed tilt; ±1–2 is a lean to watch). Cycle-fit is fed by the Macro inning, so the two engines move together. These are candidates for the BUDGETED tilt layer — a deviation cap, a mandatory thesis, a review date — never the forecast-free strategic target. Tactical timing is weak-evidence; the discipline is the product.")
+            Note("Equity and bond exposures scored on Value · Momentum · Sentiment · Cycle-fit → an overweight / lean / neutral / underweight stance (a strong ±3 composite is a governed tilt; ±1–2 is a lean to watch). Cycle-fit is a dated catalog score, not recomputed from the Macro inning — refreshing Macro does not move these candidates. These are candidates for the BUDGETED tilt layer — a deviation cap, a mandatory thesis, a review date — never the forecast-free strategic target. Tactical timing is weak-evidence; the discipline is the product.")
         }
 
         sentimentCard("Equity sentiment", broad: tilts.first { $0.name.contains("Equity risk") }, set: equity)

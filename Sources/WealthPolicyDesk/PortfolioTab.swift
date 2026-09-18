@@ -17,6 +17,7 @@ struct PortfolioTab: View {
     var holdings: [IntakeHeldPosition] = []
     var adults: [IntakeAdult] = []
     var canEdit: Bool = false
+    var holdingsLocked: Bool = false
     var onApply: ([IntakeHeldPosition]) -> Void = { _ in }
 
     @State private var draft: [IntakeHeldPosition] = []
@@ -40,7 +41,7 @@ struct PortfolioTab: View {
                         Label("Add a holding", systemImage: "plus.circle").font(.system(size: 14, weight: .semibold))
                     }.buttonStyle(.plain).foregroundStyle(Theme.accent)
                     Spacer()
-                    if dirty {
+                    if dirty && !holdingsLocked {
                         Button { onApply(draft) } label: {
                             Label("Apply to the model", systemImage: "arrow.down.doc")
                                 .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
@@ -50,7 +51,11 @@ struct PortfolioTab: View {
                     }
                 }
                 .padding(.top, 4)
-                if dirty { Note("Unapplied edits — tap Apply to re-map against the policy.", icon: "exclamationmark.circle", color: Theme.amber) }
+                if dirty && holdingsLocked {
+                    Note("Commit or discard staged Planning sells before applying holdings — Apply would orphan those tickets.", icon: "lock", color: Theme.amber)
+                } else if dirty {
+                    Note("Unapplied edits — tap Apply to re-map against the policy.", icon: "exclamationmark.circle", color: Theme.amber)
+                }
             }
         }
         .onAppear { if !loaded { draft = holdings; loaded = true } }

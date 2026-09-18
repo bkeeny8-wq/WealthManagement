@@ -171,6 +171,9 @@ struct DeskView: View {
 
     private func commit() {
         guard hasUncommittedWork else { return }
+        // An unresolved sell would persist as a committed no-op. Planning already
+        // disables the button; this is the same gate if Commit is invoked another way.
+        if household.hasUnresolvedMoves(staged) { return }
         let actions = staged.map { var a = $0; a.status = .committed; return a }
         let tilts = stagedTilts.map { var t = $0; t.status = .committed; return t }
         guard onCommit(actions, tilts, draftOverrides) else { saveFailed = true; return }
@@ -302,7 +305,8 @@ struct DeskView: View {
                                                   reviewNote: $reviewNote, confirmed: $reviewConfirmed)
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader,
                                               hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty || !draftOverrides.isEmpty)
-        case .portfolio:      PortfolioTab(eval: e, holdings: currentHoldings, adults: adults, canEdit: canPersist, onApply: onUpdateHoldings)
+        case .portfolio:      PortfolioTab(eval: e, holdings: currentHoldings, adults: adults, canEdit: canPersist,
+                                          holdingsLocked: !staged.isEmpty, onApply: onUpdateHoldings)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)
         case .resilience:     ResilienceTab(eval: e)
@@ -318,7 +322,8 @@ struct DeskView: View {
         case .tax:            TaxTab(eval: e)
         case .decumulation:   DecumulationTab(eval: e)
         case .disposition:    DispositionTab(eval: e)
-        case .tilts:          TiltsTab(eval: e, onSetStyle: { if !onCommitOverrides(HouseholdOverrides(usEquityStyle: $0)) { saveFailed = true } })
+        case .tilts:          TiltsTab(eval: e, styleLocked: !staged.isEmpty,
+                                      onSetStyle: { if !onCommitOverrides(HouseholdOverrides(usEquityStyle: $0)) { saveFailed = true } })
         case .learn:          LearnTab()
         }
     }

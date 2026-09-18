@@ -5,7 +5,7 @@
 //  client because the cycle isn't per-account. It lives at the app's TOP LEVEL,
 //  reached from the Book of Business, deliberately separate from any one client's
 //  desk. One scroll, two sections: the Macro inning (where the US cycle sits) and
-//  the tactical Sentiment board (equity & bond tilts the inning conditions).
+//  the tactical Sentiment board (a dated catalog of equity & bond tilts).
 //
 //  Both sub-views are household-independent — they read the dated Seed catalogs
 //  directly — which is exactly why they don't belong on a client's account pages.
@@ -49,7 +49,7 @@ struct EconView: View {
                     Text("FIRM-WIDE").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
                         .padding(.horizontal, 7).padding(.vertical, 3).background(Theme.accent, in: Capsule())
                 }
-                Text("The market & economy backdrop — the same for every client. A regime read that conditions each plan's tilts, never a client deliverable on its own.")
+                Text("The market & economy backdrop — the same for every client. A regime read that conditions capital-market expectations, never a client deliverable on its own.")
                     .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)

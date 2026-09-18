@@ -39,7 +39,7 @@ struct MacroTab: View {
             }
             cycleBar(r).padding(.top, 4)
             Note(r.headline)
-            Note("Data as of \(r.asOf) · \(r.machineRefreshedCount) of \(r.indicators.count) machine-refreshed from \(r.source), the rest authored estimates to verify (tagged est.). A regime read, not a trade — it conditions the capital-market expectations and which sectors a tilt favors, never the strategic target.", icon: "info.circle", color: Theme.muted)
+            Note("Data as of \(r.asOf) · \(r.machineRefreshedCount) of \(r.indicators.count) machine-refreshed from \(r.source), the rest authored estimates to verify (tagged est.). A regime read, not a trade — it conditions the capital-market expectations, never the strategic target.", icon: "info.circle", color: Theme.muted)
         }
 
         Card("Econ data — \(r.indicators.count) indicators") {

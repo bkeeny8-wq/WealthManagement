@@ -30,8 +30,15 @@ struct PlanningTab: View {
 
     /// The household after the moves already staged — what is available to rotate.
     private var current: Household { base.applying(staged) }
-    private var sellable: [Position] { current.positions.filter { $0.marketValueUsd > 1 }.sorted { $0.marketValueUsd > $1.marketValueUsd } }
+    /// Same lock as Rebalance: step-up / gift / ladder stay off the ticket.
+    private var sellable: [Position] { current.sellableForPlanning }
+    private var heldOut: [Position] {
+        current.positions.filter { $0.marketValueUsd > 1 && !Engine.isSellable($0) }
+            .sorted { $0.marketValueUsd > $1.marketValueUsd }
+    }
     private var effSell: Position? { sellable.first { $0.id == sellId } ?? sellable.first }
+    private var stagedStatuses: [CommittedMoveStatus] { base.replayStatuses(staged) }
+    private var hasUnresolvedStaged: Bool { base.hasUnresolvedMoves(staged) }
 
     private var candidate: PlannedAction? {
         guard let p = effSell else { return nil }
@@ -124,6 +131,9 @@ struct PlanningTab: View {
 
     private var composer: some View {
         Card("Compose a rotation") {
+            if !heldOut.isEmpty {
+                Note("Held out of selling (step-up, gift, or ladder): \(heldOut.map(\.ticker).joined(separator: ", ")). Same lock as Rebalance.", icon: "lock", color: Theme.muted)
+            }
             if effSell == nil {
                 Note("No sellable holdings in this plan.", icon: "tray", color: Theme.muted)
             } else {
@@ -219,7 +229,11 @@ struct PlanningTab: View {
 
     private var stagedCard: some View {
         Card("Staged — previewing, not saved") {
-            ForEach(staged) { a in moveRow(action: a, badge: "MOVE", badgeColor: Theme.amber, warning: nil) }
+            ForEach(staged) { a in
+                let s = stagedStatuses.first { $0.action.id == a.id }
+                moveRow(action: a, badge: "MOVE", badgeColor: Theme.amber,
+                        warning: s.flatMap { statusWarning($0, staged: true) })
+            }
             ForEach(stagedTilts) { t in stagedTiltRow(t) }
             HStack {
                 Button { onDiscard() } label: {
@@ -229,11 +243,16 @@ struct PlanningTab: View {
                 Button { onCommit() } label: {
                     Label(canPersist ? "Commit to plan" : "Apply (sample)", systemImage: "checkmark.seal.fill")
                         .font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
-                        .padding(.horizontal, 16).padding(.vertical, 9).background(Theme.accent, in: Capsule())
-                }.buttonStyle(.plain)
+                        .padding(.horizontal, 16).padding(.vertical, 9)
+                        .background(hasUnresolvedStaged ? Theme.muted : Theme.accent, in: Capsule())
+                }.buttonStyle(.plain).disabled(hasUnresolvedStaged)
             }
             .padding(.top, 6)
-            Note(canPersist ? "Commit records these on the client and rebaselines the desk." : "This is the sample — moves apply in memory only and are not saved.", icon: "lock.shield", color: Theme.muted)
+            if hasUnresolvedStaged {
+                Note("A staged sell no longer matches the book — Commit would record a no-op. Discard the orphaned move first.", icon: "exclamationmark.triangle", color: Theme.amber)
+            } else {
+                Note(canPersist ? "Commit records these on the client and rebaselines the desk." : "This is the sample — moves apply in memory only and are not saved.", icon: "lock.shield", color: Theme.muted)
+            }
         }
     }
 
@@ -264,9 +283,11 @@ struct PlanningTab: View {
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
     }
 
-    private func statusWarning(_ s: CommittedMoveStatus) -> String? {
+    private func statusWarning(_ s: CommittedMoveStatus, staged: Bool = false) -> String? {
         if !s.resolved {
-            return "No longer in the portfolio — an intake edit removed or renamed this holding, so the move isn't applied."
+            return staged
+                ? "No longer in the portfolio — a style, holdings, or intake edit removed or renamed this holding. Commit would record a no-op; discard this move first."
+                : "No longer in the portfolio — an intake edit removed or renamed this holding, so the move isn't applied."
         }
         if s.clamped {
             return "Only \(Fmt.usd(s.appliedUsd)) of the \(Fmt.usd(s.action.sellUsd)) still available — the sold holding shrank, so the rotation is partial."

@@ -50,7 +50,7 @@ public enum Teach {
                 watch: "When this is negative, the household believes it holds a defensive allocation while running net short duration.")
         case "requiredReturn":
             return BlockHelp(
-                what: "The real return the portfolio must earn to fund every claim to plan-end, given current assets, future savings, and external income (Social Security, pensions, home equity).",
+                what: "The real return the portfolio must earn to fund every claim to plan-end, given current assets, future savings, and external income (Social Security, pensions). Home equity is a locked balance-sheet asset, not an income stream.",
                 moves: "It is pure arithmetic — no capital-market forecast. Report it first; then let assumptions answer how plausible it is, rather than laundering everything into one success probability.",
                 watch: "Compare it to the required return AFTER flexing goals. The drop is the value of deferring or scaling a goal — usually a stronger lever than taking more risk.")
         case "allocation":

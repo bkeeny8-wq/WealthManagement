@@ -200,6 +200,14 @@ public extension Household {
         return h.withDriverOverrides(overrides)
     }
 
+    /// Positions the Planning composer may sell. Same instrument lock as
+    /// Rebalance: step-up, gift-during-life, and ladder rungs stay off the
+    /// ticket. Charitable routing is a beneficiary designation, not a lock.
+    var sellableForPlanning: [Position] {
+        positions.filter { $0.marketValueUsd > 1 && Engine.isSellable($0) }
+            .sorted { $0.marketValueUsd > $1.marketValueUsd }
+    }
+
     /// Replay diagnostics: fold the actions and report, per action, whether it
     /// still resolves against the portfolio and how much actually sells. Surfaces
     /// a committed move whose sold holding an intake edit later removed, renamed,
@@ -214,6 +222,13 @@ public extension Household {
             h = h.applying(a)
         }
         return out
+    }
+
+    /// True when any action would no-op on replay because the sold holding is gone
+    /// or renamed (style / holdings / intake mid-flight). Commit must refuse these
+    /// rather than write a plan-of-record row that never sold.
+    func hasUnresolvedMoves(_ actions: [PlannedAction]) -> Bool {
+        replayStatuses(actions).contains { !$0.resolved }
     }
 }
 
