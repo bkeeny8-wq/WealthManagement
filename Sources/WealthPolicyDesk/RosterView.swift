@@ -53,11 +53,15 @@ struct RosterView: View {
                     }
                     ToolbarItem(placement: .primaryAction) {
                         Menu {
-                            ShareLink(item: exportNDJSON(), preview: SharePreview("Book of business (NDJSON)")) {
-                                Label("Export book (NDJSON)", systemImage: "square.and.arrow.up")
-                            }
-                            ShareLink(item: exportCSV(), preview: SharePreview("Book of business (CSV)")) {
-                                Label("Export book (CSV)", systemImage: "tablecells")
+                            Section {
+                                ShareLink(item: exportNDJSON(), preview: SharePreview("Book of business (NDJSON)")) {
+                                    Label("Export book (NDJSON)", systemImage: "square.and.arrow.up")
+                                }
+                                ShareLink(item: exportCSV(), preview: SharePreview("Book of business (CSV)")) {
+                                    Label("Export book (CSV)", systemImage: "tablecells")
+                                }
+                            } header: {
+                                Text("Includes names, email, phone, and notes")
                             }
                             Divider()
                             Button(action: onSample) { Label("Explore sample (Harrisons)", systemImage: "person.2") }

@@ -32,13 +32,18 @@ import XCTest
 /// primary's. Susan (b. 1965) is younger than Robert (b. 1963), so her 401(k) begins
 /// distributing two years after his IRA instead of alongside it, moving the tax series
 /// slightly. Required return is unchanged at 479.
+///
+/// 6262 → 6086: funded-ratio savings PV is now wage-capped like the required-return
+/// solve. Plan-year 3 is a saving year by `householdSaveYears` but has no earner, so
+/// the $80k phantom contribution drops out of the PV. Required return is unchanged
+/// (it already capped that year at $0).
 final class GoldenMasterTests: XCTestCase {
 
     func testHarrisonsHeadlineFigures() {
         let e = Engine.evaluate(Seed.sampleHousehold)
         XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 479)
         XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 423)
-        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6262)
+        XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6086)
         XCTAssertEqual(e.balanceSheet.afterTaxNetWorthUsd, 2_893_928, accuracy: 0.5)
         XCTAssertEqual(e.balanceSheet.grossNetWorthUsd, 3_105_000, accuracy: 0.5)
         XCTAssertEqual(e.netFixedIncomeUsd, -120_000, accuracy: 0.5)

@@ -71,10 +71,10 @@ Item 8 source material.
   cadence. Note: required return is computed *without* CMAs — report it first,
   then let CMAs answer how plausible it is.
 
-**Specified but unbuilt**
-- Spending-claim policy instance (ladder + glide are defined but never
-  exercised — this is what a decumulation client would actually see)
-- All `declare`d functions. They need a concrete holdings data shape first:
+**Specified but unbuilt in this TypeScript layer** (the Swift app in [`APP.md`](APP.md) implements them)
+- Spending-claim policy instance (ladder + glide are defined here but never
+  exercised — the iPad desk runs year-by-year after-tax decumulation)
+- All `declare`d functions. They need a concrete holdings data shape first in TS:
   `validateTilts`, `resolveTargets`, `validateMatrix`, `analyzeItemization`,
   `recommendDisposition`, `partitionByLayer`, `evaluateStrategic`,
   `evaluateTactical`, `computeRoundTripCost`

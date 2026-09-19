@@ -50,7 +50,7 @@ public enum Teach {
                 watch: "When this is negative, the household believes it holds a defensive allocation while running net short duration.")
         case "requiredReturn":
             return BlockHelp(
-                what: "The real return the portfolio must earn to fund every claim to plan-end, given current assets, future savings, and external income (Social Security, pensions, home equity).",
+                what: "The real return the portfolio must earn to fund every claim to plan-end, given current assets, future savings, and external income (Social Security, pensions). Home equity is a locked balance-sheet asset, not an income stream.",
                 moves: "It is pure arithmetic — no capital-market forecast. Report it first; then let assumptions answer how plausible it is, rather than laundering everything into one success probability.",
                 watch: "Compare it to the required return AFTER flexing goals. The drop is the value of deferring or scaling a goal — usually a stronger lever than taking more risk.")
         case "allocation":
@@ -146,7 +146,7 @@ public enum Teach {
         GlossaryTerm(name: "Illiquidity premium", plain: "Extra return for locking money up.", desk: "Compensation for giving up access — not a diversifier. Private credit is credit beta with smoothed marks."),
         GlossaryTerm(name: "Convexity", plain: "A payoff that grows fast in exactly the bad scenario.", desk: "Trend / commodities / gold — the alt function that works in the inflation shock where bonds fail."),
         GlossaryTerm(name: "Ladder", plain: "A row of bonds maturing in successive years to pay known bills.", desk: "Liability-matched FI whose length is the funded-liability gap, not a risk-tolerance output."),
-        GlossaryTerm(name: "Glide", plain: "Slowly shifting toward safer assets as a goal approaches.", desk: "A ratcheting, valuation-modulated equity path with a hard deadline — spending claim only; the legacy claim never glides."),
+        GlossaryTerm(name: "Glide", plain: "Slowly shifting toward safer assets as a goal approaches.", desk: "A funded-status path that reduces equity as the spending claim is better covered — spending claim only; the legacy claim never glides. Not a valuation-timed market call."),
     ]
 
     public static let disclosure = "A teaching and analysis tool. Nothing here is investment advice or a recommendation. Figures use editable, effective-dated assumptions that must be verified before any client use."

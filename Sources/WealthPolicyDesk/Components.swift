@@ -92,8 +92,8 @@ public struct StatTile: View {
     }
 }
 
-/// Responsive grid of stat tiles: flows 2-up when narrow (portrait / inspector
-/// open) and up to 4-up when the detail column is wide (landscape).
+/// Responsive grid of stat tiles: flows 2-up when the detail column is narrow
+/// (portrait) and up to 4-up when it is wide (landscape).
 public struct StatGrid: View {
     let tiles: [StatTile]
     var minTileWidth: CGFloat = 160
@@ -168,7 +168,7 @@ public struct FindingCard: View {
 /// Horizontal stacked bar of labelled dollar segments. The signature
 /// balance-sheet / allocation element.
 public struct StackSegment: Identifiable {
-    public let id = UUID()
+    public var id: String { label }
     public let label: String
     public let value: Double
     public let color: Color
@@ -246,6 +246,23 @@ public struct ChoiceChips<T: Hashable>: View {
                     }.buttonStyle(.plain)
                 }
             }
+        }
+    }
+}
+
+/// One-tap trash used to drop a holding, child, or goal with no undo. Confirm first.
+struct ConfirmTrashButton: View {
+    var onRemove: () -> Void
+    var title: String = "Remove this row?"
+    @State private var confirm = false
+    var body: some View {
+        Button(role: .destructive) { confirm = true } label: {
+            Image(systemName: "trash").font(.system(size: 14))
+        }
+        .buttonStyle(.plain).foregroundStyle(Theme.debt)
+        .confirmationDialog(title, isPresented: $confirm, titleVisibility: .visible) {
+            Button("Remove", role: .destructive, action: onRemove)
+            Button("Cancel", role: .cancel) {}
         }
     }
 }

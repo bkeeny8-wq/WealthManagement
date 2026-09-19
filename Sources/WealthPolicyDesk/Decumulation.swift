@@ -113,19 +113,7 @@ public extension Engine {
         // of 73 holding the whole pool, the engine reported the first RMD in a year she
         // turns 82, and the optimiser recommended conversions through years she was already
         // taking distributions. Joint and unowned accounts fall to the primary.
-        var deferredBuckets: [(ownerAge0: Int, rmdAge: Int, balance: Usd)] = {
-            var byOwner: [String: Usd] = [:]
-            for p in h.positions(in: .taxDeferred) {
-                let owner = h.account(p.accountId)?.ownership.ownerPersonId
-                let person = h.people.first { $0.id == owner && $0.role != .dependent } ?? primary
-                byOwner[person.id, default: 0] += p.marketValueUsd
-            }
-            return byOwner.compactMap { id, bal in
-                guard let person = h.people.first(where: { $0.id == id }) else { return nil }
-                return (age(birthDate: person.birthDate, asOf: asOf),
-                        rmdStartAge(birthDate: person.birthDate, default: tax.rmdStartAge), bal)
-            }.sorted { $0.ownerAge0 > $1.ownerAge0 }   // deterministic order; oldest owner first
-        }()
+        var deferredBuckets = deferredBalancesByOwner(h, asOf: asOf, tax: tax)
         func deferredTotal() -> Usd { deferredBuckets.reduce(0) { $0 + $1.balance } }
         /// Draw `amount` from the deferred pool pro-rata across owners, returning what was
         /// actually available. Spending, conversions and tax all drain through here so the
@@ -388,6 +376,32 @@ public extension Engine {
         // moved RMDs, lifetime tax and the chosen Roth-conversion target with it.
         let heads = filing == .mfj ? medicareCount : min(1, medicareCount)
         return monthly * 12 * Double(heads)
+    }
+
+    /// Tax-deferred balances grouped by the person whose RMD clock they follow.
+    /// Joint and unowned accounts fall to the primary, matching the projection.
+    static func deferredBalancesByOwner(_ h: Household, asOf: IsoDate, tax: TaxParameterSet) -> [(ownerAge0: Int, rmdAge: Int, balance: Usd)] {
+        guard let primary = h.primary else { return [] }
+        var byOwner: [String: Usd] = [:]
+        for p in h.positions(in: .taxDeferred) {
+            let owner = h.account(p.accountId)?.ownership.ownerPersonId
+            let person = h.people.first { $0.id == owner && $0.role != .dependent } ?? primary
+            byOwner[person.id, default: 0] += p.marketValueUsd
+        }
+        return byOwner.compactMap { id, bal in
+            guard let person = h.people.first(where: { $0.id == id }) else { return nil }
+            return (age(birthDate: person.birthDate, asOf: asOf),
+                    rmdStartAge(birthDate: person.birthDate, default: tax.rmdStartAge), bal)
+        }.sorted { $0.ownerAge0 > $1.ownerAge0 }
+    }
+
+    /// This year's RMDs, one per deferred-account owner — the same split the
+    /// decumulation projection uses at t = 0 (current balances, no accumulation).
+    static func currentYearRmd(_ h: Household, asOf: IsoDate, tax: TaxParameterSet = Seed.tax2026) -> Usd {
+        deferredBalancesByOwner(h, asOf: asOf, tax: tax).reduce(0) { acc, row in
+            guard row.ownerAge0 >= row.rmdAge, row.balance > 0 else { return acc }
+            return acc + row.balance / uniformLifetimeDivisor(row.ownerAge0)
+        }
     }
 
     /// The required beginning age for RMDs, which SECURE 2.0 makes a function of BIRTH YEAR,

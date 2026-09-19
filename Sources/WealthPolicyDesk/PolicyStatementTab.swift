@@ -20,7 +20,7 @@ struct PolicyStatementTab: View {
     /// The client's year-over-year review history, and the action that snapshots a new one
     /// (given the advisor's note and the section keys confirmed "still applicable").
     var reviews: [IPSReview] = []
-    var saveReview: ((String, [String]) -> Void)? = nil
+    var saveReview: ((String, [String]) -> Bool)? = nil
     /// Reviews persist only for a real client record; false on the sample (no record to save to).
     var canPersist: Bool = true
     /// True while uncommitted trades/tilts are staged on another tab — a review captures the
@@ -84,6 +84,18 @@ struct PolicyStatementTab: View {
         let present = h.accounts.filter { $0.treatment == .taxable }.map { $0.ownership.kind }
         let ordered = OwnershipKind.allCases.filter { present.contains($0) }   // stable order (reproducibility)
         return listJoin(ordered.map { $0.label.lowercased() })
+    }
+
+    /// Empty books have no taxable accounts, so "held in the household's own name"
+    /// invented a titling. With accounts, a missing phrase still means individual name.
+    private var titlingLegalLead: String {
+        if !h.accounts.contains(where: { $0.treatment == .taxable }) {
+            return "No taxable accounts are on file yet, so titling and the basis step-up available to heirs cannot be stated."
+        }
+        if titlingPhrase.isEmpty {
+            return "Taxable assets are held in the household's own name."
+        }
+        return "Taxable accounts are titled as \(titlingPhrase), which governs the basis step-up available to heirs."
     }
 
     var body: some View {
@@ -168,14 +180,16 @@ struct PolicyStatementTab: View {
                                 minus: { o.wrappedValue.annualSavingsUsd = max(0, savings - 10_000) },
                                 plus:  { o.wrappedValue.annualSavingsUsd = savings + 10_000 })
                     miniStepper(isCouple ? "\(firstName(primary)) retires" : "Retire at age", "\(retAge)",
-                                minus: { o.wrappedValue.retirementAge = max(age + 1, retAge - 1) },
+                                // Floor is current age (retire this year → spending year 0).
+                                // `age + 1` made both minus and plus jump off an already-retired value.
+                                minus: { o.wrappedValue.retirementAge = max(age, retAge - 1) },
                                 plus:  { o.wrappedValue.retirementAge = min(longevity - 1, retAge + 1) })
                 }
                 if isCouple, let sp = spouse {
                     let spAge = Engine.age(birthDate: sp.birthDate, asOf: eval.asOf)
                     let spRet = sp.expectedRetirementAge
                     miniStepper("\(firstName(sp)) retires", "\(spRet)",
-                                minus: { o.wrappedValue.spouseRetirementAge = max(spAge + 1, spRet - 1) },
+                                minus: { o.wrappedValue.spouseRetirementAge = max(spAge, spRet - 1) },
                                 plus:  { o.wrappedValue.spouseRetirementAge = min(sp.longevityPercentileTarget - 1, spRet + 1) })
                 }
             }
@@ -228,7 +242,9 @@ struct PolicyStatementTab: View {
 
     private func riskObjectiveSection(editable: Bool) -> some View {
         section("4", "Investment objective — risk") {
-            if let r = eval.riskProfile {
+            if !eval.isSolvable {
+                p("No risk objective can be stated yet: this household has no solvable required return, so the equity ceiling that would fall out of funded status is not a number that describes this client. Complete the balances and the retirement spending first.")
+            } else if let r = eval.riskProfile {
                 p("Risk tolerance is the lower of the household's ABILITY and WILLINGNESS to bear risk. Ability (capacity), reflecting the funded ratio, time horizon, and human capital, supports up to \(Fmt.pctBps(r.capacityEquityBps)) in equities. Willingness, from a stated maximum tolerable one-year drawdown of about \(Fmt.pctBps(h.statedToleranceMaxDrawdownBps)), supports up to \(Fmt.pctBps(r.toleranceImpliedEquityBps)). Prudence binds the portfolio to the lower of the two — an equity ceiling of \(Fmt.pctBps(r.bindingEquityBps)).")
                 p("At the policy allocation, the modelled probability of failing to meet the goal over the \(horizonYears)-year horizon is approximately \(Fmt.pctBps(shortfall.shortfallProbBps, 0)). This is a model estimate, not a guarantee; it compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis, and a thin margin — reflecting the forecast's own uncertainty — should be read as roughly funded rather than a cushion.")
             } else {
@@ -243,12 +259,17 @@ struct PolicyStatementTab: View {
             constraint("Liquidity", liquidityText)
             constraint("Time horizon", timeHorizonText)
             constraint("Taxes", taxText)
-            constraint("Legal and regulatory", "\(titlingPhrase.isEmpty ? "Taxable assets are held in the household's own name." : "Taxable accounts are titled as \(titlingPhrase), which governs the basis step-up available to heirs.") The portfolio is managed under the prudent-investor standard, with diversification and suitability as governing principles. Nothing in this statement constitutes legal or tax advice; account titling and beneficiary designations should be confirmed with qualified counsel.")
+            constraint("Legal and regulatory", "\(titlingLegalLead) The portfolio is managed under the prudent-investor standard, with diversification and suitability as governing principles. Nothing in this statement constitutes legal or tax advice; account titling and beneficiary designations should be confirmed with qualified counsel.")
             constraint("Unique circumstances", uniqueText)
         }
     }
 
     private var liquidityText: String {
+        // An empty book covers a $0 reserve (defensive 0 ≥ reserve 0). Calling that
+        // "satisfied" in a signed IPS is the same vacuous all-clear as Constraints PASS.
+        if eval.household.portfolioValueUsd <= 0 {
+            return "No investable balances are on file yet, so a liquidity floor cannot be stated or marked satisfied. Complete the account balances, and this section will size the cash and short-duration requirement those holdings and spending imply."
+        }
         let cover = ladder.covered ? "Current cash and fixed income satisfy this requirement." : "Current cash and fixed income fall short of this requirement and should be replenished."
         let hasSpending = ladder.requiredLiquidUsd > ladder.rebalanceReserveUsd
         let body = hasSpending
@@ -285,7 +306,7 @@ struct PolicyStatementTab: View {
     }
 
     private var taxText: String {
-        var s = "The household files \(h.filingStatus.label) and resides in \(h.stateOfResidence). Assets are held across taxable and tax-advantaged accounts, and the portfolio is managed on an after-tax basis: embedded and deferred taxes of approximately \(Fmt.usd(deferredTax)) are treated as a real liability, and asset location and tax-aware rebalancing are integral to the policy. Planning reflects 2026 federal law under OBBBA (P.L. 119-21)."
+        var s = "The household files \(h.filingStatus.label) and resides in \(h.stateOfResidence). Assets are held across taxable and tax-advantaged accounts, and the portfolio is managed on an after-tax basis: embedded and deferred taxes of approximately \(Fmt.usd(deferredTax)) are treated as a real liability, and asset location and tax-aware rebalancing are integral to the policy. Planning reflects 2026 federal estimates under OBBBA (P.L. 119-21), last verified \(eval.tax.lastVerifiedAt) — not IRS Rev. Proc. tables, and not state income tax on the return solve."
         if let ec = h.equityComp, ec.isoBargainElementUsd > 0 {
             s += " Concentrated equity compensation is present; incentive-stock-option exercises are managed for alternative-minimum-tax exposure and single-employer concentration."
         }
@@ -301,6 +322,13 @@ struct PolicyStatementTab: View {
 
     private var allocationSection: some View {
         section("6", "Strategic asset allocation") {
+            // Sleeve targets on an unsolvable plan are either the seed template (empty
+            // book, nothing to size) or the overfunded glide of a funded-ratio clamp.
+            // Printing either as this client's derived policy puts a mix in a signed
+            // document that describes nobody.
+            if !eval.isSolvable {
+                p("No strategic allocation can be stated yet: this household has no solvable required return, so the sleeve targets that would fall out of funded status are not a policy that describes this client. Complete the balances and the retirement spending, and this section will derive the mix those inputs imply.")
+            } else {
             p("The strategic allocation below is DERIVED from the objectives and constraints above — from the household's goals, funded status, and risk ceiling — rather than set to a fixed 60/40. Equity is held at or below the risk ceiling; the cash sleeve carries the liquidity floor; the balance is diversified across defensive and real-diversifying assets and a functional alternatives budget.")
             VStack(spacing: 0) {
                 ForEach(allocationBuckets, id: \.label) { b in
@@ -309,6 +337,7 @@ struct PolicyStatementTab: View {
             }
             .padding(.vertical, 2)
             p("Each sleeve is managed within a tolerance band around its target; the intra-equity and intra-bond composition follows a diversified structural template. The current portfolio is compared against these targets, sleeve by sleeve, on the Allocation tab, and the trades required to close any gap are set out on the Rebalance tab.")
+            }
         }
     }
 
@@ -328,7 +357,7 @@ struct PolicyStatementTab: View {
 
     private var disclosuresSection: some View {
         section("9", "Assumptions and disclosures") {
-            p("Prepared as of \(eval.asOf) using a safe real rate of \(Fmt.pctBps(rr.safeRealRateBps)) and 2026 tax law under OBBBA (P.L. 119-21). Every figure rests on editable, effective-dated assumptions that must be verified before any client use.")
+            p("Prepared as of \(eval.asOf) using a safe real rate of \(Fmt.pctBps(rr.safeRealRateBps)) and 2026 federal tax estimates (last verified \(eval.tax.lastVerifiedAt)) under OBBBA (P.L. 119-21). Every figure rests on editable, effective-dated assumptions that must be verified before any client use.")
             p("This is a teaching and analysis document. It is not personalized investment, legal, or tax advice, nor a recommendation to buy or sell any security. Forward-looking figures — expected returns and shortfall probabilities — come from a labelled capital-market model and are estimates, not forecasts or guarantees of future results.")
         }
     }
@@ -363,9 +392,11 @@ struct PolicyStatementTab: View {
                 }
             } else {
                 Button {
-                    saveReview?(reviewNote.trimmingCharacters(in: .whitespacesAndNewlines),
-                                reviewSections.map { $0.key }.filter { confirmed.contains($0) })
-                    reviewNote = ""; confirmed = []
+                    let note = reviewNote.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let keys = reviewSections.map { $0.key }.filter { confirmed.contains($0) }
+                    if saveReview?(note, keys) == true {
+                        reviewNote = ""; confirmed = []
+                    }
                 } label: {
                     Label("Save as review", systemImage: "tray.and.arrow.down")
                         .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
@@ -433,7 +464,7 @@ struct PolicyStatementTab: View {
                 Spacer(minLength: 8)
                 Text("\(r.confirmedSections.count)/\(reviewSections.count) confirmed").font(.system(size: 10.5)).foregroundStyle(Theme.muted)
             }
-            Text("Required \(Fmt.solvedPctBps(r.requiredRealReturnBps, solved: r.solved))\(delta(r.requiredRealReturnBps, prior?.requiredRealReturnBps)) · Funded \(Fmt.solvedPctBps(r.fundedRatioBps, solved: r.solved))\(delta(r.fundedRatioBps, prior?.fundedRatioBps)) · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
+            Text("Required \(Fmt.solvedPctBps(r.requiredRealReturnBps, solved: r.solved))\(rateDelta(r.requiredRealReturnBps, prior?.requiredRealReturnBps, nowSolved: r.solved, priorSolved: prior?.solved ?? true)) · Funded \(Fmt.solvedPctBps(r.fundedRatioBps, solved: r.solved))\(rateDelta(r.fundedRatioBps, prior?.fundedRatioBps, nowSolved: r.solved, priorSolved: prior?.solved ?? true)) · Net worth \(Fmt.usdShort(r.afterTaxNetWorthUsd))")
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             if !r.note.isEmpty {
                 Text("“\(r.note)”").font(.system(size: 12)).italic().foregroundStyle(Theme.ink.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
@@ -445,6 +476,12 @@ struct PolicyStatementTab: View {
 
     /// A "(▲ 0.3%)" delta suffix vs the prior review; empty when the change is invisible at
     /// the displayed 0.1% precision (so we never print an arrow beside a "0.0%" magnitude).
+    /// Unsolved snapshots store clamp bps — never delta those as if they were rates.
+    private func rateDelta(_ now: Bps, _ prior: Bps?, nowSolved: Bool, priorSolved: Bool) -> String {
+        guard nowSolved, priorSolved else { return "" }
+        return delta(now, prior)
+    }
+
     private func delta(_ now: Bps, _ prior: Bps?) -> String {
         guard let prior, Fmt.pctBps(now) != Fmt.pctBps(prior) else { return "" }
         return " (\(now > prior ? "▲" : "▼") \(Fmt.pctBps(abs(now - prior))))"
@@ -465,8 +502,14 @@ struct PolicyStatementTab: View {
                     comparePicker("To", sorted, to.id) { compareToId = $0 }
                     Spacer()
                 }
-                compareRow("Required real return", Fmt.pctBps(from.requiredRealReturnBps), Fmt.pctBps(to.requiredRealReturnBps), delta(to.requiredRealReturnBps, from.requiredRealReturnBps))
-                compareRow("Funded ratio", Fmt.pctBps(from.fundedRatioBps), Fmt.pctBps(to.fundedRatioBps), delta(to.fundedRatioBps, from.fundedRatioBps))
+                compareRow("Required real return",
+                           Fmt.solvedPctBps(from.requiredRealReturnBps, solved: from.solved),
+                           Fmt.solvedPctBps(to.requiredRealReturnBps, solved: to.solved),
+                           from.solved && to.solved ? delta(to.requiredRealReturnBps, from.requiredRealReturnBps) : "")
+                compareRow("Funded ratio",
+                           Fmt.solvedPctBps(from.fundedRatioBps, solved: from.solved),
+                           Fmt.solvedPctBps(to.fundedRatioBps, solved: to.solved),
+                           from.solved && to.solved ? delta(to.fundedRatioBps, from.fundedRatioBps) : "")
                 compareRow("Equity ceiling", Fmt.pctBps(from.equityCeilingBps), Fmt.pctBps(to.equityCeilingBps), delta(to.equityCeilingBps, from.equityCeilingBps))
                 compareRow("After-tax net worth", Fmt.usdShort(from.afterTaxNetWorthUsd), Fmt.usdShort(to.afterTaxNetWorthUsd), usdDelta(to.afterTaxNetWorthUsd, from.afterTaxNetWorthUsd))
                 compareRow("Goals on file", "\(from.goalCount)", "\(to.goalCount)", countDelta(to.goalCount, from.goalCount))

@@ -41,6 +41,19 @@ struct DecumulationTab: View {
     }
 
     var body: some View {
+        if eval.isSolvable { solvedBody } else { notSolvableNotice }
+    }
+
+    @ViewBuilder
+    private var notSolvableNotice: some View {
+        Card("Decumulation") {
+            Note("Nothing to solve yet. Lifetime tax and Roth conversions are projected at the plan's required return — and that return has no solution until this household has balances and spending. The figures that would appear here would be grown at a clamp, not a rate.",
+                 icon: "questionmark.circle", color: Theme.muted)
+        }
+    }
+
+    @ViewBuilder
+    private var solvedBody: some View {
         if plan.years.isEmpty {
             Card("Decumulation") {
                 Note("No retirement years to project yet — set a retirement age and horizon, and a portfolio to draw from.")

@@ -54,10 +54,15 @@ final class RetirementAgeTests: XCTestCase {
                 return XCTFail("retire at \(age): the plan has no spending outflow to anchor on")
             }
             let lastWage = wageYears.max() ?? 0
-            XCTAssertEqual(lastWage + 1, firstDraw,
-                "retire at \(age): wages run through plan year \(lastWage) and the first draw is year "
-                + "\(firstDraw) — \(firstDraw - lastWage - 1) year(s) funded by nothing, or salary and "
-                + "drawdown overlapping")
+            if firstDraw == 0 {
+                XCTAssertEqual(lastWage, 0,
+                    "retire at \(age): already retired, so this year's draw is year 0 and no later wage years exist")
+            } else {
+                XCTAssertEqual(lastWage + 1, firstDraw,
+                    "retire at \(age): wages run through plan year \(lastWage) and the first draw is year "
+                    + "\(firstDraw) — \(firstDraw - lastWage - 1) year(s) funded by nothing, or salary and "
+                    + "drawdown overlapping")
+            }
         }
     }
 
@@ -69,7 +74,7 @@ final class RetirementAgeTests: XCTestCase {
             let primaryAge = Engine.age(birthDate: p.birthDate, asOf: Engine.planningAsOf)
             guard let firstDraw = h.goals.filter({ $0.kind == .spending })
                 .flatMap(\.outflows).filter({ $0.amountUsd > 0 }).map(\.year).min() else { continue }
-            XCTAssertEqual(firstDraw, max(1, p.expectedRetirementAge - primaryAge),
+            XCTAssertEqual(firstDraw, max(0, p.expectedRetirementAge - primaryAge),
                 "\(c.name): the plan starts drawing in year \(firstDraw), but its primary retires at "
                 + "\(p.expectedRetirementAge) (age \(primaryAge) today)")
         }
@@ -127,6 +132,26 @@ final class RetirementAgeTests: XCTestCase {
             "a plan whose two ages genuinely disagreed did not resolve onto its spending start")
         // Neither touched.
         XCTAssertEqual(try migrate(perAdult: d, household: d).retirementStartAge, d)
+    }
+
+    /// An already-retired intake household must schedule THIS year's spending (plan year 0),
+    /// matching the engine's retiree path. `max(1, …)` was the intake bug.
+    func testAnAlreadyRetiredIntakeHouseholdDrawsInYearZero() {
+        let h = single(adultRetiresAt: 55).buildHousehold()
+        let firstDraw = h.goals.filter { $0.kind == .spending }
+            .flatMap(\.outflows).filter { $0.amountUsd > 0 }.map(\.year).min()
+        XCTAssertEqual(firstDraw, 0, "a 55-year-old who retired at 55 must draw this year, not next year")
+        let rr0 = Engine.requiredReturn(h, asOf: Engine.planningAsOf)
+        var delayed = h
+        delayed.goals = delayed.goals.map { g in
+            guard g.id == "g_spending" else { return g }
+            var ng = g
+            ng.outflows = ng.outflows.filter { $0.year != 0 }
+            return ng
+        }
+        let rr1 = Engine.requiredReturn(delayed, asOf: Engine.planningAsOf)
+        XCTAssertGreaterThan(rr0.requiredRealReturnBps, rr1.requiredRealReturnBps,
+                             "year-0 spending must move required return vs dropping it")
     }
 
     /// And whichever age wins, the migrated plan is COHERENT — which the saved one was not.

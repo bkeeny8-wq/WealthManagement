@@ -801,6 +801,27 @@ public struct IntakeModel: Codable, Hashable {
         return (hp.ownerIndex >= 0 && hp.ownerIndex < adults.count) ? hp.ownerIndex : 0
     }
 
+    /// Dropping a named child must unbind education rows that pointed at them, or the
+    /// picker still shows a UUID with no roster match and the goal labels as unlabeled
+    /// "College".
+    public mutating func removeChild(_ id: UUID) {
+        children.removeAll { $0.id == id }
+        for i in educationGoals.indices where educationGoals[i].childId == id {
+            educationGoals[i].childId = nil
+        }
+    }
+
+    /// Persist the same clamp `ownerIndexResolved` uses. Dropping a spouse left
+    /// `ownerIndex == 1` on disk; the engine treated those holdings as primary until a
+    /// new second adult was added, at which point they silently reattached.
+    public mutating func clampHoldingsToAdultRoster() {
+        for i in heldAwayPositions.indices {
+            if heldAwayPositions[i].ownerIndex < 0 || heldAwayPositions[i].ownerIndex >= adults.count {
+                heldAwayPositions[i].ownerIndex = 0
+            }
+        }
+    }
+
     /// True when any adult's Social Security is still the salary-derived approximation
     /// rather than a figure taken from their statement. The form uses this to say so.
     public var socialSecurityIsEstimated: Bool { adults.contains { $0.socialSecurityMonthlyUsd <= 0 } }
@@ -832,7 +853,13 @@ public struct IntakeModel: Codable, Hashable {
     /// The stated balances alone, before any itemisation is reconciled against them. Kept for
     /// the places that genuinely mean "what the client typed in the balance fields".
     public var statedInvestableUsd: Usd { taxableUsd + traditionalUsd + rothUsd }
-    public var primaryAge: Int { max(0, Self.currentYear - (adults.first?.birthYear ?? 1975)) }
+    /// Age of the primary adult in calendar year `currentYear`. Intake wheels still use the
+    /// module year; CRM export and the engine must call `primaryAge(asOf:)` so a 2027 review
+    /// does not ship a 2026 age next to 2027 economics.
+    public var primaryAge: Int { primaryAge(asOf: "\(Self.currentYear)-01-01") }
+    public func primaryAge(asOf: IsoDate) -> Int {
+        max(0, Engine.year(asOf) - (adults.first?.birthYear ?? 1975))
+    }
 }
 
 // MARK: - Persistence (on-device JSON)
@@ -893,9 +920,8 @@ public extension IntakeModel {
         return max(500, min(5000, Int(v.rounded())))
     }
 
-    /// The equity ceiling that drawdown tolerance implies (equities fall ~50% in a
-    /// crash, so ceiling ≈ 2×). Mirrors Engine.toleranceEquityBps; a frontier-derived
-    /// mapping replaces the 2× rule once the frontier lands.
+    /// Historical 2× drawdown→equity rule of thumb. The engine binds to frontier /
+    /// tolerance equity (alts carry beta), so this is not shown on intake review.
     var impliedEquityCeilingBps: Bps { min(10000, effectiveMaxDrawdownBps * 2) }
 
     /// Build the engine household as of a given date. The date is a PARAMETER rather than
@@ -905,7 +931,8 @@ public extension IntakeModel {
     func buildHousehold(asOf: IsoDate = Engine.planningAsOf) -> Household {
         let yr = Engine.year(asOf)
         let primaryAge = max(0, yr - (adults.first?.birthYear ?? 1975))
-        let retireStartYear = max(1, (adults.first?.retirementAge ?? retirementStartAge) - primaryAge)
+        // Already retired → year 0 (this year's draw). Accumulators keep an empty year 0.
+        let retireStartYear = max(0, (adults.first?.retirementAge ?? retirementStartAge) - primaryAge)
         let horizon = max(retireStartYear + 1, planToAge - primaryAge)
 
         // People + human capital + deferred comp.
@@ -989,7 +1016,7 @@ public extension IntakeModel {
         }
         // Additional goals beyond retirement — each a dated spending claim.
         for (i, ag) in additionalGoals.enumerated() where ag.amountUsd > 0 {
-            let start = max(1, ag.targetYear - yr)
+            let start = max(0, ag.targetYear - yr)
             let span = max(1, ag.spanYears)
             let per = ag.amountUsd / Double(span)
             let outflows = (0..<span).map { Outflow(year: start + $0, amountUsd: per, inflationLinked: true) }
@@ -1020,15 +1047,22 @@ public extension IntakeModel {
         }
         // Education goals → inflated tuition ladders (education series), offset by any 529.
         for g in educationGoals where g.annualCostTodayUsd > 0 {
-            let startOffset = max(1, g.startYear - yr)
+            let startOffset = max(0, g.startYear - yr)
             let yrs = max(1, g.years)
             let gid = "g_edu_\(g.id.uuidString.prefix(8))"
             let childName = children.first(where: { $0.id == g.childId }).map { $0.name.isEmpty ? "Child" : $0.name }
-            goals.append(Goal(id: gid, label: childName.map { "\($0) — \(g.label)" } ?? g.label, kind: .spending, tier: .lifestyle,
-                              horizonYears: startOffset + yrs - 1,
-                              outflows: (0..<yrs).map { Outflow(year: startOffset + $0, amountUsd: g.annualCostTodayUsd, inflationLinked: true) },
-                              inflationSeries: .education, maxShortfallProbabilityBps: GoalTier.lifestyle.defaultShortfallBps, holdToStepUp: false,
-                              flexibility: GoalFlexibility(deferrableYears: 1, scalableDownBps: 3000, abandonable: false), policyId: "spending-glide"))
+            // Spread a 529 across the tuition years. The form promises an offset; the
+            // engine never read `offsetsClaimId` / `.education529`, so the full ladder
+            // was a liability and the 529 vanished. Netting here is the offset.
+            let offsetPerYear = g.five29BalanceUsd > 0 ? g.five29BalanceUsd / Double(yrs) : 0
+            let netAnnual = max(0, g.annualCostTodayUsd - offsetPerYear)
+            if netAnnual > 0 {
+                goals.append(Goal(id: gid, label: childName.map { "\($0) — \(g.label)" } ?? g.label, kind: .spending, tier: .lifestyle,
+                                  horizonYears: startOffset + yrs - 1,
+                                  outflows: (0..<yrs).map { Outflow(year: startOffset + $0, amountUsd: netAnnual, inflationLinked: true) },
+                                  inflationSeries: .education, maxShortfallProbabilityBps: GoalTier.lifestyle.defaultShortfallBps, holdToStepUp: false,
+                                  flexibility: GoalFlexibility(deferrableYears: 1, scalableDownBps: 3000, abandonable: false), policyId: "spending-glide"))
+            }
             if g.five29BalanceUsd > 0 {
                 externalAssets.append(ExternalAsset(id: "ext_529_\(g.id.uuidString.prefix(8))", label: "\(g.label) 529", kind: .education529,
                                                     valueUsd: g.five29BalanceUsd, offsetsClaimId: gid, offsetsFromYear: startOffset,
@@ -1180,7 +1214,7 @@ public extension IntakeModel {
         }
         let estateInputs = EstateInputs(heirCount: heirCount, heirBracketBps: expectedHeirBracket.bracketBps,
                                         bequestSource: charitableBequestSource, annualGivingUsd: annualGivingUsd,
-                                        qcdPlannedUsd: qcdPlannedUsd, dafBalanceUsd: dafExists ? dafBalanceUsd : 0,
+                                        qcdPlannedUsd: qcdEligible ? qcdPlannedUsd : 0, dafBalanceUsd: dafExists ? dafBalanceUsd : 0,
                                         hasWill: hasWill, hasRevocableTrust: hasRevocableTrust, hasFinancialPOA: hasFinancialPOA,
                                         hasHealthcareDirective: hasHealthcareDirective, beneficiaryDesignationsCurrent: beneficiaryDesignationsCurrent)
 
@@ -1233,9 +1267,14 @@ public extension IntakeModel {
         // Equity comp mechanics + options/ESPP legs (single-employer exposure).
         var equityMechanics: EquityCompMechanics? = nil
         if !equityGrantTypes.isEmpty {
+            let hasIso = equityGrantTypes.contains(.iso)
+            let has83b = equityGrantTypes.contains(.restrictedStock) || equityGrantTypes.contains(.founder)
             equityMechanics = EquityCompMechanics(grantTypes: equityGrantTypes, isInsider: isCompanyInsider, tradingWindow: tradingWindow,
-                                                  has10b51Plan: has10b51Plan, plannedExerciseAndHold: planningIsoExerciseAndHold,
-                                                  isoBargainElementUsd: isoBargainElementUsd, pending83bGrantDate: pending83bGrantDate, qsbs: qsbsStatus)
+                                                  has10b51Plan: has10b51Plan,
+                                                  plannedExerciseAndHold: hasIso && planningIsoExerciseAndHold,
+                                                  isoBargainElementUsd: hasIso ? isoBargainElementUsd : 0,
+                                                  pending83bGrantDate: has83b ? pending83bGrantDate : "",
+                                                  qsbs: qsbsStatus)
             let pid = people.first(where: { $0.role == .primary })?.id ?? "p_0"
             if (equityGrantTypes.contains(.iso) || equityGrantTypes.contains(.nso)) && isoUnexercisedValueUsd > 0 {
                 deferredComp.append(DeferredCompensation(id: "dc_opt", personId: pid, kind: .options, ticker: "EMPLOYER", grantValueUsd: isoUnexercisedValueUsd, subjectToEmployerCredit: false, tradingRestricted: tradingWindow != .open))

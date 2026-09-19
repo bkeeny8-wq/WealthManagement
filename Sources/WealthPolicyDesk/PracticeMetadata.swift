@@ -73,9 +73,21 @@ public struct PracticeMetadata: Codable, Hashable, Identifiable {
     public mutating func touch() { updatedAt = Date() }
 
     /// Header view-model for the desk's client strip.
-    public var header: ClientProfileHeader {
-        ClientProfileHeader(
-            title: clientName.isEmpty ? "New relationship" : clientName,
+    public var header: ClientProfileHeader { header(fallbackName: "") }
+
+    /// When the CRM name was left blank, fall back to the primary adult — the same
+    /// rule the roster `displayName` uses — so the strip and the export agree.
+    public func header(fallbackName: String) -> ClientProfileHeader {
+        let title: String
+        if !clientName.isEmpty {
+            title = clientName
+        } else if !fallbackName.isEmpty {
+            title = fallbackName
+        } else {
+            title = "New client"
+        }
+        return ClientProfileHeader(
+            title: title,
             subtitle: advisorName.isEmpty ? "Unassigned" : advisorName,
             badge: stage.label,
             caption: leadSource.label + (leadSourceDetail.isEmpty ? "" : " · " + leadSourceDetail),
@@ -143,9 +155,12 @@ public struct CRMExportRecord: Codable, Hashable {
     public var tier: String
     public var primaryAge: Int
     public var filingStatus: String
-    public var requiredRealReturnBps: Bps
+    public var requiredRealReturnBps: Bps?
     public var afterTaxNetWorthUsd: Usd
-    public var fundedRatioBps: Bps
+    public var fundedRatioBps: Bps?
+    /// False when the required-return / funded-ratio solve did not converge. CRM rows
+    /// must not treat the clamp sentinels (20% required, 999% funded) as answers.
+    public var solved: Bool
     // Open planning flags (from the engine)
     public var hardFlags: Int
     public var softFlags: Int
@@ -160,12 +175,13 @@ public struct CRMExportRecord: Codable, Hashable {
                      stage, leadSource, leadSourceDetail, nextAction, notes,
                      iso.string(from: createdAt), iso.string(from: updatedAt),
                      String(format: "%.0f", investableUsd), tier, String(primaryAge), filingStatus,
-                     String(requiredRealReturnBps), String(format: "%.0f", afterTaxNetWorthUsd), String(fundedRatioBps),
-                     String(hardFlags), String(softFlags), openHardRules]
+                     solved ? String(requiredRealReturnBps ?? 0) : "—", String(format: "%.0f", afterTaxNetWorthUsd),
+                     solved ? String(fundedRatioBps ?? 0) : "—",
+                     String(hardFlags), String(softFlags), openHardRules, solved ? "true" : "false"]
         return cells.map(esc).joined(separator: ",")
     }
 
-    public static let csvHeader = "advisor,client,email,phone,state,stage,lead_source,lead_source_detail,next_action,notes,created_at,updated_at,investable_usd,tier,primary_age,filing_status,required_real_return_bps,after_tax_net_worth_usd,funded_ratio_bps,hard_flags,soft_flags,open_hard_rules"
+    public static let csvHeader = "advisor,client,email,phone,state,stage,lead_source,lead_source_detail,next_action,notes,created_at,updated_at,investable_usd,tier,primary_age,filing_status,required_real_return_bps,after_tax_net_worth_usd,funded_ratio_bps,hard_flags,soft_flags,open_hard_rules,solved"
 }
 
 public extension PracticeMetadata {
@@ -174,7 +190,13 @@ public extension PracticeMetadata {
         let hard = e.findings.filter { $0.severity == .hard }
         let soft = e.findings.filter { $0.severity == .soft }
         return CRMExportRecord(
-            advisor: advisorName, client: clientName, email: contactEmail, phone: contactPhone, state: intake.state,
+            advisor: advisorName,
+            client: {
+                if !clientName.isEmpty { return clientName }
+                let n = intake.adults.first?.name ?? ""
+                return n.isEmpty ? "New client" : n
+            }(),
+            email: contactEmail, phone: contactPhone, state: intake.state,
             stage: stage.rawValue, stageLabel: stage.label, leadSource: leadSource.rawValue, leadSourceLabel: leadSource.label,
             leadSourceDetail: leadSourceDetail, nextAction: nextAction, notes: notes, createdAt: createdAt, updatedAt: updatedAt,
             investableUsd: intake.totalInvestableUsd, tier: IntakeModel.tier(forInvestable: intake.totalInvestableUsd),
@@ -185,9 +207,11 @@ public extension PracticeMetadata {
             // of the corrected household. Exporting the raw field shipped a CRM row whose label
             // said "single" beside figures solved on MFJ brackets, the MFJ standard deduction,
             // the joint NIIT threshold and a two-head IRMAA count.
-            primaryAge: intake.primaryAge, filingStatus: intake.engineFilingStatus.rawValue,
-            requiredRealReturnBps: e.requiredReturn.requiredRealReturnBps, afterTaxNetWorthUsd: e.balanceSheet.afterTaxNetWorthUsd,
-            fundedRatioBps: e.balanceSheet.fundedRatioBps,
+            primaryAge: intake.primaryAge(asOf: e.asOf), filingStatus: intake.engineFilingStatus.rawValue,
+            requiredRealReturnBps: e.isSolvable ? e.requiredReturn.requiredRealReturnBps : nil,
+            afterTaxNetWorthUsd: e.balanceSheet.afterTaxNetWorthUsd,
+            fundedRatioBps: e.isSolvable ? e.balanceSheet.fundedRatioBps : nil,
+            solved: e.isSolvable,
             hardFlags: hard.count, softFlags: soft.count, openHardRules: hard.map { $0.ruleId }.joined(separator: ";"))
     }
 }

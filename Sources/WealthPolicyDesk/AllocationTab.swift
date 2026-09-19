@@ -16,11 +16,25 @@ struct AllocationTab: View {
     }
 
     var body: some View {
+        if eval.isSolvable { solvedBody } else { notSolvableNotice }
+    }
+
+    /// Sleeve targets on an unsolvable plan are the seed template (empty book) or the
+    /// overfunded glide of a funded-ratio clamp. Showing 0 vs those targets as
+    /// "outer band — mandatory correction" is a rebalance ticket for nobody.
+    private var notSolvableNotice: some View {
+        Card("Allocation is an output", help: Teach.help("allocation")) {
+            Note("Nothing to solve yet. The sleeve targets on this tab would be the seed template or the overfunded glide of a funded-ratio clamp, not a policy derived from this household — and every row would read as a mandatory correction against that mix. Enter the account balances and the retirement spending first.",
+                 icon: "questionmark.circle", color: Theme.muted)
+        }
+    }
+
+    @ViewBuilder private var solvedBody: some View {
         Card("Allocation is an output", help: Teach.help("allocation")) {
             StackBar(eval.allocation.filter { $0.currentBps > 0 }.map {
                 StackSegment($0.label, Double($0.currentBps), sleeveColor[$0.sleeveId] ?? Theme.muted)
             })
-            Note("Your current mix — from what you told us — against a target we DERIVE, not set. Equity is capped at your risk ceiling, the bond sleeve carries at least your near-term liquidity floor, and where equity sits between the two is dialed by your funded ratio: underfunded leans into the ceiling, overfunded de-risks toward the floor. (Your full multi-year ladder is enforced separately, on the Constraints tab.) Change a goal and the target moves — nobody sets 60/40 and works backward. The gap below is what a rebalance would close; each sleeve names the fund it maps to.")
+            Note("Your current mix — from what you told us — against a target we DERIVE, not set. Equity is capped at your risk ceiling, the cash sleeve carries at least your near-term liquidity floor, and where equity sits between the two is dialed by your funded ratio: underfunded leans into the ceiling, overfunded de-risks toward the floor. (Your full multi-year ladder is enforced separately, on the Constraints tab.) Change a goal and the target moves — nobody sets 60/40 and works backward. The gap below is what a rebalance would close; each sleeve names the fund it maps to.")
         }
 
         Card("Sleeves — current vs target") {

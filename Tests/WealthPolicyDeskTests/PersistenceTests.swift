@@ -48,16 +48,16 @@ final class PersistenceTests: XCTestCase {
     }
 
     private func populatedTilt() -> TacticalTiltAction {
-        // status: .staged, NOT the decoder's ?? .committed fallback — so a dropped status key is caught.
+        // status: .committed ≠ the missing-key default (.staged), so a dropped decode line is caught.
         TacticalTiltAction(id: uuid(1), createdAt: d1, sleeveId: "us_sector_tilt", deviationBps: 300,
                            sourceName: "Energy", ticker: "XLE",   // non-default ⇒ teeth for the instrument write
-                           thesis: "real-asset convexity", reviewDate: d2, status: .staged)
+                           thesis: "real-asset convexity", reviewDate: d2, status: .committed)
     }
 
     private func populatedAction() -> PlannedAction {
         PlannedAction(id: uuid(2), createdAt: d1, sellAccountId: "acct_taxable", sellTicker: "XLK",
                       sellUsd: 120_000, buyTicker: "XLP", buySleeveId: "us_sector_tilt", buySectorRaw: "consumer_staples",
-                      thesis: "rotate defensive", reviewDate: d2, status: .staged)   // .staged ≠ decoder fallback .committed
+                      thesis: "rotate defensive", reviewDate: d2, status: .committed)   // .committed ≠ missing-key default .staged
     }
 
     private func populatedPractice() -> PracticeMetadata {
@@ -75,6 +75,8 @@ final class PersistenceTests: XCTestCase {
         a.salaryUsd = 250_000; a.bonusUsd = 40_000; a.bonusStability = other(a.bonusStability)
         a.incomeCharacter = other(a.incomeCharacter); a.sector = .energy
         a.employerStockUsd = 80_000; a.deferredCashUsd = 25_000
+        a.traditionalUsd = 510_000; a.rothUsd = 88_000
+        a.socialSecurityMonthlyUsd = 3_200; a.ssClaimAge = 70
         return a
     }
 
@@ -82,6 +84,7 @@ final class PersistenceTests: XCTestCase {
         var h = IntakeHeldPosition()
         h.id = uuid(5); h.ticker = "AAPL"; h.marketValueUsd = 300_000; h.costBasisUsd = 90_000
         h.treatment = other(h.treatment); h.plan = other(h.plan); h.unwindYears = 5
+        h.ownerIndex = 1                  // non-default ⇒ teeth for whose-IRA decode
         h.isConcentrated = true; h.acquisitionDate = "2019-03-15"
         h.sector = .technology        // non-nil ⇒ teeth for the single-stock sector write
         return h
@@ -155,9 +158,100 @@ final class PersistenceTests: XCTestCase {
     func testTacticalTiltActionRoundTrips() throws { try assertRoundTrips(populatedTilt(), "TacticalTiltAction") }
     func testPlannedActionRoundTrips() throws { try assertRoundTrips(populatedAction(), "PlannedAction") }
     func testPracticeMetadataRoundTrips() throws { try assertRoundTrips(populatedPractice(), "PracticeMetadata") }
+    func testIntakeAdultRoundTrips() throws { try assertRoundTrips(populatedAdult(), "IntakeAdult") }
+    func testIntakeHeldPositionRoundTrips() throws { try assertRoundTrips(populatedHeldPosition(), "IntakeHeldPosition") }
     func testIntakeModelRoundTrips() throws { try assertRoundTrips(populatedIntake(), "IntakeModel") }
+
+    /// A book written before `status` existed must reopen as staged work, not as the plan of record.
+    func testMissingPlannedActionStatusDecodesAsStaged() throws {
+        XCTAssertEqual(try decodeOmittingKey(populatedAction(), "status").status, .staged)
+    }
+    func testMissingTiltStatusDecodesAsStaged() throws {
+        XCTAssertEqual(try decodeOmittingKey(populatedTilt(), "status").status, .staged)
+    }
+
+    private func decodeOmittingKey<T: Codable>(_ x: T, _ key: String) throws -> T {
+        var obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(x)) as! [String: Any]
+        obj.removeValue(forKey: key)
+        return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: obj))
+    }
 
     /// The whole persisted record — transitively re-locks every nested type as it is
     /// actually stored in wealth-policy-book.json.
     func testClientRecordRoundTrips() throws { try assertRoundTrips(populatedRecord(), "ClientRecord") }
+
+    // MARK: - BookStore corrupt backup + save result
+
+    override func tearDown() {
+        BookStore.directoryOverride = nil
+        super.tearDown()
+    }
+
+    private func isolatedDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wp-book-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        BookStore.directoryOverride = dir
+        return dir
+    }
+
+    func testCorruptBackupFilenameIsTimestamped() {
+        var c = DateComponents(); c.year = 2031; c.month = 6; c.day = 30; c.hour = 12; c.minute = 4; c.second = 5
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(secondsFromGMT: 0)
+        let name = BookStore.corruptBackupFilename(at: cal.date(from: c)!)
+        XCTAssertEqual(name, "wealth-policy-book.corrupt-20310630-120405.json")
+        XCTAssertFalse(name.contains(":"), "colons are hostile on some filesystems")
+    }
+
+    func testACorruptBookIsMovedAsideUnderATimestampAndClearsTheLivePath() throws {
+        let dir = try isolatedDir()
+        let live = dir.appendingPathComponent("wealth-policy-book.json")
+        try Data("not-json".utf8).write(to: live)
+        let loaded = BookStore.load()
+        XCTAssertTrue(loaded.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: live.path),
+                       "a known-bad file must not stay at the live path")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasPrefix("wealth-policy-book.corrupt-") }
+        XCTAssertEqual(backups.count, 1, "the corrupt bytes must land in a timestamped backup")
+        XCTAssertEqual(BookStore.lastCorruptBackupFilename, backups.first)
+
+        // A second corruption must not overwrite the first backup.
+        try Data("also-not-json".utf8).write(to: live)
+        _ = BookStore.load()
+        let backups2 = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasPrefix("wealth-policy-book.corrupt-") }
+        XCTAssertEqual(backups2.count, 2, "each failure keeps its own backup")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: live.path))
+    }
+
+    func testSaveReturnsTrueOnSuccessAndFalseWhenThePathCannotBeWritten() throws {
+        let dir = try isolatedDir()
+        let rec = populatedRecord()
+        XCTAssertTrue(BookStore.save([rec]))
+        XCTAssertEqual(BookStore.load().count, 1)
+
+        // Point the store at a FILE, not a directory, so the atomic write cannot succeed.
+        let file = dir.appendingPathComponent("not-a-dir")
+        FileManager.default.createFile(atPath: file.path, contents: Data())
+        BookStore.directoryOverride = file
+        XCTAssertFalse(BookStore.save([rec]), "save must report failure rather than pretending it wrote")
+    }
+
+    /// Dropping a spouse used to leave `ownerIndex == 1` on disk. The engine clamped
+    /// those holdings to the primary until a new second adult was added, then they
+    /// silently reattached. The wizard must persist the clamp.
+    func testDroppingASpousePersistsOwnerIndexClamp() {
+        var m = IntakeModel()
+        var a = IntakeAdult(); a.name = "Primary"; a.birthYear = 1960; a.retirementAge = 65
+        var b = IntakeAdult(); b.name = "Spouse"; b.birthYear = 1962; b.retirementAge = 65
+        m.adults = [a, b]
+        var h = IntakeHeldPosition()
+        h.ticker = "VTIVX"; h.marketValueUsd = 100_000; h.treatment = .taxDeferred; h.ownerIndex = 1
+        m.heldAwayPositions = [h]
+        m.adults.removeLast()
+        m.clampHoldingsToAdultRoster()
+        XCTAssertEqual(m.adults.count, 1)
+        XCTAssertEqual(m.heldAwayPositions.first?.ownerIndex, 0,
+                       "a holding named for the removed spouse must stay with the remaining adult")
+    }
 }

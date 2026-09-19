@@ -10,11 +10,13 @@ struct TaxTab: View {
     private var embedded: (shortTerm: Usd, longTerm: Usd, taxUsd: Usd, longTermOnlyTaxUsd: Usd, hasLots: Bool) {
         Engine.embeddedGains(eval.household, asOf: eval.asOf)
     }
-    private var isoAmt: IsoAmtResult? { Engine.isoAmt(eval.household) }
+    private var isoAmt: IsoAmtResult? { Engine.isoAmt(eval.household, asOf: eval.asOf) }
     private var qsbs: QsbsExclusion? { Engine.qsbsExclusion(eval.household) }
-    private var disabilityPv: Usd { Engine.disabilityGapPv(eval.household) }
+    private var disabilityPv: Usd { Engine.disabilityGapPv(eval.household, asOf: eval.asOf) }
 
     var body: some View {
+        Note("Federal tax figures are 2026 estimates (last verified \(eval.tax.lastVerifiedAt)), not IRS Rev. Proc. tables. State income tax is out of scope for the return solve; muni and paydown use a dated effective-rate snapshot.",
+             color: Theme.muted)
         embeddedGainsCard
         decisionFlagsCard
 
@@ -85,10 +87,23 @@ struct TaxTab: View {
 
         Card("Roth-conversion window") {
             if let w = eval.policy.withdrawal.conversionWindow {
-                LedgerRow("Bracket-fill target", Fmt.pctBps(eval.policy.withdrawal.targetBracketRateBps), color: Theme.ink)
-                LedgerRow("Conversion window", "age \(w.fromAge)–\(w.toAge)", color: Theme.ink)
-                LedgerRow("Cliffs watched", eval.policy.withdrawal.cliffAwareness.joined(separator: ", ").uppercased(), color: Theme.amber)
-                Note("The retirement-to-RMD window is worth more than any tilt. v1 flags opportunities — ‘you have headroom in the 22% bracket’ — rather than optimizing, capturing most of the value without being right about future law.")
+                if eval.isSolvable {
+                    LedgerRow("Bracket-fill target",
+                              eval.decumulation.targetBracketBps > 0
+                                ? Fmt.pctBps(eval.decumulation.targetBracketBps)
+                                : "none — conversions do not reduce lifetime tax",
+                              color: Theme.ink)
+                    LedgerRow("Conversion window", "age \(w.fromAge)–\(w.toAge)", color: Theme.ink)
+                    LedgerRow("Cliffs watched", eval.policy.withdrawal.cliffAwareness.joined(separator: ", ").uppercased(), color: Theme.amber)
+                    Note("This card names the window. The Decumulation tab sizes the conversions — a lowest-lifetime-tax path filling these years, not a market call. Federal estimates as of \(eval.tax.lastVerifiedAt); verify before acting.")
+                } else {
+                    // The optimizer still runs at `rr.requiredRealReturnBps` even when that
+                    // figure is the ±5%/20% clamp, so a 22% fill (or "none") here would be
+                    // a clamp-grown conclusion, not a client path. Window ages are policy.
+                    LedgerRow("Conversion window", "age \(w.fromAge)–\(w.toAge)", color: Theme.ink)
+                    Note("Nothing to solve yet. The bracket-fill target is the Decumulation optimizer's fill, grown at the plan's required return — and that return has no solution until this household has balances and spending. The figure that would appear here would be grown at a clamp, not a rate. The ages above are the policy window, not a conversion ticket.",
+                         icon: "questionmark.circle", color: Theme.muted)
+                }
             }
         }
     }

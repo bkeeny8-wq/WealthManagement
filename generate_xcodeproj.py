@@ -3,7 +3,7 @@
 
 Mirrors the StructuredNotesDesk project layout: a framework target that holds
 the engine, models, seed data, design system, teaching layer and views, plus a
-tiny host app that does `import WealthPolicyDesk` -> `DeskView()`.
+tiny host app that does `import WealthPolicyDesk` -> `RootView()`.
 
 Re-run this whenever the framework file list below changes.
 """

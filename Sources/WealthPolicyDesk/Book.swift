@@ -115,8 +115,14 @@ public struct ClientRecord: Codable, Identifiable, Hashable {
 // MARK: - The store (a single JSON file holding the whole book)
 
 public enum BookStore {
+    /// Tests point this at a temp directory so they never touch the device Documents folder.
+    public static var directoryOverride: URL? = nil
+    /// Set when `load()` moved a corrupt book aside. The view layer can surface the filename.
+    public private(set) static var lastCorruptBackupFilename: String? = nil
+
     private static var dir: URL? {
-        try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        if let directoryOverride { return directoryOverride }
+        return try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
     }
     private static var url: URL? { dir?.appendingPathComponent("wealth-policy-book.json") }
     private static let encoder: JSONEncoder = {
@@ -130,6 +136,7 @@ public enum BookStore {
     /// migration of a pre-book single-client install into a one-record book — and the
     /// legacy files are retired only after the new book is confirmed written.
     public static func load() -> [ClientRecord] {
+        lastCorruptBackupFilename = nil
         if let url, FileManager.default.fileExists(atPath: url.path) {
             if let data = try? Data(contentsOf: url), let book = try? decoder.decode([ClientRecord].self, from: data) {
                 return book
@@ -146,19 +153,57 @@ public enum BookStore {
     }
 
     /// Atomic write (temp file + rename) so a crash or full disk can't truncate the
-    /// book into a corrupt half-file. Returns whether the write durably succeeded.
+    /// book into a corrupt half-file. On iOS the replacement is also
+    /// `completeUnlessOpen` so the JSON is unreadable while the device is locked.
+    /// Returns whether the write durably succeeded.
     @discardableResult
     public static func save(_ book: [ClientRecord]) -> Bool {
         guard let url, let data = try? encoder.encode(book) else { return false }
-        do { try data.write(to: url, options: .atomic); return true } catch { return false }
+        do { try data.write(to: url, options: atomicWriteOptions); return true } catch { return false }
     }
 
-    /// Move a corrupt book aside, preserving the first corruption seen.
+    private static var atomicWriteOptions: Data.WritingOptions {
+        #if os(iOS)
+        [.atomic, .completeFileProtectionUnlessOpen]
+        #else
+        .atomic
+        #endif
+    }
+
+    /// Move a corrupt book aside under a timestamped name so a later failure cannot
+    /// overwrite the first backup, and so a known-bad file is not left at the live path.
+    static func corruptBackupFilename(at date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return "wealth-policy-book.corrupt-\(f.string(from: date)).json"
+    }
+
     private static func backupCorruptFile(_ url: URL) {
         guard let dir else { return }
-        let backup = dir.appendingPathComponent("wealth-policy-book.corrupt.json")
-        if !FileManager.default.fileExists(atPath: backup.path) {
-            try? FileManager.default.moveItem(at: url, to: backup)
+        var name = corruptBackupFilename(at: Date())
+        var backup = dir.appendingPathComponent(name)
+        var n = 2
+        while FileManager.default.fileExists(atPath: backup.path) {
+            let stamped = corruptBackupFilename(at: Date())
+            name = stamped.replacingOccurrences(of: ".json", with: "-\(n).json")
+            backup = dir.appendingPathComponent(name)
+            n += 1
+        }
+        do {
+            try FileManager.default.moveItem(at: url, to: backup)
+            lastCorruptBackupFilename = name
+        } catch {
+            try? FileManager.default.copyItem(at: url, to: backup)
+            try? FileManager.default.removeItem(at: url)
+            if FileManager.default.fileExists(atPath: backup.path) {
+                lastCorruptBackupFilename = name
+            }
+        }
+        // Do not leave a known-bad file at the live path even if the backup failed.
+        if FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

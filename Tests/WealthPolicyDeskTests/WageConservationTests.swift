@@ -127,6 +127,34 @@ final class WageConservationTests: XCTestCase {
                        "the last 'saving' year has no earner, so its savings inflow must be capped away")
     }
 
+    /// The funded-ratio savings PV must use the same wage cap as the required-return solve.
+    /// A typed savings rate above wages used to inflate how-funded-am-I without helping rr.
+    func testFundedRatioSavingsPvIsWageCapped() {
+        var h = Seed.sampleHousehold
+        h.annualSavingsUsd = 10_000_000
+        let rr = Engine.requiredReturn(h, asOf: asOf)
+        var wagePv: Usd = 0
+        let saveYears = Engine.householdSaveYears(h, asOf: asOf)
+        for t in 1...saveYears {
+            let cap = min(h.annualSavingsUsd, Engine.wagesAtPlanYear(h, year: t, asOf: asOf))
+            wagePv += cap / pow(1 + Engine.safeRealRate, Double(t))
+        }
+        XCTAssertEqual(rr.futureSavingsPvUsd, wagePv, accuracy: 0.5)
+        XCTAssertLessThan(rr.futureSavingsPvUsd, 10_000_000 / 1.015,
+                          "heroic savings cannot be credited above the wages that fund them")
+    }
+
+    /// And the Harrisons' own PV must skip plan-year 3, where nobody earns.
+    func testHarrisonsSavingsPvSkipsTheZeroWageYear() {
+        let h = Seed.sampleHousehold
+        let rr = Engine.requiredReturn(h, asOf: asOf)
+        let expected = (1...2).reduce(0.0) { acc, t in
+            acc + min(h.annualSavingsUsd, Engine.wagesAtPlanYear(h, year: t, asOf: asOf))
+                / pow(1 + Engine.safeRealRate, Double(t))
+        }
+        XCTAssertEqual(rr.futureSavingsPvUsd, expected, accuracy: 0.5)
+    }
+
     // MARK: - The preview agrees with the projection
 
     /// `currentOrdinaryIncome` documents itself as mirroring the projection's year-0 build.

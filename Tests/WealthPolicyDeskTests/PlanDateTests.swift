@@ -133,4 +133,60 @@ final class PlanDateTests: XCTestCase {
         c.year = 2027; c.month = 1; c.day = 5
         XCTAssertEqual(todayIsoDate(cal.date(from: c)!), "2027-01-05", "single digits are zero-padded")
     }
+
+    /// Wizard review used to call `buildHousehold()` with no date, so figures aged off
+    /// `Engine.planningAsOf` while save stamped `todayIsoDate`. A 2027 onboard would preview
+    /// as 2026. Editing must also keep the record's date, or an annual review rewinds.
+    func testIntakePreviewUsesTodayForANewClientAndKeepsAStampedEditDate() {
+        XCTAssertEqual(intakePreviewAsOf(editingPlanAsOf: nil, today: "2027-03-04"), "2027-03-04",
+                       "a new client's review must age off today, not the module pin")
+        XCTAssertEqual(intakePreviewAsOf(editingPlanAsOf: later, today: "2027-03-04"), later,
+                       "editing must keep the record's plan date so a review-advanced client is not rewound")
+        XCTAssertNotEqual(intakePreviewAsOf(editingPlanAsOf: nil, today: "2027-03-04"), Engine.planningAsOf,
+                          "today in a later year must not collapse onto the pin")
+    }
+
+    /// Side paths that used to pin `Engine.planningAsOf` / `"2026-01-01"` must follow the
+    /// household's own date: MAGI/itemization tax year, buy-lot vintage, and ST vs LT on replay.
+    func testSidePathsHonorALaterPlanDate() {
+        var h = Seed.sampleHousehold
+        h.planAsOf = later
+
+        let e = Engine.evaluate(h)
+        XCTAssertEqual(e.asOf, later)
+        XCTAssertEqual(e.itemization.input.taxYear, 2031,
+                       "muni / paydown / itemization MAGI must use 2031, not a leftover 2026 pin")
+
+        guard let vea = h.positions.first(where: { $0.ticker == "VEA" }) else {
+            return XCTFail("fixture check: sample holds VEA")
+        }
+        let action = PlannedAction(sellAccountId: vea.accountId, sellTicker: "VEA",
+                                   sellUsd: 10_000, buyTicker: "XLP")
+        let after = h.applying(action)
+        let bought = after.positions.first { $0.ticker == "XLP" }
+        XCTAssertEqual(bought?.lots.last?.acquisitionDate, later,
+                       "a buy lot must be dated on the household's plan date, not the 2026 pin")
+
+        // The 2026-03-15 VEA lot is short-term as of the pin and long-term by 2031.
+        let (stPin, _) = vea.realizedGainSplit(sellUsd: 90_000, asOf: Engine.planningAsOf)
+        let (stLater, _) = vea.realizedGainSplit(sellUsd: 90_000, asOf: later)
+        XCTAssertGreaterThan(stPin, 0, "fixture check: the recent lot is short-term on the pin")
+        XCTAssertEqual(stLater, 0, accuracy: 0.5, "five years on, that lot is long-term")
+
+        let pinTax = Engine.realizedGainTaxOn(h, vea, sellUsd: 90_000, asOf: Engine.planningAsOf)
+        let laterTax = Engine.realizedGainTaxOn(h, vea, sellUsd: 90_000, asOf: later)
+        XCTAssertGreaterThan(pinTax.taxUsd, laterTax.taxUsd,
+                             "the planning-tab preview must tax the same lot as ordinary on the pin and as LTCG five years on")
+    }
+
+    /// Disability-gap PV is years-to-retirement × the monthly gap. A later plan date
+    /// must shorten that window; pinning 2026 would overstate the lump for an aging client.
+    func testDisabilityGapPvFollowsThePlanDate() {
+        var h = Seed.sampleHousehold
+        let pin = Engine.disabilityGapPv(h, asOf: Engine.planningAsOf)
+        XCTAssertGreaterThan(pin, 0, "fixture check: the Harrisons carry a disability gap")
+        h.planAsOf = later
+        let laterPv = Engine.disabilityGapPv(h, asOf: h.planAsOf)
+        XCTAssertLessThan(laterPv, pin, "five fewer working years must shrink the unfunded disability lump")
+    }
 }

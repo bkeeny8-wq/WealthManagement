@@ -18,8 +18,9 @@
 //   - Tax-aware selling: sheltered accounts first (no current tax), then taxable
 //     LOSSES (harvest), then the lowest-gain taxable lots — never realizing gains
 //     past the household's transition budget or the policy's rebalancing gain budget.
-//   - Honors terminal dispositions: step-up / gift / charitable lots (and any
-//     hold-to-step-up flag) are held out of selling entirely.
+//   - Honors terminal dispositions: step-up / gift lots (and any
+//     hold-to-step-up flag) and ladder rungs are held out of selling.
+//     Charitable routing is not a lock — it is a beneficiary designation.
 //   - Tax is the canonical stacked LTCG computation (Engine.ltcgTaxOnGain), summed
 //     once over the whole plan — not a flat per-lot rate.
 

@@ -120,7 +120,7 @@ public extension Household {
         // decumulation read expectedRetirementAge directly, so they follow automatically.
         if let newAge = o.retirementAge, let p = h.primary {
             let pid = p.id
-            let primaryAge = Engine.age(birthDate: p.birthDate, asOf: Engine.planningAsOf)
+            let primaryAge = Engine.age(birthDate: p.birthDate, asOf: h.planAsOf)
             // Never let retirement land past the spending horizon: clamp the effective age so
             // working years, human capital, and the spending schedule stay mutually consistent
             // (otherwise saveYears/human-capital would extend past a spending start that didn't move).
@@ -131,7 +131,8 @@ public extension Household {
             h.goals = h.goals.map { g in
                 guard g.id == "g_spending" else { return g }
                 let end = g.horizonYears ?? (g.outflows.map { $0.year }.max() ?? 1)
-                let start = max(1, effAge - primaryAge)
+                // Year 0 when already retired, matching intake and the engine's retiree path.
+                let start = max(0, effAge - primaryAge)
                 guard start <= end else { return g }
                 let amt = g.outflows.first?.amountUsd ?? 0
                 var ng = g
@@ -143,7 +144,7 @@ public extension Household {
         // spending is one joint claim keyed to the primary's retirement, so the schedule doesn't move.
         if let newAge = o.spouseRetirementAge, let sp = h.people.first(where: { $0.role == .spouse }) {
             let sid = sp.id
-            let spouseAge = Engine.age(birthDate: sp.birthDate, asOf: Engine.planningAsOf)
+            let spouseAge = Engine.age(birthDate: sp.birthDate, asOf: h.planAsOf)
             let spendEnd = h.goals.first { $0.id == "g_spending" }.flatMap { $0.horizonYears ?? $0.outflows.map { $0.year }.max() }
             let effAge = spendEnd.map { min(newAge, spouseAge + $0) } ?? newAge
             h.people = h.people.map { var np = $0; if np.id == sid { np.expectedRetirementAge = effAge }; return np }

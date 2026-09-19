@@ -1,10 +1,10 @@
 //  IntakeView.swift
 //  WealthPolicyDesk
 //
-//  The entrance experience: a welcome, an 8-step questionnaire, and the routing
+//  The entrance experience: a welcome, a 15-section questionnaire, and the routing
 //  that turns answers into a live desk. RootView is the app's entry point — it
-//  owns the household, loads/saves the intake on-device, and swaps between the
-//  welcome, the wizard, and the desk.
+//  owns the book of business, loads/saves on-device, and swaps between the
+//  welcome, the wizard, the roster, and the desk.
 
 import SwiftUI
 #if canImport(UIKit)
@@ -39,6 +39,32 @@ public struct RootView: View {
     @State private var wizardSeed = IntakeModel()
     @State private var wizardPractice = PracticeMetadata()
     @State private var wizardEditingId: UUID?    // nil ⇒ creating a new client
+    @State private var bookNotice: BookNotice? = nil
+
+    private enum BookNotice: Identifiable {
+        case saveFailed
+        case corrupt(String)
+        var id: String {
+            switch self {
+            case .saveFailed: return "save"
+            case .corrupt(let n): return "corrupt-\(n)"
+            }
+        }
+        var title: String {
+            switch self {
+            case .saveFailed: return "Couldn't save the book"
+            case .corrupt: return "A previous book file was unreadable"
+            }
+        }
+        var message: String {
+            switch self {
+            case .saveFailed:
+                return "The last change is still on screen but was not written to disk. Check available storage and try again — uncommitted work has not been discarded."
+            case .corrupt(let name):
+                return "The unreadable file was moved aside as \(name). The book is empty until you add a client; the backup is still on the device if you need to recover it."
+            }
+        }
+    }
 
     public init() {}
 
@@ -50,14 +76,15 @@ public struct RootView: View {
                     // is non-nil, but presenting a cover/sheet can trigger a transient
                     // re-layout where a force-unwrapped optional binding would trap.
                     household: Binding(get: { household ?? Seed.sampleHousehold }, set: { household = $0 }),
-                    clientHeader: intake != nil ? practice.header : nil,
+                    clientHeader: intake != nil ? practice.header(fallbackName: intake?.adults.first?.name ?? "") : nil,
                     exportJSON: exportJSON, exportCSV: exportCSV,
                     committedStatuses: activeCommittedStatuses,
                     canPersist: activeId != nil,
-                    onCommit: commitActions,
+                    onCommit: persistStaged,
                     onCommitTilts: commitTilts,
                     onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
                     currentHoldings: intake?.heldAwayPositions ?? [],
+                    adults: intake?.adults ?? [],
                     onUpdateHoldings: updateHoldings,
                     onLoadSample: openSample,
                     onClose: closeToBook,
@@ -84,15 +111,31 @@ public struct RootView: View {
                 )
             }
         }
-        .onAppear { if !loaded { book = BookStore.load(); loaded = true } }
+        .onAppear {
+            if !loaded {
+                book = BookStore.load(); loaded = true
+                if let name = BookStore.lastCorruptBackupFilename { bookNotice = .corrupt(name) }
+            }
+        }
+        .alert(bookNotice?.title ?? "Notice", isPresented: Binding(
+            get: { bookNotice != nil },
+            set: { if !$0 { bookNotice = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(bookNotice?.message ?? "")
+        }
         .fullScreenCover(isPresented: $showEcon) {
             EconView(onClose: { showEcon = false })
         }
         // Full-screen (not a sheet): the intake is a long single page, and a form-sheet's
         // swipe/tap-outside dismissal would silently discard everything typed so far.
         .fullScreenCover(isPresented: $showWizard) {
-            IntakeWizard(intake: wizardSeed, practice: wizardPractice) { builtIntake, builtPractice in
-                saveFromWizard(builtIntake, builtPractice); showWizard = false
+            IntakeWizard(intake: wizardSeed, practice: wizardPractice,
+                         previewAsOf: intakePreviewAsOf(
+                            editingPlanAsOf: wizardEditingId.flatMap { id in book.first { $0.id == id }?.planAsOf },
+                            today: todayIsoDate(Date()))) { builtIntake, builtPractice in
+                if saveFromWizard(builtIntake, builtPractice) { showWizard = false }
             } onCancel: { showWizard = false }
         }
     }
@@ -115,15 +158,22 @@ public struct RootView: View {
     }
     private func toggleArchive(_ id: UUID) {
         guard let i = book.firstIndex(where: { $0.id == id }) else { return }
-        book[i].archived.toggle(); book[i].touch(); BookStore.save(book)
+        let snapshot = book[i]
+        book[i].archived.toggle(); book[i].touch()
+        if !BookStore.save(book) { book[i] = snapshot; bookNotice = .saveFailed }
     }
     private func deleteClient(_ id: UUID) {
-        book.removeAll { $0.id == id }; BookStore.save(book)
+        let snapshot = book
+        book.removeAll { $0.id == id }
+        if !BookStore.save(book) { book = snapshot; bookNotice = .saveFailed }
     }
 
     /// Persist the wizard's result into the book — updating the edited record or
-    /// appending a new one — then open it on the desk.
-    private func saveFromWizard(_ builtIntake: IntakeModel, _ builtPractice: PracticeMetadata) {
+    /// appending a new one — then open it on the desk. Returns whether the write
+    /// succeeded; the wizard stays open on failure so the answers are not discarded.
+    @discardableResult
+    private func saveFromWizard(_ builtIntake: IntakeModel, _ builtPractice: PracticeMetadata) -> Bool {
+        let snapshot = book
         let id: UUID
         if let editId = wizardEditingId, let i = book.firstIndex(where: { $0.id == editId }) {
             book[i].intake = builtIntake; book[i].practice = builtPractice; book[i].touch()
@@ -132,64 +182,70 @@ public struct RootView: View {
             let rec = ClientRecord(intake: builtIntake, practice: builtPractice, planAsOf: todayIsoDate(Date()))
             book.append(rec); id = rec.id
         }
-        BookStore.save(book)
+        guard BookStore.save(book) else {
+            book = snapshot
+            bookNotice = .saveFailed
+            return false
+        }
         activeId = id; intake = builtIntake; practice = builtPractice
         // Keep any committed moves layered on the freshly rebuilt household.
-        household = book.first(where: { $0.id == id })?.household() ?? builtIntake.buildHousehold()
+        // Never fall back to the module pin — a 2027 onboard would age as 2026.
+        if let rec = book.first(where: { $0.id == id }) {
+            household = rec.household()
+        } else {
+            household = builtIntake.buildHousehold(asOf: todayIsoDate(Date()))
+        }
+        return true
     }
 
-    /// Commit staged moves onto the open client's plan of record, persist, and
-    /// rebuild the household so the desk shows the new baseline. For the sample
-    /// (no book record) the moves apply in memory only — nothing is persisted.
-    private func commitActions(_ committed: [PlannedAction]) {
-        guard !committed.isEmpty else { return }
+    /// Commit staged moves, tilts, and policy edits in one write so a failed save
+    /// cannot clear the desk's staging while leaving the book unchanged (or half-written).
+    @discardableResult
+    private func persistStaged(_ actions: [PlannedAction], _ tilts: [TacticalTiltAction], _ overrides: HouseholdOverrides) -> Bool {
+        if actions.isEmpty && tilts.isEmpty && overrides.isEmpty { return true }
         if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
-            book[i].actions.append(contentsOf: committed)
+            let snapshot = book[i]
+            if !actions.isEmpty { book[i].actions.append(contentsOf: actions) }
+            if !tilts.isEmpty { book[i].tilts.append(contentsOf: tilts) }
+            if !overrides.isEmpty { book[i].driverOverrides.merge(overrides) }
             book[i].touch()
-            BookStore.save(book)
+            guard BookStore.save(book) else {
+                book[i] = snapshot
+                return false
+            }
             household = book[i].household()
-        } else {
-            household = (household ?? Seed.sampleHousehold).applying(committed)
+            return true
         }
+        var h = household ?? Seed.sampleHousehold
+        if !actions.isEmpty { h = h.applying(actions) }
+        if !tilts.isEmpty { h.tacticalTilts.append(contentsOf: tilts) }
+        if !overrides.isEmpty { h = h.withDriverOverrides(overrides) }
+        household = h
+        return true
     }
 
     /// Persist committed tactical tilts onto the open client's plan of record (or,
     /// for the sample, apply them in memory only).
-    private func commitTilts(_ committed: [TacticalTiltAction]) {
-        guard !committed.isEmpty else { return }
-        if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
-            book[i].tilts.append(contentsOf: committed)
-            book[i].touch()
-            BookStore.save(book)
-            household = book[i].household()
-        } else {
-            var h = household ?? Seed.sampleHousehold
-            h.tacticalTilts.append(contentsOf: committed)
-            household = h
-        }
+    @discardableResult
+    private func commitTilts(_ committed: [TacticalTiltAction]) -> Bool {
+        persistStaged([], committed, HouseholdOverrides())
     }
 
     /// Persist foundational-assumption edits (legacy floor, risk tolerance) made from the
     /// Policy Statement onto the open client's plan of record (or, for the sample, in memory).
-    private func commitOverrides(_ o: HouseholdOverrides) {
-        guard !o.isEmpty else { return }
-        if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
-            book[i].driverOverrides.merge(o)
-            book[i].touch()
-            BookStore.save(book)
-            household = book[i].household()
-        } else if let h = household {
-            household = h.withDriverOverrides(o)
-        }
+    @discardableResult
+    private func commitOverrides(_ o: HouseholdOverrides) -> Bool {
+        persistStaged([], [], o)
     }
 
     /// Clear all foundational-assumption edits, returning to the standardized,
     /// intake-derived plan (or, for the sample, the seed household).
     private func resetOverrides() {
         if let id = activeId, let i = book.firstIndex(where: { $0.id == id }) {
+            let snapshot = book[i]
             book[i].driverOverrides = HouseholdOverrides()
             book[i].touch()
-            BookStore.save(book)
+            guard BookStore.save(book) else { book[i] = snapshot; bookNotice = .saveFailed; return }
             household = book[i].household()
         } else {
             household = Seed.sampleHousehold
@@ -200,19 +256,22 @@ public struct RootView: View {
     /// rebuild so the desk re-derives against the real book. Sample has no record — no-op.
     private func updateHoldings(_ holdings: [IntakeHeldPosition]) {
         guard let id = activeId, let i = book.firstIndex(where: { $0.id == id }) else { return }
+        let snapshot = book[i]
         book[i].intake.heldAwayPositions = holdings
         book[i].touch()
-        BookStore.save(book)
+        guard BookStore.save(book) else { book[i] = snapshot; bookNotice = .saveFailed; return }
         intake = book[i].intake
         household = book[i].household()
     }
 
     /// Commit any staged driver edits and snapshot the resulting plan as a dated review.
-    private func saveReview(_ staged: HouseholdOverrides, note: String, confirmed: [String]) {
+    @discardableResult
+    private func saveReview(_ staged: HouseholdOverrides, note: String, confirmed: [String]) -> Bool {
         guard let id = activeId, let i = book.firstIndex(where: { $0.id == id }) else {
             if let h = household { household = h.withDriverOverrides(staged) }   // sample: apply, no review saved
-            return
+            return true
         }
+        let snapshot = book[i]
         book[i].driverOverrides.merge(staged)
         // A review is the moment the plan is re-drawn, so advance its as-of date. Ages,
         // horizons and save-years all move with it — which is what makes the annual review
@@ -222,8 +281,9 @@ public struct RootView: View {
         book[i].reviews.append(IPSReview.from(Engine.evaluate(hh), overrides: book[i].driverOverrides, at: Date(),
                                               note: note, confirmedSections: confirmed))
         book[i].touch()
-        BookStore.save(book)
+        guard BookStore.save(book) else { book[i] = snapshot; return false }
         household = hh
+        return true
     }
 
     private var activeReviews: [IPSReview] {
@@ -252,7 +312,7 @@ public struct RootView: View {
     /// record path already folds committed moves, committed tilts AND driver overrides.
     private func exportHousehold(_ intake: IntakeModel) -> Household {
         if let id = activeId, let rec = book.first(where: { $0.id == id }) { return rec.household() }
-        return intake.buildHousehold()
+        return intake.buildHousehold(asOf: todayIsoDate(Date()))
     }
 
     /// The per-client CRM record, built by the SAME method the roster export uses, so the
@@ -288,9 +348,12 @@ struct WelcomeView: View {
                 Spacer()
                 VStack(spacing: 8) {
                     Text("Wealth Policy").font(.system(size: 44, weight: .bold, design: .serif)).foregroundStyle(Theme.ink)
-                    Text("Answer a short intake and it drafts a full Investment Policy Statement — your objectives, constraints, and strategic allocation — which you can then walk, edit live, export, and review year over year.")
+                    Text("Answer a short intake and it drafts a full Investment Policy Statement — objectives, constraints, and strategic allocation — which you can then walk, edit live, export, and review year over year.")
                         .font(.system(size: 16)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                         .frame(maxWidth: 520).fixedSize(horizontal: false, vertical: true)
+                    Text("One household or a book of clients — same desk. After the first save, home is the roster, not a different product.")
+                        .font(.system(size: 13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                        .frame(maxWidth: 480).fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(spacing: 12) {
                     Button(action: onStart) {
@@ -323,6 +386,9 @@ struct WelcomeView: View {
 struct IntakeWizard: View {
     @State var intake: IntakeModel
     @State var practice: PracticeMetadata
+    /// Age the review card against this date — today for a new client, the record's
+    /// `planAsOf` when editing — never the module pin.
+    var previewAsOf: IsoDate = Engine.planningAsOf
     var onComplete: (IntakeModel, PracticeMetadata) -> Void
     var onCancel: () -> Void
 
@@ -399,7 +465,7 @@ struct IntakeWizard: View {
                 actionBar
             }
             .background(Theme.paper.ignoresSafeArea())
-            .navigationTitle("Set up my plan").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Household intake").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { dismissKeyboard() } }
             }
@@ -558,7 +624,8 @@ struct IntakeWizard: View {
                             if intake.filingStatus == .single { intake.filingStatus = .mfj }
                         } else if !on && intake.adults.count > 1 {
                             intake.adults.removeLast()
-                            // Removing the spouse rewrites NOTHING. Every status is possible for a
+                            intake.clampHoldingsToAdultRoster()
+                            // Removing the spouse rewrites NOTHING about filing status. Every status is possible for a
                             // one-adult roster — MFJ is the year-of-death filing, MFS is a married
                             // client whose spouse is not modelled, HOH is a single filer with a
                             // dependent — so there is no impossible state to repair, and rewriting
@@ -763,6 +830,7 @@ struct IntakeWizard: View {
                     Card("ESPP") {
                         MoneyField(label: "Annual ESPP contribution", value: $intake.esppAnnualContributionUsd)
                         FormToggle(label: "Lookback provision", isOn: $intake.esppLookback)
+                        Note("The contribution is on the cash-flow. Lookback is recorded on the file; it does not change bargain-element math.")
                     }
                 }
                 Card("QSBS") {
@@ -782,7 +850,7 @@ struct IntakeWizard: View {
                 MoneyField(label: "Individual DI benefit (monthly)", value: $intake.disabilityIndividualMonthlyUsd)
                 FormToggle(label: "Group benefit is taxable (employer-paid premium)", isOn: $intake.disabilityBenefitsTaxable)
                 FormToggle(label: "Own-occupation definition", isOn: $intake.disabilityOwnOccupation)
-                Note("Disability is the income that funds the whole plan. Group-only, taxable coverage replaces ~28% less than it appears to.")
+                Note("Disability is the income that funds the whole plan. Group-only, taxable coverage replaces ~28% less than it appears to. Own-occupation is recorded on the file; the gap uses the taxable-group flag, not this definition.")
             }
             Card("Life") {
                 MoneyField(label: "Life insurance in force", value: $intake.lifeInForceUsd)
@@ -790,6 +858,7 @@ struct IntakeWizard: View {
                     ChoiceChips(LifeKind.allCases.map { ($0, $0.label) }, selection: intake.lifeKind) { intake.lifeKind = $0 }
                 }
                 FormToggle(label: "Held in an irrevocable trust (ILIT)", isOn: $intake.lifeInIrrevocableTrust)
+                Note("Recorded on the file. Life proceeds are not in the estate math, so this does not change inclusion.")
             }
             Card("Long-term care") {
                 FieldLabel("Funding approach") {
@@ -902,7 +971,7 @@ struct IntakeWizard: View {
                 FieldLabel("Lead source") { ChoiceChips(LeadSource.allCases.map { ($0, $0.label) }, selection: practice.leadSource) { practice.leadSource = $0 } }
                 FormText(label: "Lead source detail", value: $practice.leadSourceDetail)
                 FormText(label: "Next action", value: $practice.nextAction)
-                Note("This is the CRM envelope — it never touches the engine, lives in its own file, and is exportable as JSON or CSV from the desk. Contact details stay on this device.")
+                Note("This is the CRM envelope — it never touches the engine. Contact details stay on this device unless you export JSON, CSV, or NDJSON from the desk or roster; those files include names, email, phone, and notes.")
             }
         }
     }
@@ -911,7 +980,7 @@ struct IntakeWizard: View {
         VStack(spacing: 14) {
             Card("Children & dependents") {
                 ForEach($intake.children) { $c in
-                    ChildForm(child: $c) { intake.children.removeAll { $0.id == c.id } }
+                    ChildForm(child: $c) { intake.removeChild(c.id) }
                 }
                 Button { intake.children.append(IntakeChild()) } label: {
                     Label("Add a child", systemImage: "plus.circle").font(.system(size: 14, weight: .semibold))
@@ -920,7 +989,7 @@ struct IntakeWizard: View {
             Card("Education goals") {
                 Note("Education is the one goal whose date can't move, and it grows above CPI. Enter it in today's dollars; the engine inflates each year on the education series and a 529 balance offsets it.")
                 ForEach($intake.educationGoals) { $g in
-                    EducationGoalForm(goal: $g) { intake.educationGoals.removeAll { $0.id == g.id } }
+                    EducationGoalForm(goal: $g, children: intake.children) { intake.educationGoals.removeAll { $0.id == g.id } }
                 }
                 Button { intake.educationGoals.append(IntakeEducationGoal()) } label: {
                     Label("Add an education goal", systemImage: "plus.circle").font(.system(size: 14, weight: .semibold))
@@ -977,8 +1046,7 @@ struct IntakeWizard: View {
                 LedgerRow("× behavior (history + reaction)", String(format: "%.2f×", intake.behaviorTemperMultiplier), color: Theme.muted)
                 LedgerRow("× outlook", String(format: "%.2f×", intake.worry.toleranceTiltMultiplier), color: Theme.muted)
                 LedgerRow("Effective max drawdown", Fmt.pctBps(intake.effectiveMaxDrawdownBps), color: Theme.ink, bold: true)
-                LedgerRow("Implies an equity ceiling near", Fmt.pctBps(intake.impliedEquityCeilingBps), color: Theme.asset, bold: true)
-                Note("This is TOLERANCE. Your situation's CAPACITY — horizon, income stability, funded status — is computed on the desk, and the plan binds to the lower of the two: never more risk than you can afford or will stomach.", icon: "info.circle", color: Theme.muted)
+                Note("This is TOLERANCE. Your situation's CAPACITY — horizon, income stability, funded status — is computed on the desk, and the plan binds to the lower of the two: never more risk than you can afford or will stomach. The equity ceiling lives there, not as a 2× rule of thumb here.", icon: "info.circle", color: Theme.muted)
             }
             Card("Is leaving a legacy…") {
                 ChoiceChips(LegacyPriority.allCases.map { ($0, $0.label) }, selection: intake.legacyPriority) { intake.legacyPriority = $0 }
@@ -1006,7 +1074,7 @@ struct IntakeWizard: View {
     }
 
     private var reviewFigures: some View {
-        let h = intake.buildHousehold()
+        let h = intake.buildHousehold(asOf: previewAsOf)
         let e = Engine.evaluate(h)
         return VStack(spacing: 14) {
             Card("The figures your statement will anchor on") {
@@ -1014,8 +1082,11 @@ struct IntakeWizard: View {
                 LedgerRow("After-tax net worth", Fmt.usd(e.balanceSheet.afterTaxNetWorthUsd), color: Theme.ink, bold: true)
                 LedgerRow("Required real return", Fmt.solvedPctBps(e.requiredReturn.requiredRealReturnBps, solved: e.isSolvable), color: Theme.ink)
                 LedgerRow("Net fixed income", Fmt.usd(e.netFixedIncomeUsd), color: e.netFixedIncomeUsd < 0 ? Theme.debt : Theme.asset)
-                LedgerRow("Funded ratio", Fmt.solvedPctBps(e.balanceSheet.fundedRatioBps, solved: e.isSolvable), color: e.balanceSheet.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber)
+                LedgerRow("Funded ratio", Fmt.solvedPctBps(e.balanceSheet.fundedRatioBps, solved: e.isSolvable), color: e.isSolvable ? (e.balanceSheet.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber) : Theme.muted)
                 LedgerRow("Legacy floor", intake.legacyFloorUsd > 0 || intake.legacyPriority != .none ? Fmt.usd(h.legacyFloorUsd) : "$0", color: Theme.ink)
+                if !e.isSolvable {
+                    Note("Rates stay blank until this household has balances and spending to solve. That is an empty intake, not a broken desk.", icon: "info.circle", color: Theme.muted)
+                }
             }
             Card("Your Investment Policy Statement will set out") {
                 ForEach(["Objectives — the real, after-tax return your goals require and the risk the plan may take",
@@ -1356,8 +1427,7 @@ struct HeldPositionForm: View {
                     .textInputAutocapitalization(.characters)
                     .font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button(role: .destructive, action: onRemove) { Image(systemName: "trash").font(.system(size: 14)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.debt)
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this holding?")
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
@@ -1398,8 +1468,7 @@ struct ChildForm: View {
             HStack {
                 TextField("Name", text: $child.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button(role: .destructive, action: onRemove) { Image(systemName: "trash").font(.system(size: 14)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.debt)
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this child?")
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
@@ -1413,17 +1482,24 @@ struct ChildForm: View {
 
 struct EducationGoalForm: View {
     @Binding var goal: IntakeEducationGoal
+    var children: [IntakeChild] = []
     var onRemove: () -> Void
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(goal.label).font(.system(size: 15, weight: .semibold, design: .serif)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button(role: .destructive, action: onRemove) { Image(systemName: "trash").font(.system(size: 14)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.debt)
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this education goal?")
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+            if !children.isEmpty {
+                FieldLabel("Whose education") {
+                    let options: [(UUID?, String)] = [(nil, "Unassigned")]
+                        + children.map { ($0.id, $0.name.isEmpty ? "Child" : $0.name) }
+                    ChoiceChips(options, selection: goal.childId) { goal.childId = $0 }
+                }
+            }
             FieldLabel("Cost tier") {
                 ChoiceChips(EducationCostPreset.allCases.map { ($0, $0.label) }, selection: goal.costPreset) { p in
                     goal.costPreset = p
@@ -1449,8 +1525,7 @@ struct AdditionalGoalForm: View {
             HStack {
                 Text(goal.label.isEmpty ? goal.type.label : goal.label).font(.system(size: 15, weight: .semibold, design: .serif)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button(role: .destructive, action: onRemove) { Image(systemName: "trash").font(.system(size: 14)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.debt)
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this goal?")
             }
             .padding(.vertical, 5)
             .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)

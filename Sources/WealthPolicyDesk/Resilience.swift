@@ -109,11 +109,22 @@ public extension Engine {
             }
         }
 
+        // Same year-0 gate as requiredReturn: book today's claim off the top when the
+        // solve does (retiree draw, or an accumulator extra/education dated this year).
+        // Accumulators with no year-0 claim stay at startT == 1 so SS/pension at t=0 is
+        // not a pre-compound credit the solve never took.
+        let startT = corpusStartT(h, asOf: asOf)
+
         // Run the corpus at a per-year return, scaling the spending component by `mult`.
         func run(_ ret: (Int) -> Double, mult: Double = 1) -> (terminal: Usd, depletion: Int?) {
             var b = A, dep: Int? = nil
+            // Year 0 is today's draw: no growth year precedes it (same as requiredReturn.terminal).
+            if startT == 0, spend.count > 0 {
+                b -= mult * spend[0] + (other.isEmpty ? 0 : other[0])
+                if b <= 0 { return (0, 0) }
+            }
             for t in 1...horizon {
-                let outflow = mult * (t <= spend.count ? spend[t - 1] : 0) + (t <= other.count ? other[t - 1] : 0)
+                let outflow = mult * (t < spend.count ? spend[t] : 0) + (t < other.count ? other[t] : 0)
                 b = b * (1 + ret(t)) - outflow
                 if b <= 0 && dep == nil { dep = t; b = 0 }
             }
@@ -168,7 +179,9 @@ public extension Engine {
         let saveYears = Engine.householdSaveYears(h, asOf: asOf)
         let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
         var spend: [Usd] = [], other: [Usd] = []
-        for t in 1...horizon {
+        // Index is plan year: [0] is today's draw (a retiree), [1…] match requiredReturn.
+        // Savings never book at t=0 — that would credit an accumulator a phantom year-0 save.
+        for t in 0...horizon {
             var s: Usd = 0
             for g in h.goals where g.kind == .spending || g.kind == .reserve {
                 let excess = g.inflationSeries.realExcessBps.frac
@@ -176,7 +189,7 @@ public extension Engine {
                     s += o.amountUsd * (o.inflationLinked ? pow(1 + excess, Double(max(0, t - 1))) : 1.0)
                 }
             }
-            var inflow: Usd = t <= saveYears ? min(h.annualSavingsUsd, Engine.wagesAtPlanYear(h, year: t, asOf: asOf)) : 0
+            var inflow: Usd = (t >= 1 && t <= saveYears) ? min(h.annualSavingsUsd, Engine.wagesAtPlanYear(h, year: t, asOf: asOf)) : 0
             inflow += socialSecurityAnnual(h, year: t, asOf: asOf) + pensionAnnual(h, year: t) + homeEquityOffset(h, year: t)
             spend.append(s)
             other.append((annualTaxUsd[t] ?? 0) - inflow)

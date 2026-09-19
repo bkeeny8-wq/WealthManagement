@@ -247,13 +247,22 @@ public enum Engine {
         let alloc = resolveAllocation(h, policy: tacticalPolicy, strategic: derivedPolicy)
         let alts = resolveAltSizing(h, policy: derivedPolicy)
         let item = analyzeItemization(itemizationInput(for: h, asOf: asOf), tax: tax)
-        let disp = dispositions(h, tax: tax)
-        let mc = muniCrossover(h, tax: tax, muniYieldBps: assumedMuniYieldBps, treasuryYieldBps: 430, corporateYieldBps: 520)
-        let pays = h.liabilities.filter { $0.isFixedIncomeOffset }.map { paydown($0, household: h, tax: tax) }
+        let disp = dispositions(h, tax: tax, asOf: asOf)
+        let mc = muniCrossover(h, tax: tax, asOf: asOf, muniYieldBps: assumedMuniYieldBps, treasuryYieldBps: 430, corporateYieldBps: 520)
+        let pays = h.liabilities.filter { $0.isFixedIncomeOffset }.map { paydown($0, household: h, tax: tax, asOf: asOf) }
         let decum = rothStrategy(h, tax: tax, rr: rr, asOf: asOf)
+        // Solvable is known before findings: an unsolvable plan must not emit a
+        // Roth-conversion "opportunity" grown at the ±5%/20% clamp.
+        let spendingUsd = h.goals.filter { $0.kind == .spending }
+            .flatMap(\.outflows).reduce(0) { $0 + $1.amountUsd }
+        let returnSolveRanOff = rr.requiredRealReturnBps >= requiredReturnCeilingBps
+            || rr.requiredRealReturnBps <= requiredReturnFloorBps
+        let fundedRatioClamped = bs.fundedRatioBps >= fundedRatioCeilingBps
+        let solvable = h.portfolioValueUsd > 0 && spendingUsd > 0
+            && !returnSolveRanOff && !fundedRatioClamped
         let findings = evaluateConstraints(h, policy: derivedPolicy, tax: tax, asOf: asOf,
                                            balanceSheet: bs, allocation: alloc, altSizing: alts, ladder: lad,
-                                           rothTaxSavedUsd: decum.lifetimeTaxSavedUsd)
+                                           rothTaxSavedUsd: solvable ? decum.lifetimeTaxSavedUsd : 0)
         let resil = resilience(h, tax: tax, rr: rr, asOf: asOf, policy: derivedPolicy, annualTaxUsd: taxByYear)
         // Nothing to solve without both a portfolio and a spending claim to fund from it —
         // AND the solve has to have converged inside its own bracket.
@@ -266,13 +275,6 @@ public enum Engine {
         // headline directly above "your resources cover your goals", because the funded
         // ratio counts human capital while the required return is asked of the portfolio
         // alone. Both figures are defensible separately and contradict each other on screen.
-        let spendingUsd = h.goals.filter { $0.kind == .spending }
-            .flatMap(\.outflows).reduce(0) { $0 + $1.amountUsd }
-        let returnSolveRanOff = rr.requiredRealReturnBps >= requiredReturnCeilingBps
-            || rr.requiredRealReturnBps <= requiredReturnFloorBps
-        let fundedRatioClamped = bs.fundedRatioBps >= fundedRatioCeilingBps
-        let solvable = h.portfolioValueUsd > 0 && spendingUsd > 0
-            && !returnSolveRanOff && !fundedRatioClamped
         return Evaluation(isSolvable: solvable,
                           household: h, policy: policy, legacyPolicy: derivedPolicy, tax: tax, asOf: asOf,
                           balanceSheet: bs, requiredReturn: rr, allocation: alloc, altSizing: alts,
@@ -369,6 +371,21 @@ public enum Engine {
 
     // MARK: - Required return (pure arithmetic, no CMAs)
 
+    /// Plan year the corpus recursion starts. 0 when THIS year has a claim the portfolio
+    /// must fund off the top — a retiree's spending, or an accumulator's extra / education
+    /// goal dated this calendar year. Otherwise 1, so a working household with no year-0
+    /// claim keeps the historical accumulator frame. Savings never book at t=0.
+    static func corpusStartT(_ h: Household, asOf: IsoDate) -> Int {
+        if h.primary.map({ age(birthDate: $0.birthDate, asOf: asOf) >= $0.expectedRetirementAge }) ?? false {
+            return 0
+        }
+        let year0Claim = h.goals.contains { g in
+            (g.kind == .spending || g.kind == .reserve)
+                && g.outflows.contains { $0.year == 0 && $0.amountUsd > 1 }
+        }
+        return year0Claim ? 0 : 1
+    }
+
     /// `annualTaxUsd` (plan-year t → projected federal tax + IRMAA) makes the recursion
     /// AFTER-TAX: the corpus must fund spending PLUS the tax the withdrawals generate.
     /// Empty ⇒ the pre-tax number.
@@ -376,12 +393,7 @@ public enum Engine {
         let A = h.portfolioValueUsd
         let saveYears = householdSaveYears(h, asOf: asOf)
         let horizon = max(1, h.goals.compactMap { $0.horizonYears }.max() ?? 30)
-        // A primary already at/past retirement is drawing down THIS year, and the
-        // decumulation feeder keys that current-year tax at t=0. Fund year 0 too, so it
-        // isn't silently dropped. An accumulator has no year-0 outflow, so the frame is
-        // unchanged for them (and savings are never added at t=0 — see below).
-        let primaryRetiredNow = h.primary.map { age(birthDate: $0.birthDate, asOf: asOf) >= $0.expectedRetirementAge } ?? false
-        let startT = primaryRetiredNow ? 0 : 1
+        let startT = corpusStartT(h, asOf: asOf)
 
         // Real cashflows by year, net of external income, plus the decumulation tax.
         // `annualTaxUsd` carries only the tax the PORTFOLIO pays: decumulation settles a
@@ -466,7 +478,10 @@ public enum Engine {
             }
             liabilityPv += (grossOut + (annualTaxUsd[t] ?? 0)) / disc
             externalPv += (socialSecurityAnnual(h, year: t, asOf: asOf) + pensionAnnual(h, year: t) + homeEquityOffset(h, year: t)) / disc
-            if t >= 1 && t <= saveYears { savingsPv += h.annualSavingsUsd / disc }
+            if t >= 1 && t <= saveYears {
+                let capped = min(h.annualSavingsUsd, wagesAtPlanYear(h, year: t, asOf: asOf))
+                if capped > 0 { savingsPv += capped / disc }
+            }
         }
         // The legacy floor is itself a liability the resources must cover, in PV.
         let floorPv = legacyFloor / pow(1 + safeRealRate, Double(horizon))
@@ -474,9 +489,13 @@ public enum Engine {
         let fundedRatio = netLiabilityPv > 0 ? ((A + savingsPv) / netLiabilityPv) : 9.99
 
         // Balance projection at the required return (ends at the legacy floor).
+        // Same year-0 subtract as `terminal()` — otherwise the chart starts at today's
+        // pre-draw corpus and never books the draw the solve just funded, so a retiree's
+        // path disagrees with the rate printed above it.
         var proj: [YearBalance] = []
         var b = A
-        proj.append(YearBalance(year: year(asOf), balanceUsd: b))
+        if startT == 0 { b -= netOutflow(0, deferYears: 0, scaleDownBps: 0) }
+        proj.append(YearBalance(year: year(asOf), balanceUsd: max(0, b)))
         for t in 1...horizon {
             b = b * (1 + r) - netOutflow(t, deferYears: 0, scaleDownBps: 0)
             proj.append(YearBalance(year: year(asOf) + t, balanceUsd: max(0, b)))

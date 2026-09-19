@@ -64,18 +64,19 @@ struct DeskView: View {
     var exportCSV: String? = nil
     var committedStatuses: [CommittedMoveStatus] = []
     var canPersist: Bool = true
-    var onCommit: ([PlannedAction]) -> Void = { _ in }
-    var onCommitTilts: ([TacticalTiltAction]) -> Void = { _ in }
+    var onCommit: ([PlannedAction], [TacticalTiltAction], HouseholdOverrides) -> Bool = { _, _, _ in true }
+    var onCommitTilts: ([TacticalTiltAction]) -> Bool = { _ in true }
     var onEditIntake: () -> Void
     var currentHoldings: [IntakeHeldPosition] = []
+    var adults: [IntakeAdult] = []
     var onUpdateHoldings: ([IntakeHeldPosition]) -> Void = { _ in }
     var onLoadSample: () -> Void
     var onClose: () -> Void
     var onEcon: () -> Void = {}
-    var onCommitOverrides: (HouseholdOverrides) -> Void = { _ in }
+    var onCommitOverrides: (HouseholdOverrides) -> Bool = { _ in true }
     var onResetOverrides: () -> Void = {}
     var reviews: [IPSReview] = []
-    var onSaveReview: (HouseholdOverrides, String, [String]) -> Void = { _, _, _ in }
+    var onSaveReview: (HouseholdOverrides, String, [String]) -> Bool = { _, _, _ in true }
     @State private var section: DeskTab? = .policyStatement
     /// Moves staged on the desk but not yet committed. The whole desk previews
     /// the household with these applied; Commit clears them onto the record.
@@ -87,13 +88,33 @@ struct DeskView: View {
     /// (the Policy Statement tab is rebuilt on every switch). Reset per-client via .id().
     @State private var reviewNote = ""
     @State private var reviewConfirmed: Set<String> = []
+    @State private var confirm: ConfirmPrompt? = nil
+    @State private var saveFailed = false
+
+    private enum ConfirmPrompt: Identifiable {
+        case discard, loadSample, close, reset
+        var id: String {
+            switch self {
+            case .discard: return "discard"
+            case .loadSample: return "sample"
+            case .close: return "close"
+            case .reset: return "reset"
+            }
+        }
+        var title: String {
+            switch self {
+            case .discard: return "Discard staged work?"
+            case .loadSample: return "Load the sample household?"
+            case .close: return "Leave this desk?"
+            case .reset: return "Reset policy edits to the intake standard?"
+            }
+        }
+    }
 
     /// The household everything on the desk is evaluated against — the record
     /// plus any staged (uncommitted) moves, tactical tilts, and policy edits.
     private var previewHousehold: Household {
-        var h = household.applying(staged)
-        h.tacticalTilts = household.tacticalTilts + stagedTilts
-        return h.withDriverOverrides(draftOverrides)
+        household.previewing(moves: staged, tilts: stagedTilts, overrides: draftOverrides)
     }
     private var eval: Evaluation { Engine.evaluate(previewHousehold) }
 
@@ -106,16 +127,62 @@ struct DeskView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .tint(Theme.accent)
+        .alert("Couldn't save the book", isPresented: $saveFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The last change is still on screen but was not written to disk. Uncommitted work has not been discarded.")
+        }
+        .confirmationDialog(confirm?.title ?? "Confirm", isPresented: Binding(
+            get: { confirm != nil },
+            set: { if !$0 { confirm = nil } }
+        ), titleVisibility: .visible) {
+            switch confirm {
+            case .discard:
+                Button("Discard", role: .destructive) { discard() }
+            case .loadSample:
+                Button("Load sample", role: .destructive) { onLoadSample() }
+            case .close:
+                Button("Leave without committing", role: .destructive) { onClose() }
+            case .reset:
+                Button("Reset", role: .destructive) { draftOverrides = HouseholdOverrides(); onResetOverrides() }
+            case nil:
+                EmptyView()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            switch confirm {
+            case .discard:
+                Text("Staged moves, tilts, and policy edits will be thrown away. The saved plan is unchanged.")
+            case .loadSample:
+                Text(hasUncommittedWork
+                     ? "Uncommitted edits on this desk will be discarded. The saved client, if any, stays in the book."
+                     : "This replaces the open desk with the Harrison sample. The saved book is unchanged.")
+            case .close:
+                Text("Uncommitted moves, tilts, or policy edits will be discarded.")
+            case .reset:
+                Text("Committed policy edits on this client will be cleared. The intake answers stay.")
+            case nil:
+                Text("")
+            }
+        }
     }
 
+    private var hasUncommittedWork: Bool { !staged.isEmpty || !stagedTilts.isEmpty || !draftOverrides.isEmpty }
+
     private func commit() {
-        guard !staged.isEmpty || !stagedTilts.isEmpty || !draftOverrides.isEmpty else { return }
-        if !staged.isEmpty { onCommit(staged.map { var a = $0; a.status = .committed; return a }) }
-        if !stagedTilts.isEmpty { onCommitTilts(stagedTilts.map { var t = $0; t.status = .committed; return t }) }
-        if !draftOverrides.isEmpty { onCommitOverrides(draftOverrides) }
+        guard hasUncommittedWork else { return }
+        // An unresolved sell would persist as a committed no-op. Planning already
+        // disables the button; this is the same gate if Commit is invoked another way.
+        if household.hasUnresolvedMoves(staged) { return }
+        let actions = staged.map { var a = $0; a.status = .committed; return a }
+        let tilts = stagedTilts.map { var t = $0; t.status = .committed; return t }
+        guard onCommit(actions, tilts, draftOverrides) else { saveFailed = true; return }
         staged = []; stagedTilts = []; draftOverrides = HouseholdOverrides()
     }
     private func discard() { staged = []; stagedTilts = []; draftOverrides = HouseholdOverrides() }
+    private func requestClose() { if hasUncommittedWork { confirm = .close } else { onClose() } }
+    private func requestLoadSample() { confirm = .loadSample }
+    private func requestDiscard() { if hasUncommittedWork { confirm = .discard } }
 
     // MARK: sidebar
 
@@ -134,6 +201,12 @@ struct DeskView: View {
                         miniStat("Net FI", Fmt.usdShort(e.netFixedIncomeUsd), e.netFixedIncomeUsd < 0 ? Theme.debt : Theme.asset)
                     }
                     .padding(.top, 2)
+                    if !e.isSolvable {
+                        Text("No solution yet — add balances and spending in the client profile. Blank rates are an empty intake, not a broken desk.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 4)
+                    }
                 }
                 .padding(.vertical, 4)
             }
@@ -143,13 +216,13 @@ struct DeskView: View {
                 }
             }
             Section("Plan") {
-                Button { onClose() } label: { Label("Book of business", systemImage: "rectangle.stack") }
+                Button { requestClose() } label: { Label("Book of business", systemImage: "rectangle.stack") }
                     .foregroundStyle(Theme.ink)
                 Button { onEcon() } label: { Label("Econ backdrop", systemImage: "globe.americas") }
                     .foregroundStyle(Theme.ink)
                 Button { onEditIntake() } label: { Label("Edit client profile", systemImage: "pencil") }
                     .foregroundStyle(Theme.ink)
-                Button { onLoadSample() } label: { Label("Load sample", systemImage: "person.2") }
+                Button { requestLoadSample() } label: { Label("Load sample", systemImage: "person.2") }
                     .foregroundStyle(Theme.ink)
             }
             Section {
@@ -191,16 +264,22 @@ struct DeskView: View {
                 Menu {
                     Button { onEditIntake() } label: { Label("Edit client profile", systemImage: "pencil") }
                     Button { onEcon() } label: { Label("Econ backdrop", systemImage: "globe.americas") }
-                    Button { draftOverrides = HouseholdOverrides(); onResetOverrides() } label: { Label("Reset policy edits to standard", systemImage: "arrow.uturn.backward") }
-                    Button { onLoadSample() } label: { Label("Load sample (Harrisons)", systemImage: "person.2") }
-                    if let json = exportJSON {
-                        ShareLink(item: json, preview: SharePreview("Client record (JSON)")) { Label("Export record (JSON)", systemImage: "square.and.arrow.up") }
-                    }
-                    if let csv = exportCSV {
-                        ShareLink(item: csv, preview: SharePreview("Client record (CSV)")) { Label("Export record (CSV)", systemImage: "tablecells") }
+                    Button { confirm = .reset } label: { Label("Reset policy edits to standard", systemImage: "arrow.uturn.backward") }
+                    Button { requestLoadSample() } label: { Label("Load sample (Harrisons)", systemImage: "person.2") }
+                    if exportJSON != nil || exportCSV != nil {
+                        Section {
+                            if let json = exportJSON {
+                                ShareLink(item: json, preview: SharePreview("Client record (JSON)")) { Label("Export record (JSON)", systemImage: "square.and.arrow.up") }
+                            }
+                            if let csv = exportCSV {
+                                ShareLink(item: csv, preview: SharePreview("Client record (CSV)")) { Label("Export record (CSV)", systemImage: "tablecells") }
+                            }
+                        } header: {
+                            Text("Includes names, email, phone, and notes")
+                        }
                     }
                     Divider()
-                    Button { onClose() } label: { Label("Back to book", systemImage: "rectangle.stack") }
+                    Button { requestClose() } label: { Label("Back to book", systemImage: "rectangle.stack") }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
         }
@@ -212,13 +291,22 @@ struct DeskView: View {
         switch tab {
         case .policyStatement: PolicyStatementTab(eval: e, clientHeader: clientHeader, draftOverrides: $draftOverrides,
                                                   reviews: reviews,
-                                                  saveReview: { note, confirmed in onSaveReview(draftOverrides, note, confirmed); draftOverrides = HouseholdOverrides() },
+                                                  saveReview: { note, confirmed in
+                                                      if onSaveReview(draftOverrides, note, confirmed) {
+                                                          draftOverrides = HouseholdOverrides()
+                                                          return true
+                                                      } else {
+                                                          saveFailed = true
+                                                          return false
+                                                      }
+                                                  },
                                                   canPersist: canPersist,
                                                   hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty,
                                                   reviewNote: $reviewNote, confirmed: $reviewConfirmed)
         case .summary:        PlanSummaryTab(eval: e, clientHeader: clientHeader,
                                               hasStagedMoves: !staged.isEmpty || !stagedTilts.isEmpty || !draftOverrides.isEmpty)
-        case .portfolio:      PortfolioTab(eval: e, holdings: currentHoldings, canEdit: canPersist, onApply: onUpdateHoldings)
+        case .portfolio:      PortfolioTab(eval: e, holdings: currentHoldings, adults: adults, canEdit: canPersist,
+                                          holdingsLocked: !staged.isEmpty, onApply: onUpdateHoldings)
         case .balanceSheet:   BalanceSheetTab(eval: e)
         case .requiredReturn: RequiredReturnTab(eval: e)
         case .resilience:     ResilienceTab(eval: e)
@@ -229,12 +317,13 @@ struct DeskView: View {
         case .rebalance:      RebalanceTab(eval: e)
         case .planning:       PlanningTab(base: household, staged: $staged, stagedTilts: $stagedTilts,
                                           committed: committedStatuses, committedTilts: household.tacticalTilts,
-                                          canPersist: canPersist, onCommit: commit, onDiscard: discard)
+                                          canPersist: canPersist, onCommit: commit, onDiscard: requestDiscard)
         case .constraints:    ConstraintsTab(eval: e)
         case .tax:            TaxTab(eval: e)
         case .decumulation:   DecumulationTab(eval: e)
         case .disposition:    DispositionTab(eval: e)
-        case .tilts:          TiltsTab(eval: e, onSetStyle: { onCommitOverrides(HouseholdOverrides(usEquityStyle: $0)) })
+        case .tilts:          TiltsTab(eval: e, styleLocked: !staged.isEmpty,
+                                      onSetStyle: { if !onCommitOverrides(HouseholdOverrides(usEquityStyle: $0)) { saveFailed = true } })
         case .learn:          LearnTab()
         }
     }
@@ -251,12 +340,12 @@ struct DeskView: View {
         for m in staged {
             if let p = h.positions.first(where: { $0.accountId == m.sellAccountId && $0.ticker == m.sellTicker }),
                h.treatment(of: p) == .taxable {
-                let (st, lt) = p.realizedGainSplit(sellUsd: m.sellUsd, asOf: Engine.planningAsOf)
+                let (st, lt) = p.realizedGainSplit(sellUsd: m.sellUsd, asOf: household.planAsOf)
                 totalST += st; totalLT += lt        // short-term taxed as ordinary, matching the commit path
             }
             h = h.applying(m)
         }
-        return Engine.capitalGainsTaxAggregate(household, shortTerm: totalST, longTerm: totalLT)
+        return Engine.capitalGainsTaxAggregate(household, shortTerm: totalST, longTerm: totalLT, asOf: household.planAsOf)
     }
 
     private var previewLabel: String {
@@ -278,7 +367,7 @@ struct DeskView: View {
                     .font(.system(size: 11)).foregroundStyle(Theme.muted)
             }
             Spacer()
-            Button { discard() } label: { Text("Discard").font(.system(size: 13, weight: .semibold)) }
+            Button { requestDiscard() } label: { Text("Discard").font(.system(size: 13, weight: .semibold)) }
                 .buttonStyle(.plain).foregroundStyle(Theme.debt)
             Button { commit() } label: {
                 Text(canPersist ? "Commit" : "Apply").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)

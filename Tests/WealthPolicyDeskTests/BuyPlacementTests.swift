@@ -139,6 +139,15 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertFalse(e.isSolvable, "no portfolio and no spending goal means nothing to solve")
         // The clamps are still there; the point is that nothing presents them as answers.
         XCTAssertEqual(e.household.portfolioValueUsd, 0, accuracy: 0.5)
+        XCTAssertFalse(e.findings.contains { $0.ruleId == "roth_conversion_opportunity" },
+                       "a clamp-grown conversion 'saving' must not surface as a planning flag")
+
+        let cme = Engine.capitalMarketExpectations(Seed.macroIndicators, regime: Engine.macroRegime(Seed.macroIndicators))
+        let f = Engine.frontier(e, cme: cme)
+        XCTAssertNotEqual(f.requiredRealBps, Engine.requiredReturnCeilingBps,
+                          "the frontier must not treat the 20% clamp as a required-return hurdle")
+        XCTAssertFalse(f.meetsRequiredWithinTolerance,
+                       "an empty intake must not be scored as reaching a clamp nobody can earn")
     }
 
     func testAPortfolioWithNoSpendingGoalIsNotSolvable() {
@@ -174,6 +183,8 @@ final class PlanSolvabilityTests: XCTestCase {
                        "fixture check: the solve runs off the top of its bracket")
         XCTAssertFalse(e.isSolvable,
                        "a bisection that ran off its bracket is a sentinel, not a 20% return the portfolio can be asked to earn")
+        XCTAssertFalse(e.findings.contains { $0.ruleId == "roth_conversion_opportunity" },
+                       "Roth savings grown at the 20% clamp must not appear as a constraint")
     }
 
     /// A funded ratio sitting on its own 9.99x clamp is a sentinel too.
@@ -181,6 +192,49 @@ final class PlanSolvabilityTests: XCTestCase {
         let e = Engine.evaluate(IntakeModel().buildHousehold())
         XCTAssertEqual(e.balanceSheet.fundedRatioBps, Engine.fundedRatioCeilingBps)
         XCTAssertFalse(e.isSolvable)
+    }
+
+    /// Sleeve targets on an unsolvable plan are not a client policy: an empty book
+    /// returns the seed template (nothing to size), and a corpus whose funded ratio
+    /// is the human-capital clamp glides as if the plan were overfunded. A signed
+    /// IPS / Plan Summary must not print either mix as derived from this household.
+    func testUnsolvableSleeveTargetsAreTheTemplateOrAClampGlide() {
+        func growth(_ e: Evaluation) -> Bps {
+            e.legacyPolicy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
+        }
+        let empty = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertFalse(empty.isSolvable)
+        XCTAssertEqual(growth(empty),
+                       Seed.legacyPolicy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps },
+                       "an empty book has nothing to size, so the mix is the seed template")
+
+        var m = IntakeModel()
+        m.adults = [{ var a = IntakeAdult(); a.birthYear = 1985; a.retirementAge = 65
+                      a.salaryUsd = 150_000; return a }()]
+        m.taxableUsd = 25_000
+        m.emergencyReserveUsd = 50_000
+        m.retirementSpendingUsd = 20_000
+        let clamped = Engine.evaluate(m.buildHousehold())
+        XCTAssertFalse(clamped.isSolvable)
+        XCTAssertGreaterThan(clamped.household.portfolioValueUsd, 0, "fixture check: there is a corpus to size")
+        XCTAssertGreaterThanOrEqual(clamped.balanceSheet.fundedRatioBps, Engine.fundedCeilBps,
+                                    "fixture check: the clamp sits past the derisk point, so the mix is the overfunded glide")
+        XCTAssertNotEqual(growth(clamped), growth(empty),
+                          "a corpus still glides; that mix is still not a solved client policy")
+    }
+
+    /// Allocation compares current bps to those targets. An empty book is 0 vs the
+    /// seed template, which `resolveAllocation` scores as an outer breach (it uses
+    /// `max(1, portfolio)` so drift is defined). Allocation / Rebalance must not
+    /// present that as a mandatory correction.
+    func testAnEmptyBooksAllocationReadsAsATemplateBreach() {
+        let e = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertFalse(e.isSolvable)
+        XCTAssertTrue(e.allocation.contains { $0.status == .outerBreach && $0.targetBps > 0 && $0.currentBps == 0 },
+                      "0 vs seed-template targets is an outer breach; the workbench must not present it as a policy ticket")
+        let plan = Engine.rebalancePlan(e.household, policy: e.legacyPolicy, tax: e.tax, asOf: e.asOf)
+        XCTAssertTrue(plan.sleeveGaps.contains { $0.targetBps > 0 && $0.currentBps == 0 },
+                      "rebalance drift against the template is the same non-policy")
     }
 
     /// The BOTTOM of the bracket is the same artifact as the top. `solve` early-returns −5%
@@ -227,6 +281,77 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertEqual(Fmt.solvedPctBps(Engine.requiredReturnCeilingBps, solved: false), "—")
         XCTAssertEqual(Fmt.solvedPctBps(Engine.fundedRatioCeilingBps, solved: false), "—")
         XCTAssertEqual(Fmt.solvedPctBps(479, solved: true), Fmt.pctBps(479), "a solved figure renders normally")
+        let unsolved = IPSReview.from(Engine.evaluate(IntakeModel().buildHousehold()),
+                                      overrides: HouseholdOverrides(),
+                                      at: Date(timeIntervalSinceReferenceDate: 700_000_000))
+        XCTAssertEqual(Fmt.solvedPctBps(unsolved.requiredRealReturnBps, solved: unsolved.solved), "—")
+        XCTAssertEqual(Fmt.solvedPctBps(unsolved.fundedRatioBps, solved: unsolved.solved), "—")
+    }
+
+    /// An empty book covers a $0 liquidity reserve and has no hard findings. Signed
+    /// IPS §5 / Plan Summary must not paint that as a satisfied floor or a green
+    /// zero-hard all-clear, and must not invent "held in the household's own name"
+    /// titling when there is no taxable account.
+    func testAnEmptyBooksSignedConstraintsAreNotSatisfied() {
+        let e = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertTrue(e.household.positions.isEmpty)
+        XCTAssertEqual(e.household.portfolioValueUsd, 0, accuracy: 0.5)
+        XCTAssertTrue(e.ladder.covered, "fixture check: 0 defensive covers a 0 reserve")
+        XCTAssertEqual(e.ladder.requiredLiquidUsd, 0, accuracy: 0.5)
+        XCTAssertFalse(e.findings.contains { $0.severity == .hard },
+                       "fixture check: Plan Summary would paint Must resolve 0 in green")
+        XCTAssertFalse(e.household.accounts.contains { $0.treatment == .taxable },
+                       "fixture check: IPS legal copy would fall through to own-name titling")
+    }
+
+    /// Look-through limits are shares of equity. An empty book has no cells, so
+    /// nothing can breach — a vacuous all-clear. Exposure must not paint
+    /// "Within all limits". Notable constraint checks that never saw a holding
+    /// must not paint PASS either.
+    func testAnEmptyBooksExposureIsAVacuousAllClear() {
+        let e = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertEqual(e.household.portfolioValueUsd, 0, accuracy: 0.5)
+        let ex = Engine.exposureMatrix(e.household)
+        XCTAssertEqual(ex.equityUsd, 0, accuracy: 0.5)
+        XCTAssertTrue(ex.cells.isEmpty)
+        XCTAssertTrue(ex.breaches.isEmpty,
+                      "no equity cells to breach; the workbench must not read that as within all limits")
+        XCTAssertTrue(e.household.positions.isEmpty)
+        for id in ["muni_in_sheltered_account", "liquidity_floor", "capital_call_coverage",
+                   "estate_liquidity", "step_up_sale", "exceeds_total_deviation", "tips_in_taxable"] {
+            XCTAssertFalse(e.findings.contains { $0.ruleId == id },
+                           "\(id) does not fire without holdings; Constraints must not paint it PASS")
+        }
+    }
+
+    /// `rothStrategy` always grows at `rr.requiredRealReturnBps`, including the ±5%/20%
+    /// clamp. Findings already zero `roth_conversion_opportunity`. The Tax tab's
+    /// Roth-conversion window used to print `targetBracketBps` (or "none") anyway —
+    /// that fill is not a client path until the plan solves.
+    func testUnsolvableRothFillIsStillAttachedSoTheTaxCardMustNotPrintIt() {
+        let empty = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertFalse(empty.isSolvable)
+        XCTAssertNotNil(empty.policy.withdrawal.conversionWindow,
+                        "fixture check: Tax tab would render the conversion-window card")
+        XCTAssertFalse(empty.findings.contains { $0.ruleId == "roth_conversion_opportunity" })
+
+        var h = Seed.sampleHousehold
+        h.goals = h.goals.map { g in
+            guard g.kind == .spending else { return g }
+            var q = g
+            q.outflows = q.outflows.map { var o = $0; o.amountUsd *= 10; return o }
+            return q
+        }
+        let e = Engine.evaluate(h)
+        XCTAssertFalse(e.isSolvable, "10× Harrison spending is unfundable")
+        XCTAssertNotNil(e.policy.withdrawal.conversionWindow)
+        XCTAssertFalse(e.findings.contains { $0.ruleId == "roth_conversion_opportunity" },
+                       "findings already gate the clamp-grown saving")
+        XCTAssertFalse(e.decumulation.baseline.years.isEmpty,
+                       "rothStrategy still ran at the clamp rate; Tax must not print the fill")
+        XCTAssertTrue(e.decumulation.targetBracketBps == 0
+                      || e.decumulation.targetBracketBps == 2200
+                      || e.decumulation.targetBracketBps == 2400)
     }
 
     /// And a real plan must still be solvable, or the gate would hide every client's numbers.

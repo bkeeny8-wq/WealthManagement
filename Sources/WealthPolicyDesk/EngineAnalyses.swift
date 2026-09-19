@@ -164,12 +164,13 @@ extension Engine {
 
     // MARK: - Terminal disposition
 
-    public static func dispositions(_ h: Household, tax: TaxParameterSet) -> [DispositionDecision] {
+    public static func dispositions(_ h: Household, tax: TaxParameterSet, asOf: IsoDate? = nil) -> [DispositionDecision] {
+        let date = asOf ?? h.planAsOf
         let persons = max(1, h.people.filter { $0.role != .dependent }.count)
         let exemption = tax.estate.lifetimeExemptionUsd * Double(persons)
         let grossEstate = h.portfolioValueUsd
             + h.externalAssets.filter { $0.kind == .homeEquity || $0.kind == .pension || $0.kind == .business }.reduce(0) { $0 + $1.valueUsd }
-        let magi = estimatedMagi(h, asOf: Engine.planningAsOf)
+        let magi = estimatedMagi(h, asOf: date)
         // Include NIIT once MAGI clears the threshold, matching the embedded-tax /
         // titling convention (a bare marginal LTCG rate understated the disposition tax).
         let niit = magi > (tax.niitThreshold[h.filingStatus] ?? 250_000) ? tax.niitRateBps : 0
@@ -257,9 +258,10 @@ extension Engine {
 
     // MARK: - Muni crossover
 
-    public static func muniCrossover(_ h: Household, tax: TaxParameterSet, muniYieldBps: Bps, treasuryYieldBps: Bps, corporateYieldBps: Bps) -> MuniCrossover {
-        let magi = estimatedMagi(h, asOf: "2026-01-01")
-        let item = analyzeItemization(itemizationInput(for: h, asOf: "2026-08-11"), tax: tax)
+    public static func muniCrossover(_ h: Household, tax: TaxParameterSet, asOf: IsoDate? = nil, muniYieldBps: Bps, treasuryYieldBps: Bps, corporateYieldBps: Bps) -> MuniCrossover {
+        let date = asOf ?? h.planAsOf
+        let magi = estimatedMagi(h, asOf: date)
+        let item = analyzeItemization(itemizationInput(for: h, asOf: date), tax: tax)
         let taxableIncome = max(0, magi - (item.itemizes ? item.totalItemizedUsd : item.standardDeductionUsd))
         let marginal = marginalOrdinaryRateBps(taxableIncome: taxableIncome, filing: h.filingStatus, tax: tax)
         let niitApplies = magi > (tax.niitThreshold[h.filingStatus] ?? .greatestFiniteMagnitude)
@@ -293,9 +295,10 @@ extension Engine {
 
     // MARK: - Pay down or invest
 
-    public static func paydown(_ l: Liability, household h: Household, tax: TaxParameterSet) -> PaydownAnalysis {
-        let magi = estimatedMagi(h, asOf: "2026-01-01")
-        let item = analyzeItemization(itemizationInput(for: h, asOf: "2026-08-11"), tax: tax)
+    public static func paydown(_ l: Liability, household h: Household, tax: TaxParameterSet, asOf: IsoDate? = nil) -> PaydownAnalysis {
+        let date = asOf ?? h.planAsOf
+        let magi = estimatedMagi(h, asOf: date)
+        let item = analyzeItemization(itemizationInput(for: h, asOf: date), tax: tax)
         let taxableIncome = max(0, magi - (item.itemizes ? item.totalItemizedUsd : item.standardDeductionUsd))
         let marginal = marginalOrdinaryRateBps(taxableIncome: taxableIncome, filing: h.filingStatus, tax: tax)
         // A mortgage in the SALT window has SALT capped on state+property alone,

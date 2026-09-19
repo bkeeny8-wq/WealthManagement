@@ -48,8 +48,11 @@ enum PlanSummaryPDF {
         }
         if !current.isEmpty { pages.append(current) }
 
-        // 3) Draw each page into the PDF context.
+        // 3) Draw each page into the PDF context. A unique name so a second export cannot
+        // overwrite a file a still-open share sheet is handing off; the share sheet deletes
+        // this URL when dismissed.
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        try? FileManager.default.removeItem(at: url)
         var box = CGRect(x: 0, y: 0, width: pageW, height: pageH)
         guard let ctx = CGContext(url as CFURL, mediaBox: &box, nil) else { return nil }
         for page in pages {
@@ -82,11 +85,13 @@ enum PlanSummaryPDF {
         var base: String { self == .policyStatement ? "Investment Policy Statement" : "Plan Summary" }
     }
 
-    /// A filesystem-safe, per-document filename, e.g. "Investment Policy Statement - <name>.pdf".
-    static func fileName(for clientName: String, kind: Kind = .policyStatement) -> String {
+    /// A filesystem-safe, per-document filename, e.g. "Investment Policy Statement - <name>-<id>.pdf".
+    /// The unique suffix keeps two in-flight share sheets from pointing at one temp file.
+    static func fileName(for clientName: String, kind: Kind = .policyStatement, unique: String = UUID().uuidString) -> String {
         let cleaned = clientName.components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>")).joined(separator: " ")
         let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(kind.base) - \(trimmed.isEmpty ? "Client" : trimmed).pdf"
+        let suffix = String(unique.prefix(8))
+        return "\(kind.base) - \(trimmed.isEmpty ? "Client" : trimmed)-\(suffix).pdf"
     }
 }
 
@@ -96,11 +101,16 @@ struct SharePayload: Identifiable {
     let url: URL
 }
 
-/// Minimal system share sheet for a generated file.
+/// Minimal system share sheet for a generated file. Deletes the temp file when the
+/// sheet is dismissed so plan PDFs do not accumulate in `temporaryDirectory`.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        vc.completionWithItemsHandler = { _, _, _, _ in
+            for case let url as URL in items { try? FileManager.default.removeItem(at: url) }
+        }
+        return vc
     }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }

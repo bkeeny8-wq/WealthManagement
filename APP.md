@@ -43,8 +43,9 @@ python3 generate_xcodeproj.py
 plan` or `Explore the sample — the Harrisons`). The **15-section intake wizard**
 (`IntakeModel` → `buildHousehold()`) captures a household and builds a live
 `Household`; the desk opens on it. The intake is saved on-device and reloads on
-relaunch. `Edit my answers`, `Load sample`, `Start over`, and CRM export live in
-the sidebar/⋯ menu.
+relaunch. `Edit client profile`, `Load sample (Harrisons)`, and CRM export live in
+the desk ⋯ menu. There is no Start-over control; delete a client from the roster.
+Policy edits reset to the intake standard from the same menu.
 
 Intake sections: Household · **Family** (children, 529 education goals) · Income
 & human capital · **Equity comp** (ISO/NSO/RSU/ESPP/founder, insider window,
@@ -61,11 +62,13 @@ input still produces a working desk. Itemized held-away positions are analyzed a
 
 ## The desk
 
-An iPad three-region layout (`NavigationSplitView`): a **sidebar** of sections, a
-centered **document column**, and a persistent **inspector** of live levers.
-Editing a lever recomputes everything. A **client-profile strip** heads the desk
-for a real relationship. Tabs: Balance Sheet · Required Return · Allocation ·
-Constraints · Tax · Disposition · Tilts · Learn.
+An iPad two-column layout (`NavigationSplitView`): a **sidebar** of sections and a
+centered **document column**. Editing a lever recomputes everything. A
+**client-profile strip** heads the desk for a real relationship. Tabs: Policy
+Statement · Plan Summary · Balance Sheet · Required Return · Resilience ·
+Portfolio · Allocation · Exposure · Risk Scale · Frontier · Rebalance ·
+Planning · Constraints · Tax · Decumulation · Disposition · Tilts · Learn. A
+separate firm-wide **Econ** backdrop is not a desk tab.
 
 ## Layout
 
@@ -91,8 +94,8 @@ Sources/WealthPolicyDesk/
   Teach.swift              all teaching copy: per-card help, guided lessons, two-register glossary
   IntakeView.swift         RootView (multi-client routing + book persistence), WelcomeView, wizard, form controls
   RosterView.swift         the book of business — client roster, summary, whole-book export
-  DeskView.swift           the desk shell, client strip, live household inspector
-  *Tab.swift               the 17 desk tabs (Policy Statement, Plan Summary, … Decumulation, Resilience, Frontier)
+  DeskView.swift           the desk shell, client strip, sidebar + detail
+  *Tab.swift               the 18 desk tabs (Policy Statement, Plan Summary, … Decumulation, Resilience, Frontier)
 Example/                   host app + Info.plist + Assets
 generate_xcodeproj.py      regenerates the pbxproj from the framework file list
 ```
@@ -142,8 +145,9 @@ net worth, funded ratio) plus the engine's open **planning flags** (hard/soft
 counts + the hard ruleIds). It is deliberately **vendor-neutral** — no field is
 shaped to a specific CRM's importer; a real integration is years out. Export a
 single client (JSON/CSV) from the desk ⋯ menu, or the **whole book** as **NDJSON or
-CSV** from the roster ⋯ menu. Contact data (the advisor's own) is included; account
-numbers, per-account balances, and credentials never are. Nothing touches the network.
+CSV** from the roster ⋯ menu. Contact data (names, email, phone, notes) is included
+deliberately; the share sheet warns before you send the file. Account numbers,
+per-account balances, and credentials never are. Nothing touches the network.
 
 ## Compliance
 
@@ -156,8 +160,8 @@ is on-screen throughout. PII stays on device.
 - **Tax numbers** in `Seed.tax2026` (brackets, standard deduction, LTCG, IRMAA)
   are representative **2026 estimates** filling the TS `TAX_2026` TODOs.
 - Required return uses a constant-real-return funding recursion + a TIPS-like safe
-  real rate for PVs — teaching-grade, not Monte-Carlo (resilience/sequence-risk is
-  Tier-2 Path B, not yet built). The after-tax fold is a **one-pass** approximation
+  real rate for PVs — teaching-grade, not Monte-Carlo. Resilience/sequence-risk
+  (Tier-2 Path B) is built. The after-tax fold is a **one-pass** approximation
   (tax fed from a pre-tax-growth projection; displayed projection grows after-tax).
 - **Intake, Tranches 1–3 done.** T1 held-away holdings, additional goals, CRM;
   T2 dependents/education, estate & giving; **T3 Protection** (disability/life/LTC/

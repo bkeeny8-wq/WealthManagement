@@ -21,12 +21,12 @@ struct BalanceSheetTab: View {
 
         StatGrid([
             StatTile("Net fixed income", Fmt.usd(bs.netFixedIncomeUsd), sub: bs.netFixedIncomeUsd < 0 ? "Net SHORT duration" : "Net long", color: netFIColor),
-            StatTile("Funded ratio", Fmt.solvedPctBps(bs.fundedRatioBps, solved: eval.isSolvable), sub: eval.isSolvable ? "Resources ÷ liabilities" : "not yet solvable", color: bs.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber),
+            StatTile("Funded ratio", Fmt.solvedPctBps(bs.fundedRatioBps, solved: eval.isSolvable), sub: eval.isSolvable ? "Resources ÷ liabilities" : "not yet solvable", color: eval.isSolvable ? (bs.fundedRatioBps >= 10_000 ? Theme.asset : Theme.amber) : Theme.muted),
             StatTile("Total B/S equity", Fmt.pctBps(bs.totalBalanceSheetEquityBps), sub: "Incl. human-capital beta", color: Theme.ink),
             StatTile("Net duration", Fmt.yrs(bs.netHouseholdDurationYears), sub: "Household, incl. debt", color: Theme.ink),
         ])
 
-        if let rp = eval.riskProfile {
+        if eval.isSolvable, let rp = eval.riskProfile {
             Card("Risk — capacity vs tolerance") {
                 StatGrid([
                     StatTile("Capacity", Fmt.pctBps(rp.capacityEquityBps), sub: "equity you CAN hold", color: Theme.ink),
@@ -40,14 +40,14 @@ struct BalanceSheetTab: View {
         if let prot = eval.household.protection {
             Card("Protection — coverage vs need") {
                 LedgerRow("Disability gap (monthly)",
-                          prot.disabilityGapMonthlyUsd > 0 ? Fmt.usd(prot.disabilityGapMonthlyUsd) : "covered",
-                          color: prot.disabilityGapMonthlyUsd > 0 ? Theme.debt : Theme.asset)
+                          protectionGapLabel(gap: prot.disabilityGapMonthlyUsd, need: prot.disabilityNeedMonthlyUsd),
+                          color: prot.disabilityGapMonthlyUsd > 0 ? Theme.debt : (prot.disabilityNeedMonthlyUsd > 0 ? Theme.asset : Theme.muted))
                 LedgerRow("Life insurance gap",
-                          prot.lifeGapUsd > 0 ? Fmt.usd(prot.lifeGapUsd) : "covered",
-                          color: prot.lifeGapUsd > 0 ? Theme.debt : Theme.asset)
+                          protectionGapLabel(gap: prot.lifeGapUsd, need: prot.lifeNeedUsd),
+                          color: prot.lifeGapUsd > 0 ? Theme.debt : (prot.lifeNeedUsd > 0 ? Theme.asset : Theme.muted))
                 LedgerRow("Long-term care unfunded",
-                          prot.ltcUnfundedUsd > 0 ? Fmt.usd(prot.ltcUnfundedUsd) : "covered",
-                          color: prot.ltcUnfundedUsd > 0 ? Theme.debt : Theme.asset)
+                          protectionGapLabel(gap: prot.ltcUnfundedUsd, need: prot.ltcTotalExposureUsd),
+                          color: prot.ltcUnfundedUsd > 0 ? Theme.debt : (prot.ltcTotalExposureUsd > 0 ? Theme.asset : Theme.muted))
                 LedgerRow("Umbrella limit", Fmt.usd(prot.umbrellaLimitUsd),
                           color: prot.umbrellaLimitUsd >= bs.grossNetWorthUsd ? Theme.asset : Theme.amber)
                 Note("The tails a brokerage statement never shows — coverage measured against a derived need, not a quote. Gaps surface as findings on the planning surface.")
@@ -88,6 +88,14 @@ struct BalanceSheetTab: View {
             }
             Note("A $2M traditional IRA and a $2M Roth are not the same asset. Lots earmarked to step-up carry NO deferred tax — the step-up extinguishes it, so the balance sheet and the disposition engine are linked.")
         }
+    }
+
+    /// Zero gap is "covered" only when a need was actually computed. Unengaged domains
+    /// used to print an all-clear on a card the intake promised would say UNREVIEWED.
+    private func protectionGapLabel(gap: Usd, need: Usd) -> String {
+        if gap > 0 { return Fmt.usd(gap) }
+        if need > 0 { return "covered" }
+        return "not assessed"
     }
 
     private func accountLabel(_ id: String) -> String { eval.household.account(id)?.label ?? id }

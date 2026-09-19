@@ -108,7 +108,10 @@ struct PlanSummaryTab: View {
 
     private var riskCard: some View {
         Card("How much risk the plan takes") {
-            if let risk = eval.riskProfile {
+            if !eval.isSolvable {
+                Note("Nothing to solve yet. Capacity and the equity ceiling that would fall out of funded status are not numbers that describe this client until the required return has a real solution.",
+                     icon: "questionmark.circle", color: Theme.muted)
+            } else if let risk = eval.riskProfile {
                 StatGrid([
                     StatTile("Can afford", Fmt.pctBps(risk.capacityEquityBps), sub: "equity capacity", color: Theme.ink),
                     StatTile("Will stomach", Fmt.pctBps(risk.toleranceImpliedEquityBps), sub: "risk tolerance", color: Theme.ink),
@@ -130,16 +133,30 @@ struct PlanSummaryTab: View {
 
     private var allocationCard: some View {
         Card("Your policy allocation") {
-            StackBar(allocationBuckets.map { StackSegment($0.label, Double($0.bps), $0.color) })
-            ForEach(allocationBuckets, id: \.label) { r in
-                LedgerRow(r.label, Fmt.pctBps(r.bps), color: r.color)
+            if !eval.isSolvable {
+                Note("Nothing to solve yet. The mix that would print here would be the seed template or the overfunded glide of a funded-ratio clamp — not a policy derived from this household. Enter the account balances and the retirement spending first.",
+                     icon: "questionmark.circle", color: Theme.muted)
+            } else {
+                StackBar(allocationBuckets.map { StackSegment($0.label, Double($0.bps), $0.color) })
+                ForEach(allocationBuckets, id: \.label) { r in
+                    LedgerRow(r.label, Fmt.pctBps(r.bps), color: r.color)
+                }
+                Note("This is the target the plan steers to — DERIVED from your goals, funded status, and risk, not a fixed 60/40. Alternatives are sized by function (convexity, defined-outcome, illiquidity premium) and may narrow to what's available at your account tier. Change a goal and the target moves; your current mix is compared against it on the Allocation tab.")
             }
-            Note("This is the target the plan steers to — DERIVED from your goals, funded status, and risk, not a fixed 60/40. Alternatives are sized by function (convexity, defined-outcome, illiquidity premium) and may narrow to what's available at your account tier. Change a goal and the target moves; your current mix is compared against it on the Allocation tab.")
         }
     }
 
     private var guardrailsCard: some View {
         Card("Guardrails on your plan") {
+            // Holdings rules never ran on an empty book. A green "Must resolve 0"
+            // (and, if protection were reviewed, "sits inside every limit") is the
+            // signed-document twin of the Constraints PASS list.
+            if eval.household.positions.isEmpty {
+                Note("Nothing on the book to check yet. A zero hard-limit count would be a vacuous all-clear — the holdings rules have not been applied to any position. Enter the account balances first.",
+                     icon: "questionmark.circle", color: Theme.muted)
+                ForEach(Array(hardFindings.prefix(3))) { f in guardrailRow(f, Theme.debt) }
+                ForEach(Array(softFindings.prefix(3))) { f in guardrailRow(f, Theme.amber) }
+            } else {
             HStack(spacing: 8) {
                 StatTile("Must resolve", "\(hardFindings.count)", sub: "hard limits", color: hardFindings.isEmpty ? Theme.asset : Theme.debt)
                 StatTile("To review", "\(softFindings.count)", sub: "soft flags", color: softFindings.isEmpty ? Theme.asset : Theme.amber)
@@ -148,6 +165,7 @@ struct PlanSummaryTab: View {
             ForEach(Array(softFindings.prefix(hardFindings.isEmpty ? 3 : 2))) { f in guardrailRow(f, Theme.amber) }
             if hardFindings.isEmpty && softFindings.isEmpty {
                 Note("No constraints tripped — the plan sits inside every limit.", icon: "checkmark.seal", color: Theme.asset)
+            }
             }
         }
     }
@@ -169,7 +187,7 @@ struct PlanSummaryTab: View {
     private var disclosuresCard: some View {
         Card("Assumptions & disclosures") {
             LedgerRow("Prepared as of", eval.asOf, color: Theme.muted)
-            LedgerRow("Tax year / law", "2026 · OBBBA (P.L. 119-21)", color: Theme.muted)
+            LedgerRow("Tax year / estimates", "2026 estimates · last verified \(eval.tax.lastVerifiedAt)", color: Theme.muted)
             LedgerRow("Safe real rate", Fmt.pctBps(rr.safeRealRateBps), color: Theme.muted)
             Note("This is a teaching and analysis document, not investment advice or a recommendation. Every figure uses editable, effective-dated assumptions that must be verified before any client use. Forward-looking figures (expected returns, shortfall odds) come from a labelled capital-market model and are estimates, not forecasts.", icon: "info.circle")
         }
@@ -226,17 +244,23 @@ struct PlanSummaryTab: View {
     // The two or three concrete moves, drawn from the analysis.
     private var nextSteps: [String] {
         var steps: [String] = []
-        if eval.allocation.contains(where: { $0.status != .within }) {
+        if eval.isSolvable && eval.allocation.contains(where: { $0.status != .within }) {
             steps.append("The book has drifted off its policy target — some sleeves sit outside their band. The Rebalance tab shows the tax-aware trades that would close the gap.")
         }
-        if eval.decumulation.lifetimeTaxSavedUsd > 10_000 {
+        if eval.isSolvable && eval.decumulation.lifetimeTaxSavedUsd > 10_000 {
             steps.append("The plan estimates about \(Fmt.usdShort(eval.decumulation.lifetimeTaxSavedUsd)) of lifetime tax saved from Roth conversions in low-bracket years — the Decumulation tab lays out the year-by-year path.")
         }
         for f in hardFindings.prefix(2) { steps.append("A hard limit to resolve — \(f.title): \(f.detail)") }
-        if !isFunded {
+        if eval.isSolvable && !isFunded {
             steps.append("The plan funds \(Fmt.pctBps(bs.fundedRatioBps)) of its goals; closing the gap is a matter of return, savings, or flexing a goal.")
         }
-        if steps.isEmpty { steps.append("The plan is funded, inside every guardrail, and near its policy target — nothing is flagged. Worth a review annually or on a life change.") }
+        if steps.isEmpty {
+            if eval.isSolvable {
+                steps.append("The plan is funded, inside every guardrail, and near its policy target — nothing is flagged. Worth a review annually or on a life change.")
+            } else {
+                steps.append("Nothing to solve yet — add account balances and retirement spending before next steps can be drawn from a funded ratio.")
+            }
+        }
         return Array(steps.prefix(5))
     }
 
