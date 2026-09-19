@@ -14,6 +14,20 @@ struct ExposureTab: View {
     private var fx: FactorTiltView { Engine.factorExposure(eval.household) }
 
     var body: some View {
+        if ex.equityUsd <= 0 { emptyNotice } else { solvedBody }
+    }
+
+    /// Cell / sector / country / EM limits are shares of equity. No equity means
+    /// no cell can breach, so "Within all limits" is a vacuous all-clear — the
+    /// same class of empty-book lie as 0 vs seed-template reading as a rebalance.
+    private var emptyNotice: some View {
+        Card("Look-through exposure") {
+            Note("Nothing to look through yet. Concentration limits are shares of equity, so a book with no equity holdings sits inside every cell, sector, country, and EM cap by construction — that is not a clean bill of health. Enter the equity holdings first.",
+                 icon: "questionmark.circle", color: Theme.muted)
+        }
+    }
+
+    @ViewBuilder private var solvedBody: some View {
         let e = ex
         Card("Look-through exposure") {
             Note("Every equity holding decomposed into country×sector cells, as a share of total equity. A by-sector OR by-country view can look diversified while one cell — US·Technology, say, once the index weight, a sector tilt, and a concentrated stock stack up — quietly dominates. Sector SPDRs and single stocks land in exact cells (single names are assumed US-domiciled — no geo is captured per holding); total-international funds split developed vs EM; broad intl/EM use the country×sector marginal product. Dated reference weights — verify.")

@@ -20,6 +20,28 @@ struct ConstraintsTab: View {
     ]
 
     var body: some View {
+        if eval.household.positions.isEmpty { emptyNotice } else { solvedBody }
+    }
+
+    /// Notable checks that did not fire are painted PASS. On a book with no
+    /// holdings they never ran against anything, so the green list is a vacuous
+    /// all-clear (munis in the right account, cash covering a $0 floor, …).
+    /// Findings that are not holdings-based (protection unreviewed, …) still show.
+    private var emptyNotice: some View {
+        let findings = eval.findings
+        return Group {
+            Card("Constraint compliance", help: Teach.help("constraints")) {
+                Note("Nothing on the book to check yet. The notable rules that would show PASS — munis in the right account, cash covering the liquidity floor, TIPS location — have not been applied to any holdings. The absence of a hard violation is not an all-clear. Enter the account balances first.",
+                     icon: "questionmark.circle", color: Theme.muted)
+            }
+            if !findings.isEmpty {
+                Text("Still on file").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.muted).padding(.top, 2)
+                ForEach(findings) { FindingCard($0) }
+            }
+        }
+    }
+
+    @ViewBuilder private var solvedBody: some View {
         let hard = eval.findings.filter { $0.severity == .hard }
         let soft = eval.findings.filter { $0.severity == .soft }
         let firedIds = Set(eval.findings.map { $0.ruleId })

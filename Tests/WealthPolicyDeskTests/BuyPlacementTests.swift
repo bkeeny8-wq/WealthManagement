@@ -288,6 +288,26 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertEqual(Fmt.solvedPctBps(unsolved.fundedRatioBps, solved: unsolved.solved), "—")
     }
 
+    /// Look-through limits are shares of equity. An empty book has no cells, so
+    /// nothing can breach — a vacuous all-clear. Exposure must not paint
+    /// "Within all limits". Notable constraint checks that never saw a holding
+    /// must not paint PASS either.
+    func testAnEmptyBooksExposureIsAVacuousAllClear() {
+        let e = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertEqual(e.household.portfolioValueUsd, 0, accuracy: 0.5)
+        let ex = Engine.exposureMatrix(e.household)
+        XCTAssertEqual(ex.equityUsd, 0, accuracy: 0.5)
+        XCTAssertTrue(ex.cells.isEmpty)
+        XCTAssertTrue(ex.breaches.isEmpty,
+                      "no equity cells to breach; the workbench must not read that as within all limits")
+        XCTAssertTrue(e.household.positions.isEmpty)
+        for id in ["muni_in_sheltered_account", "liquidity_floor", "capital_call_coverage",
+                   "estate_liquidity", "step_up_sale", "exceeds_total_deviation", "tips_in_taxable"] {
+            XCTAssertFalse(e.findings.contains { $0.ruleId == id },
+                           "\(id) does not fire without holdings; Constraints must not paint it PASS")
+        }
+    }
+
     /// `rothStrategy` always grows at `rr.requiredRealReturnBps`, including the ±5%/20%
     /// clamp. Findings already zero `roth_conversion_opportunity`. The Tax tab's
     /// Roth-conversion window used to print `targetBracketBps` (or "none") anyway —
