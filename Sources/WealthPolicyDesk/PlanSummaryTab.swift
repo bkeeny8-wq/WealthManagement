@@ -148,6 +148,15 @@ struct PlanSummaryTab: View {
 
     private var guardrailsCard: some View {
         Card("Guardrails on your plan") {
+            // Holdings rules never ran on an empty book. A green "Must resolve 0"
+            // (and, if protection were reviewed, "sits inside every limit") is the
+            // signed-document twin of the Constraints PASS list.
+            if eval.household.positions.isEmpty {
+                Note("Nothing on the book to check yet. A zero hard-limit count would be a vacuous all-clear — the holdings rules have not been applied to any position. Enter the account balances first.",
+                     icon: "questionmark.circle", color: Theme.muted)
+                ForEach(Array(hardFindings.prefix(3))) { f in guardrailRow(f, Theme.debt) }
+                ForEach(Array(softFindings.prefix(3))) { f in guardrailRow(f, Theme.amber) }
+            } else {
             HStack(spacing: 8) {
                 StatTile("Must resolve", "\(hardFindings.count)", sub: "hard limits", color: hardFindings.isEmpty ? Theme.asset : Theme.debt)
                 StatTile("To review", "\(softFindings.count)", sub: "soft flags", color: softFindings.isEmpty ? Theme.asset : Theme.amber)
@@ -156,6 +165,7 @@ struct PlanSummaryTab: View {
             ForEach(Array(softFindings.prefix(hardFindings.isEmpty ? 3 : 2))) { f in guardrailRow(f, Theme.amber) }
             if hardFindings.isEmpty && softFindings.isEmpty {
                 Note("No constraints tripped — the plan sits inside every limit.", icon: "checkmark.seal", color: Theme.asset)
+            }
             }
         }
     }

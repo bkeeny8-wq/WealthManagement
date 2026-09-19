@@ -86,6 +86,18 @@ struct PolicyStatementTab: View {
         return listJoin(ordered.map { $0.label.lowercased() })
     }
 
+    /// Empty books have no taxable accounts, so "held in the household's own name"
+    /// invented a titling. With accounts, a missing phrase still means individual name.
+    private var titlingLegalLead: String {
+        if !h.accounts.contains(where: { $0.treatment == .taxable }) {
+            return "No taxable accounts are on file yet, so titling and the basis step-up available to heirs cannot be stated."
+        }
+        if titlingPhrase.isEmpty {
+            return "Taxable assets are held in the household's own name."
+        }
+        return "Taxable accounts are titled as \(titlingPhrase), which governs the basis step-up available to heirs."
+    }
+
     var body: some View {
         letterhead
         if saveReview != nil && canPersist { reviewBar; reviewPanel }   // screen-only; real client only
@@ -247,12 +259,17 @@ struct PolicyStatementTab: View {
             constraint("Liquidity", liquidityText)
             constraint("Time horizon", timeHorizonText)
             constraint("Taxes", taxText)
-            constraint("Legal and regulatory", "\(titlingPhrase.isEmpty ? "Taxable assets are held in the household's own name." : "Taxable accounts are titled as \(titlingPhrase), which governs the basis step-up available to heirs.") The portfolio is managed under the prudent-investor standard, with diversification and suitability as governing principles. Nothing in this statement constitutes legal or tax advice; account titling and beneficiary designations should be confirmed with qualified counsel.")
+            constraint("Legal and regulatory", "\(titlingLegalLead) The portfolio is managed under the prudent-investor standard, with diversification and suitability as governing principles. Nothing in this statement constitutes legal or tax advice; account titling and beneficiary designations should be confirmed with qualified counsel.")
             constraint("Unique circumstances", uniqueText)
         }
     }
 
     private var liquidityText: String {
+        // An empty book covers a $0 reserve (defensive 0 ≥ reserve 0). Calling that
+        // "satisfied" in a signed IPS is the same vacuous all-clear as Constraints PASS.
+        if eval.household.portfolioValueUsd <= 0 {
+            return "No investable balances are on file yet, so a liquidity floor cannot be stated or marked satisfied. Complete the account balances, and this section will size the cash and short-duration requirement those holdings and spending imply."
+        }
         let cover = ladder.covered ? "Current cash and fixed income satisfy this requirement." : "Current cash and fixed income fall short of this requirement and should be replenished."
         let hasSpending = ladder.requiredLiquidUsd > ladder.rebalanceReserveUsd
         let body = hasSpending

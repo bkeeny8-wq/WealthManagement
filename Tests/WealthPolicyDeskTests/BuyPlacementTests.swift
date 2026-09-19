@@ -288,6 +288,22 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertEqual(Fmt.solvedPctBps(unsolved.fundedRatioBps, solved: unsolved.solved), "—")
     }
 
+    /// An empty book covers a $0 liquidity reserve and has no hard findings. Signed
+    /// IPS §5 / Plan Summary must not paint that as a satisfied floor or a green
+    /// zero-hard all-clear, and must not invent "held in the household's own name"
+    /// titling when there is no taxable account.
+    func testAnEmptyBooksSignedConstraintsAreNotSatisfied() {
+        let e = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertTrue(e.household.positions.isEmpty)
+        XCTAssertEqual(e.household.portfolioValueUsd, 0, accuracy: 0.5)
+        XCTAssertTrue(e.ladder.covered, "fixture check: 0 defensive covers a 0 reserve")
+        XCTAssertEqual(e.ladder.requiredLiquidUsd, 0, accuracy: 0.5)
+        XCTAssertFalse(e.findings.contains { $0.severity == .hard },
+                       "fixture check: Plan Summary would paint Must resolve 0 in green")
+        XCTAssertFalse(e.household.accounts.contains { $0.treatment == .taxable },
+                       "fixture check: IPS legal copy would fall through to own-name titling")
+    }
+
     /// Look-through limits are shares of equity. An empty book has no cells, so
     /// nothing can breach — a vacuous all-clear. Exposure must not paint
     /// "Within all limits". Notable constraint checks that never saw a holding
