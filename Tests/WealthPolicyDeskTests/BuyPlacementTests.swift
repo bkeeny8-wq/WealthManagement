@@ -288,6 +288,36 @@ final class PlanSolvabilityTests: XCTestCase {
         XCTAssertEqual(Fmt.solvedPctBps(unsolved.fundedRatioBps, solved: unsolved.solved), "—")
     }
 
+    /// `rothStrategy` always grows at `rr.requiredRealReturnBps`, including the ±5%/20%
+    /// clamp. Findings already zero `roth_conversion_opportunity`. The Tax tab's
+    /// Roth-conversion window used to print `targetBracketBps` (or "none") anyway —
+    /// that fill is not a client path until the plan solves.
+    func testUnsolvableRothFillIsStillAttachedSoTheTaxCardMustNotPrintIt() {
+        let empty = Engine.evaluate(IntakeModel().buildHousehold())
+        XCTAssertFalse(empty.isSolvable)
+        XCTAssertNotNil(empty.policy.withdrawal.conversionWindow,
+                        "fixture check: Tax tab would render the conversion-window card")
+        XCTAssertFalse(empty.findings.contains { $0.ruleId == "roth_conversion_opportunity" })
+
+        var h = Seed.sampleHousehold
+        h.goals = h.goals.map { g in
+            guard g.kind == .spending else { return g }
+            var q = g
+            q.outflows = q.outflows.map { var o = $0; o.amountUsd *= 10; return o }
+            return q
+        }
+        let e = Engine.evaluate(h)
+        XCTAssertFalse(e.isSolvable, "10× Harrison spending is unfundable")
+        XCTAssertNotNil(e.policy.withdrawal.conversionWindow)
+        XCTAssertFalse(e.findings.contains { $0.ruleId == "roth_conversion_opportunity" },
+                       "findings already gate the clamp-grown saving")
+        XCTAssertFalse(e.decumulation.baseline.years.isEmpty,
+                       "rothStrategy still ran at the clamp rate; Tax must not print the fill")
+        XCTAssertTrue(e.decumulation.targetBracketBps == 0
+                      || e.decumulation.targetBracketBps == 2200
+                      || e.decumulation.targetBracketBps == 2400)
+    }
+
     /// And a real plan must still be solvable, or the gate would hide every client's numbers.
     func testARealPlanIsSolvable() {
         var m = IntakeModel()
