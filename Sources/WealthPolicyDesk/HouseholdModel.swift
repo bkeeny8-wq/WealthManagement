@@ -464,6 +464,14 @@ public struct Household: Identifiable, Sendable, Hashable {
     /// Defaulted, so no construction site needs to change.
     public var tacticalTilts: [TacticalTiltAction] = []
 
+    /// The assigned model portfolio, FROZEN at assignment (`ClientRecord.modelAssignment`).
+    /// It supplies the sleeve MENU and the relative weights `resolveTargets` starts from —
+    /// the house's composition view. It does NOT set the equity level: the solver still caps
+    /// growth at the risk ceiling and glides it by funded status, so the level stays an
+    /// output. nil = the firm default (`Seed.legacyPolicy`). Defaulted, so no construction
+    /// site needs to change.
+    public var assignedModel: ModelAssignment? = nil
+
     /// The US-equity value/growth style posture across the size ladder. A composition
     /// overlay only — re-flavors which ETF is held per size bucket, never the risk level.
     /// Defaulted to neutral (cap-weighted blend), so no construction site needs to change.

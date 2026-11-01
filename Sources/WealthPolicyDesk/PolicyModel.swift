@@ -73,7 +73,7 @@ public enum LiquidityClass: String, CaseIterable, Identifiable, Sendable, Hashab
 
 /// The three jobs sold under one label. Sizing is by FUNCTION; the wrapper
 /// varies by what the household can actually access.
-public enum AltFunction: String, CaseIterable, Identifiable, Sendable, Hashable {
+public enum AltFunction: String, Codable, CaseIterable, Identifiable, Sendable, Hashable {
     case convexity                       // trend, commodities, gold — inflation shocks
     case illiquidityPremium = "illiquidity_premium"  // PE, private credit
     case shapedPayoff = "shaped_payoff"  // notes, buffer ETFs — defined outcome

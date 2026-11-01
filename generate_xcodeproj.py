@@ -80,6 +80,8 @@ framework_files = [
     "AllocationSolver.swift",
     "RiskScale.swift",
     "MacroModel.swift",
+    "ModelLibraryStore.swift",
+    "ModelPortfolio.swift",
     "MacroIndicators.swift",
     "TacticalModel.swift",
     "TacticalTilts.swift",

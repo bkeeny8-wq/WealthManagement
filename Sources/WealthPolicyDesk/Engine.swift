@@ -142,6 +142,9 @@ public struct Evaluation: Sendable {
     public var riskProfile: RiskProfile?
     public var decumulation: RothStrategy
     public var resilience: ResilienceAnalysis
+    /// The assigned model portfolio measured against the derived target. nil when no model
+    /// is assigned, and nil on an unsolvable plan (where the target is a clamp artifact).
+    public var modelComparison: ModelComparison? = nil
 }
 
 // MARK: - The engine namespace
@@ -238,7 +241,14 @@ public enum Engine {
         // funded ratio, its risk ceiling, and its liability-sized bond floor —
         // then everything downstream reads the derived policy, not a fixed seed.
         let baseGrowth = Seed.legacyPolicy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
-        let derivedPolicy = resolveTargets(h, base: Seed.legacyPolicy, fundedRatioBps: bs.fundedRatioBps,
+        // An assigned model replaces the TEMPLATE's weights — the sleeve menu and the
+        // relative weights within each role — and nothing else. The ceiling fallback below
+        // stays `Seed.legacyPolicy`'s growth total ON PURPOSE: reading it off the model
+        // instead would make the model's own declared equity level the ceiling, and a
+        // household with no elicited tolerance would get the model AS the target. That one
+        // token is the difference between a template and an override.
+        let derivedPolicy = resolveTargets(h, base: basePolicy(for: h.assignedModel?.model),
+                                           fundedRatioBps: bs.fundedRatioBps,
                                            equityCeilingBps: risk?.bindingEquityBps ?? baseGrowth, ladder: lad)
         // Tactical layer: the sentiment-sourced tilts deviate the strategic target
         // within budget (funded within-role), producing the tactical target. Drifts
@@ -275,12 +285,22 @@ public enum Engine {
         // headline directly above "your resources cover your goals", because the funded
         // ratio counts human capital while the required return is asked of the portfolio
         // alone. Both figures are defensible separately and contradict each other on screen.
-        return Evaluation(isSolvable: solvable,
+        var ev = Evaluation(isSolvable: solvable,
                           household: h, policy: policy, legacyPolicy: derivedPolicy, tax: tax, asOf: asOf,
                           balanceSheet: bs, requiredReturn: rr, allocation: alloc, altSizing: alts,
                           findings: findings, itemization: item, dispositions: disp, ladder: lad, muni: mc,
                           paydowns: pays, deferredTaxTotalUsd: bs.liabilities.deferredTaxUsd,
                           netFixedIncomeUsd: bs.netFixedIncomeUsd, riskProfile: risk, decumulation: decum, resilience: resil)
+        // Model-portfolio comparison, last: it reads the finished derived target. Gated on
+        // `solvable` for the same reason the Allocation tab is — on an unsolvable plan the
+        // derived target is the seed template or a funded-ratio clamp's glide, so a gap
+        // against the assigned model is an artifact, not information.
+        if solvable {
+            let cmp = compareToModel(ev)
+            ev.modelComparison = cmp
+            ev.findings.append(contentsOf: modelFindings(cmp, portfolioUsd: h.portfolioValueUsd))
+        }
+        return ev
     }
 
     // MARK: - Risk profile (capacity vs tolerance, bind to the lower)

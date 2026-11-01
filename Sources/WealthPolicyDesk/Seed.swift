@@ -149,6 +149,9 @@ public enum Seed {
         .init(id: "capital_call_coverage", severity: .hard, description: "Unfunded commitments are a liability. Liquid assets must cover the full remaining call schedule."),
         .init(id: "home_equity_misclassification", severity: .soft, description: "Home equity offsets long-dated housing outflows and displaces real assets. It is not fixed income."),
         .init(id: "alt_fee_budget", severity: .soft, description: "Weighted alt sleeve fee above budget. Against 5bps bonds, the hurdle is real."),
+        .init(id: "model_target_divergence", severity: .soft, description: "The assigned model portfolio's declared equity level differs materially from the level this household's own capacity, tolerance and funded ratio derive. The model is the house's composition view and the benchmark — it is not the target. Close the gap by moving a goal, the savings rate or the stated drawdown tolerance, never by overwriting the derived allocation."),
+        .init(id: "model_cash_floor_override", severity: .soft, description: "The near-term liquidity floor needs more cash than the assigned model declares, so cash was raised above its structural share and the remaining defensive sleeves were squeezed. Cash is sized to near-term spending, not to a strategic weight."),
+        .init(id: "model_unusable", severity: .hard, description: "An assigned model portfolio that names no growth sleeve, no non-growth sleeve, an unknown sleeve, or a negative weight cannot be solved: resolveTargets would return it UNCHANGED and the model would become the target. The firm sleeve menu is solved instead, which means the client is not on the model the record claims."),
     ]
 
     static let statement = """

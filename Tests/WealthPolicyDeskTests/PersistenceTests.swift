@@ -148,7 +148,19 @@ final class PersistenceTests: XCTestCase {
         r.planAsOf = "2028-02-29"     // non-default ⇒ a dropped encode reverts to the pinned date
         r.actions = [populatedAction()]; r.tilts = [populatedTilt()]
         r.driverOverrides = populatedOverrides(); r.reviews = [populatedReview()]
+        // non-nil ⇒ teeth for the model-assignment write (a dropped decode line silently
+        // reverts the client to the firm default on the next reload)
+        r.modelAssignment = populatedAssignment()
         return r
+    }
+
+    private func populatedAssignment() -> ModelAssignment {
+        var m = Seed.modelPortfolios.first { $0.id == "model_growth" }!
+        m.version = 4                      // non-default revision stamp
+        m.isBuiltIn = false                // an edited copy, so every stored field is non-default
+        m.builtForMaxDrawdownBps = 4500
+        return ModelAssignment(modelId: m.id, model: m, assignedAt: "2027-06-30",
+                               reason: "accumulating, 30y horizon, savings rate carries the plan")
     }
 
     // MARK: - Round-trip tests
