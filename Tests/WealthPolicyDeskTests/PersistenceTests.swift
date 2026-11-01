@@ -43,7 +43,7 @@ final class PersistenceTests: XCTestCase {
         IPSReview(id: "review-1", createdAt: d1, note: "what changed this year",
                   confirmedSections: ["return", "risk", "allocation"],
                   requiredRealReturnBps: 456, fundedRatioBps: 6313, equityCeilingBps: 6000,
-                  afterTaxNetWorthUsd: 2_893_928, goalCount: 3, overrides: populatedOverrides(),
+                  afterTaxNetWorthUsd: 3_393_928, goalCount: 3, overrides: populatedOverrides(),
                   planAsOf: "2027-04-09")   // non-default ⇒ teeth for the plan-date write
     }
 
@@ -196,7 +196,9 @@ final class PersistenceTests: XCTestCase {
 
     func testCorruptBackupFilenameIsTimestamped() {
         var c = DateComponents(); c.year = 2031; c.month = 6; c.day = 30; c.hour = 12; c.minute = 4; c.second = 5
-        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(secondsFromGMT: 0)
+        // `TimeZone(secondsFromGMT:)` is failable on this SDK, so the result needs unwrapping —
+        // zero is always a valid offset. Without this the whole test target fails to compile.
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(secondsFromGMT: 0)!
         let name = BookStore.corruptBackupFilename(at: cal.date(from: c)!)
         XCTAssertEqual(name, "wealth-policy-book.corrupt-20310630-120405.json")
         XCTAssertFalse(name.contains(":"), "colons are hostile on some filesystems")

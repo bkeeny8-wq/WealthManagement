@@ -416,7 +416,8 @@ extension Engine {
         }
         // Employer credit concentration (the only HARD household rule).
         // Union so a grant that is both RSU and credit-exposed counts once.
-        let employerExposure = h.deferredComp.filter { $0.subjectToEmployerCredit || $0.kind == .rsu }.reduce(0) { $0 + $1.grantValueUsd }
+        // Awarded grants only — a grant the employer has not made yet is not exposure.
+        let employerExposure = h.deferredComp.filter { !$0.isExpectedFuture && ($0.subjectToEmployerCredit || $0.kind == .rsu) }.reduce(0) { $0 + $1.netUnvestedUsd }
         if employerExposure > 0.08 * max(1, bs.grossNetWorthUsd) {
             out.append(Finding(ruleId: "employer_credit_concentration", module: .household, severity: .hard,
                                title: "Single-employer concentration",

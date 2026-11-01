@@ -77,20 +77,67 @@ public struct HumanCapital: Identifiable, Sendable, Hashable {
     public var annualIncomeUsd: Usd { baseSalaryUsd + expectedBonusUsd }
 }
 
+/// One dated slice of a grant: the units that convert on a particular day.
+///
+/// A grant is not a number, it is a SCHEDULE. An annual-grant employer leaves a client holding
+/// several grants at once, each part-vested, and the tranches interleave — the only way to say
+/// when the money actually arrives, and how much of it is still contingent on staying, is to
+/// carry the dates.
+public struct VestTranche: Identifiable, Sendable, Hashable {
+    public var date: IsoDate
+    public var units: Double
+    /// Gross value of this tranche at the grant's assumed share price.
+    public var grossUsd: Usd
+    public var id: String { "\(date)-\(units)" }
+    public init(date: IsoDate, units: Double, grossUsd: Usd) {
+        self.date = date; self.units = units; self.grossUsd = grossUsd
+    }
+}
+
 public struct DeferredCompensation: Identifiable, Sendable, Hashable {
     public enum Kind: String, CaseIterable, Sendable, Hashable { case rsu, options, deferredCash = "deferred_cash", carry, espp }
     public var id: String
     public var personId: String
     public var kind: Kind
     public var ticker: String?
+    /// The GROSS unvested value. Net of withholding is `netUnvestedUsd`, and that is the figure
+    /// the balance sheet carries: a grant that vests into a 41.78% supplemental withholding rate
+    /// delivers well under half of what the award letter says.
     public var grantValueUsd: Usd
     /// Deferred cash = an unsecured claim on the employer.
     public var subjectToEmployerCredit: Bool
     public var tradingRestricted: Bool
-    public init(id: String, personId: String, kind: Kind, ticker: String?, grantValueUsd: Usd, subjectToEmployerCredit: Bool, tradingRestricted: Bool) {
+
+    /// When the unvested units convert. Empty = the grant is carried as an undated lump, which is
+    /// what every record written before vesting was modelled looks like.
+    public var vesting: [VestTranche]
+    /// Combined supplemental income + payroll withholding applied on vest. 0 = not stated.
+    public var withholdingBps: Bps
+    /// A label for the awarding employer, so two employers' grants can be told apart after a move.
+    public var grantLabel: String?
+    /// True when this entry stands for grants the employer is EXPECTED to make, not grants
+    /// already awarded.
+    ///
+    /// The distinction is the whole difference between an asset and an income stream. An awarded
+    /// grant is the client's, contingent only on staying until it vests. A grant the employer has
+    /// not made yet is neither owned nor promised — it is future compensation, and counting it on
+    /// the balance sheet inflates net worth by the entire remaining career: on the first real case
+    /// study, a $60k expected annual grant over 29 working years showed up as $1,030,218 of
+    /// "unvested" value and took net worth from $178k to $1.2M.
+    public var isExpectedFuture: Bool = false
+
+    /// What actually reaches the client if every tranche vests.
+    public var netUnvestedUsd: Usd { grantValueUsd * (1 - min(1, max(0, withholdingBps.frac))) }
+
+    public init(id: String, personId: String, kind: Kind, ticker: String?, grantValueUsd: Usd,
+                subjectToEmployerCredit: Bool, tradingRestricted: Bool,
+                vesting: [VestTranche] = [], withholdingBps: Bps = 0, grantLabel: String? = nil,
+                isExpectedFuture: Bool = false) {
         self.id = id; self.personId = personId; self.kind = kind; self.ticker = ticker
         self.grantValueUsd = grantValueUsd; self.subjectToEmployerCredit = subjectToEmployerCredit
         self.tradingRestricted = tradingRestricted
+        self.vesting = vesting; self.withholdingBps = withholdingBps; self.grantLabel = grantLabel
+        self.isExpectedFuture = isExpectedFuture
     }
 }
 

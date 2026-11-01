@@ -364,6 +364,57 @@ public enum Engine {
         }
     }
 
+    // MARK: - Deferred compensation that vests on a schedule
+
+    /// Unvested equity comp, NET of the withholding that is taken on vest.
+    ///
+    /// The gross award is not what the client gets. A supplemental rate near 42% means a grant
+    /// letter reading $29,527 delivers about $17,191, and carrying the gross figure on a balance
+    /// sheet overstates net worth by the difference. Grants that never stated a withholding rate
+    /// are returned at gross, which is what they were worth before this was modelled.
+    public static func unvestedNetUsd(_ h: Household, kinds: Set<DeferredCompensation.Kind> = [.rsu, .options, .espp]) -> Usd {
+        h.deferredComp.filter { !$0.isExpectedFuture && kinds.contains($0.kind) }.reduce(0) { $0 + $1.netUnvestedUsd }
+    }
+
+    /// EVERY kind of deferred comp, net of withholding — what the balance sheet carries.
+    ///
+    /// Deliberately wider than `unvestedNetUsd`. Deferred cash and carry are not equity and must
+    /// stay out of the equity percentage, but they are still the client's money and belong in net
+    /// worth: the doctrine is total balance sheet or nothing. Deferred cash is additionally an
+    /// UNSECURED claim on the employer, which the concentration rule prices separately.
+    public static func deferredCompNetUsd(_ h: Household) -> Usd {
+        h.deferredComp.filter { !$0.isExpectedFuture }.reduce(0) { $0 + $1.netUnvestedUsd }
+    }
+
+    /// What vests in plan year `t` (1-based), net of withholding, across EVERY grant.
+    ///
+    /// Grants interleave: an employer that awards every March leaves a client holding four
+    /// part-vested grants whose tranches land in the same months. Summing across grants is the
+    /// only way to see what a given year actually delivers.
+    public static func vestingNetInYear(_ h: Household, year t: Int, asOf: IsoDate) -> Usd {
+        let base = year(asOf)
+        return h.deferredComp.reduce(0) { acc, g in
+            let keep = 1 - min(1, max(0, g.withholdingBps.frac))
+            return acc + g.vesting.filter { year($0.date) == base + t }.reduce(0) { $0 + $1.grossUsd * keep }
+        }
+    }
+
+    /// The last plan year any tranche vests — the horizon over which the client is still tied to
+    /// the employer by unvested money. 0 when nothing is scheduled.
+    public static func lastVestPlanYear(_ h: Household, asOf: IsoDate) -> Int {
+        let base = year(asOf)
+        let last = h.deferredComp.filter { !$0.isExpectedFuture }.flatMap(\.vesting).map { year($0.date) }.max()
+        guard let last else { return 0 }
+        return max(0, last - base)
+    }
+
+    /// Unvested value with no vest date on it. Undated unvested comp cannot be placed in a year,
+    /// so it cannot be spent, taxed or diversified on a schedule — worth surfacing rather than
+    /// silently treating as though it arrives today.
+    public static func undatedUnvestedNetUsd(_ h: Household) -> Usd {
+        h.deferredComp.filter { !$0.isExpectedFuture && $0.vesting.isEmpty }.reduce(0) { $0 + $1.netUnvestedUsd }
+    }
+
     public static func householdSaveYears(_ h: Household, asOf: IsoDate) -> Int {
         let adults = h.people.filter { $0.role == .primary || $0.role == .spouse }
         return adults.map { max(0, $0.expectedRetirementAge - age(birthDate: $0.birthDate, asOf: asOf)) }.max() ?? 0
@@ -713,13 +764,23 @@ public enum Engine {
         let grossEstate = max(0, portfolio + homeEquity + pensionPv + businessPv - nonMortgageDebt)
         let projectedEstateTax = max(0, grossEstate - exemption) * tax.estate.topRateBps.frac
 
+        // NET of withholding. The gross award never reaches the client: a ~42% supplemental rate
+        // turns a $29,527 grant into about $17,191, and counting the gross both inflates total
+        // balance-sheet equity and overstates what the household could ever diversify.
+        let unvestedEquity = unvestedNetUsd(h)
+        let deferredCompAsset = deferredCompNetUsd(h)
         // Goal liability PV (reuse the required-return liability; rr is passed in).
         let goalLiabilityPv = rr.liabilityPvUsd
 
-        let assets = BalanceSheetView.Assets(portfolioUsd: portfolio, realEstateUsd: realEstateGross, humanCapitalPvUsd: hcPv, socialSecurityPvUsd: ssPv, pensionPvUsd: pensionPv, businessUsd: businessPv, illiquidAltsUsd: illiquidAlts)
+        var assets = BalanceSheetView.Assets(portfolioUsd: portfolio, realEstateUsd: realEstateGross, humanCapitalPvUsd: hcPv, socialSecurityPvUsd: ssPv, pensionPvUsd: pensionPv, businessUsd: businessPv, illiquidAltsUsd: illiquidAlts)
+        assets.unvestedCompUsd = deferredCompAsset
         let liabilities = BalanceSheetView.Liabilities(debtUsd: debt, unfundedCommitmentsUsd: unfunded, deferredTaxUsd: deferredTax, projectedEstateTaxUsd: projectedEstateTax, goalLiabilityPvUsd: goalLiabilityPv)
 
-        let totalHardAssets = portfolio + realEstateGross + businessPv
+        // Unvested comp is a hard asset in the sense that matters here: it is the client's, it is
+        // net of the withholding that will be taken, and it shows up on their own statement. It is
+        // NOT unconditional — every tranche is contingent on still being there when it converts —
+        // which the screen says beside the figure rather than resolving by leaving it out.
+        let totalHardAssets = portfolio + realEstateGross + businessPv + deferredCompAsset
         let grossNetWorth = totalHardAssets - debt - unfunded
         let afterTaxNetWorth = grossNetWorth - deferredTax - projectedEstateTax
 
@@ -738,7 +799,6 @@ public enum Engine {
         // Total balance-sheet equity.
         let equityPositions = h.positions.filter { isEquity($0) }.reduce(0) { $0 + $1.marketValueUsd }
         let hcEquity = h.humanCapital.reduce(0.0) { $0 + hcPvOne($1) * $1.impliedBeta }
-        let unvestedEquity = h.deferredComp.filter { $0.kind == .rsu || $0.kind == .options || $0.kind == .espp }.reduce(0) { $0 + $1.grantValueUsd }
         let equityDollars = equityPositions + hcEquity + unvestedEquity + homeEquity   // levered RE equity counts
         // Unvested comp is in the numerator, so it must also be in the denominator.
         let tbsDenom = portfolio + hcPv + realEstateGross + ssPv + pensionPv + businessPv + unvestedEquity

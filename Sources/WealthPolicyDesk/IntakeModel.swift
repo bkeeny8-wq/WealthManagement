@@ -121,6 +121,23 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
     public var sector: Sector? = nil
     public var employerStockUsd: Usd = 0
     public var deferredCashUsd: Usd = 0
+
+    /// Equity grants that vest on a SCHEDULE, one entry per grant.
+    ///
+    /// `employerStockUsd` above is the undated lump this replaces for anyone who can say when
+    /// their units convert. Both are carried: a client who only knows a total still gets a
+    /// balance-sheet line, and one who has their grant table gets a dated one. Where grants are
+    /// listed, the lump is ignored rather than double-counted.
+    public var rsuGrants: [IntakeRsuGrant] = []
+
+    /// What the employer is expected to keep granting, per year, in today's dollars — the part of
+    /// future compensation delivered as stock rather than cash. 0 = no further grants assumed.
+    public var expectedAnnualGrantUsd: Usd = 0
+    /// Over how many years each future grant vests.
+    public var expectedGrantVestYears: Int = 4
+    /// Supplemental + payroll withholding taken on vest, applied to future grants and to any
+    /// listed grant that does not state its own.
+    public var grantWithholdingBps: Bps = 0
     /// Monthly Social Security at full retirement age, as printed on THIS person's SSA
     /// statement. Zero means "not supplied", and the model falls back to estimating it from
     /// salary — a rough bend-point approximation that quietly became a client-facing
@@ -199,6 +216,60 @@ public enum PermanentHoldPolicy: String, Codable, CaseIterable, Hashable {
 }
 
 /// A single itemized held-away position — real ticker, value and basis.
+/// One equity grant and the dates its units convert.
+///
+/// Modelled because an annual-grant employer does not hand out one award, it hands out a ladder:
+/// four grants outstanding at once, each part-vested, their tranches interleaving across the next
+/// four years. A single "employer stock" number cannot say when any of it arrives, how much is
+/// still contingent on staying, or what a departure would forfeit.
+public struct IntakeRsuGrant: Identifiable, Codable, Hashable {
+    public var id = UUID()
+    /// What the client calls it on their own statement — "24BSS", "2026 annual".
+    public var label: String = ""
+    /// The awarding employer, so grants survive a job move legibly.
+    public var employer: String = ""
+    public var ticker: String = ""
+    public var unitsUnvested: Double = 0
+    public var sharePriceUsd: Usd = 0
+    /// Vest dates for the UNVESTED units only, in ISO form. Units are split evenly across the
+    /// dates unless `unitsByDate` says otherwise.
+    public var vestDates: [IsoDate] = []
+    /// Optional per-date unit counts, parallel to `vestDates`. Empty = split evenly.
+    public var unitsByDate: [Double] = []
+    /// This grant's own withholding, when it differs from the household default. 0 = use the default.
+    public var withholdingBps: Bps = 0
+
+    public var grossUnvestedUsd: Usd { unitsUnvested * sharePriceUsd }
+
+    public init() {}
+
+    /// Defaults-first decode, matching the rest of this file: a newly added key missing from older
+    /// JSON must not fail the whole value.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        if let v = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil { id = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? nil { label = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .employer)) ?? nil { employer = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .ticker)) ?? nil { ticker = v }
+        if let v = (try? c.decodeIfPresent(Double.self, forKey: .unitsUnvested)) ?? nil { unitsUnvested = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .sharePriceUsd)) ?? nil { sharePriceUsd = v }
+        if let v = (try? c.decodeIfPresent([IsoDate].self, forKey: .vestDates)) ?? nil { vestDates = v }
+        if let v = (try? c.decodeIfPresent([Double].self, forKey: .unitsByDate)) ?? nil { unitsByDate = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .withholdingBps)) ?? nil { withholdingBps = v }
+    }
+
+    /// The dated tranches this grant implies, at a stated household withholding default.
+    func tranches() -> [VestTranche] {
+        guard !vestDates.isEmpty, sharePriceUsd > 0 else { return [] }
+        let even = unitsUnvested / Double(vestDates.count)
+        return vestDates.enumerated().map { i, d in
+            let u = i < unitsByDate.count ? unitsByDate[i] : even
+            return VestTranche(date: d, units: u, grossUsd: u * sharePriceUsd)
+        }
+    }
+}
+
 public struct IntakeHeldPosition: Codable, Hashable, Identifiable {
     public var id = UUID()
     public var ticker: String = ""
@@ -953,8 +1024,44 @@ public extension IntakeModel {
                                              impliedBeta: a.incomeCharacter.impliedBeta, sector: a.sector,
                                              yearsRemaining: max(0, a.retirementAge - age), realGrowthRateBps: 100,
                                              jobLossInDrawdownProbabilityBps: a.incomeCharacter == .equityLike || a.incomeCharacter == .leveredEquity ? 3000 : 1200))
-            if a.employerStockUsd > 0 {
-                deferredComp.append(DeferredCompensation(id: "dc_rsu_\(i)", personId: pid, kind: .rsu, ticker: "EMPLOYER", grantValueUsd: a.employerStockUsd, subjectToEmployerCredit: false, tradingRestricted: true))
+            // Dated grants win over the undated lump. Carrying both would double-count the same
+            // units: `employerStockUsd` is the answer a client gives when they cannot break the
+            // total down, and `rsuGrants` is the same money once they can.
+            let listed = a.rsuGrants.filter { $0.grossUnvestedUsd > 0 }
+            if !listed.isEmpty {
+                for (j, g) in listed.enumerated() {
+                    let wh = g.withholdingBps > 0 ? g.withholdingBps : a.grantWithholdingBps
+                    deferredComp.append(DeferredCompensation(
+                        id: "dc_rsu_\(i)_\(j)", personId: pid, kind: .rsu,
+                        ticker: g.ticker.isEmpty ? "EMPLOYER" : g.ticker,
+                        grantValueUsd: g.grossUnvestedUsd,
+                        subjectToEmployerCredit: false, tradingRestricted: true,
+                        vesting: g.tranches(), withholdingBps: wh,
+                        grantLabel: g.label.isEmpty ? nil : g.label))
+                }
+            } else if a.employerStockUsd > 0 {
+                deferredComp.append(DeferredCompensation(id: "dc_rsu_\(i)", personId: pid, kind: .rsu, ticker: "EMPLOYER", grantValueUsd: a.employerStockUsd, subjectToEmployerCredit: false, tradingRestricted: true, withholdingBps: a.grantWithholdingBps))
+            }
+            // Compensation the employer is expected to keep delivering as stock. Each future year
+            // grants a fresh award that vests over `expectedGrantVestYears`, so the ladder keeps
+            // rolling for as long as the client is still working. Without this, a client whose
+            // bonus arrives half in stock looks like one paid entirely in cash.
+            if a.expectedAnnualGrantUsd > 0 && a.retirementAge > age {
+                let vestYears = max(1, a.expectedGrantVestYears)
+                let perTranche = a.expectedAnnualGrantUsd / Double(vestYears)
+                var future: [VestTranche] = []
+                for grantYear in 1...max(1, a.retirementAge - age) {
+                    for k in 1...vestYears {
+                        let y = yr + grantYear + k - 1
+                        future.append(VestTranche(date: "\(y)-03-01", units: 0, grossUsd: perTranche))
+                    }
+                }
+                deferredComp.append(DeferredCompensation(
+                    id: "dc_rsu_future_\(i)", personId: pid, kind: .rsu,
+                    ticker: "EMPLOYER", grantValueUsd: future.reduce(0) { $0 + $1.grossUsd },
+                    subjectToEmployerCredit: false, tradingRestricted: true,
+                    vesting: future, withholdingBps: a.grantWithholdingBps,
+                    grantLabel: "Expected future grants", isExpectedFuture: true))
             }
             if a.deferredCashUsd > 0 {
                 deferredComp.append(DeferredCompensation(id: "dc_cash_\(i)", personId: pid, kind: .deferredCash, ticker: nil, grantValueUsd: a.deferredCashUsd, subjectToEmployerCredit: true, tradingRestricted: false))

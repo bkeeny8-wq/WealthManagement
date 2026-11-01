@@ -178,11 +178,18 @@ public struct BalanceSheetView: Sendable, Hashable {
         public var pensionPvUsd: Usd
         public var businessUsd: Usd
         public var illiquidAltsUsd: Usd
+        /// Unvested equity comp, NET of the withholding taken on vest, and CONTINGENT on staying
+        /// until each tranche converts. Carried as an asset because the doctrine is total balance
+        /// sheet or nothing — it was previously counted in the equity percentage and nowhere in
+        /// net worth, so a client's own statement and this screen disagreed by the whole grant.
+        public var unvestedCompUsd: Usd = 0
         public init(portfolioUsd: Usd, realEstateUsd: Usd, humanCapitalPvUsd: Usd, socialSecurityPvUsd: Usd, pensionPvUsd: Usd, businessUsd: Usd, illiquidAltsUsd: Usd) {
             self.portfolioUsd = portfolioUsd; self.realEstateUsd = realEstateUsd; self.humanCapitalPvUsd = humanCapitalPvUsd
             self.socialSecurityPvUsd = socialSecurityPvUsd; self.pensionPvUsd = pensionPvUsd; self.businessUsd = businessUsd
             self.illiquidAltsUsd = illiquidAltsUsd
         }
+        /// Convenience for callers written before unvested comp was a line.
+        public mutating func withUnvestedComp(_ usd: Usd) -> Assets { unvestedCompUsd = usd; return self }
     }
     public struct Liabilities: Sendable, Hashable {
         public var debtUsd: Usd

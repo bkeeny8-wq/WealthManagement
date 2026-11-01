@@ -43,9 +43,18 @@ final class GoldenMasterTests: XCTestCase {
         let e = Engine.evaluate(Seed.sampleHousehold)
         XCTAssertEqual(e.requiredReturn.requiredRealReturnBps, 479)
         XCTAssertEqual(e.requiredReturn.requiredRealReturnPreTaxBps, 423)
+        // Funded ratio from the remote's year-0 retiree-spending change; the net-worth figures
+        // from this branch, where deferred compensation became a balance-sheet asset.
         XCTAssertEqual(e.balanceSheet.fundedRatioBps, 6086)
-        XCTAssertEqual(e.balanceSheet.afterTaxNetWorthUsd, 2_893_928, accuracy: 0.5)
-        XCTAssertEqual(e.balanceSheet.grossNetWorthUsd, 3_105_000, accuracy: 0.5)
+        // Both rose by exactly $500,000: the Harrisons' $320,000 of unvested RSUs plus $180,000
+        // of deferred cash. Before that change the engine counted unvested comp in the equity
+        // PERCENTAGE — numerator and denominator both — while leaving it out of net worth
+        // entirely, so this screen and a client's own statement disagreed by the whole grant.
+        // The doctrine is total balance sheet or nothing; deferred comp is a position.
+        XCTAssertEqual(e.balanceSheet.afterTaxNetWorthUsd, 3_393_928, accuracy: 0.5)
+        XCTAssertEqual(e.balanceSheet.grossNetWorthUsd, 3_605_000, accuracy: 0.5)
+        XCTAssertEqual(e.balanceSheet.assets.unvestedCompUsd, 500_000, accuracy: 0.5,
+                       "the sample's RSUs and deferred cash are no longer on the balance sheet")
         XCTAssertEqual(e.netFixedIncomeUsd, -120_000, accuracy: 0.5)
         XCTAssertEqual(e.riskProfile?.bindingEquityBps, 6000)
         XCTAssertEqual(e.riskProfile?.capacityEquityBps, 6700)
