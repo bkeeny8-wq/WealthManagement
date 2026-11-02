@@ -156,6 +156,10 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
     /// pretending a wife's 401(k) can fund a purchase in her husband's IRA.
     public var traditionalUsd: Usd = 0
     public var rothUsd: Usd = 0
+    /// An HSA, held per adult for the same reason the other two are: it is individually
+    /// owned, and its balance was previously folded into `traditionalUsd`, which charged it
+    /// ordinary income on every withdrawal and put it on an RMD clock it does not have.
+    public var hsaUsd: Usd = 0
     public init() {}
 
     /// Defaults-first decode, matching IntakeModel's own decoder. Synthesized Codable
@@ -178,6 +182,7 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .deferredCashUsd)) ?? nil { deferredCashUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .traditionalUsd)) ?? nil { traditionalUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .rothUsd)) ?? nil { rothUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .hsaUsd)) ?? nil { hsaUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .socialSecurityMonthlyUsd)) ?? nil { socialSecurityMonthlyUsd = v }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .ssClaimAge)) ?? nil { ssClaimAge = v }
         sector = (try? c.decodeIfPresent(Sector.self, forKey: .sector)) ?? nil
@@ -597,6 +602,10 @@ public struct IntakeModel: Codable, Hashable {
         get { adults.reduce(0) { $0 + $1.rothUsd } }
         set { assignToPrimary(newValue, \.rothUsd) }
     }
+    public var hsaUsd: Usd {
+        get { adults.reduce(0) { $0 + $1.hsaUsd } }
+        set { assignToPrimary(newValue, \.hsaUsd) }
+    }
     /// The keys these balances were stored under when they were household totals on the
     /// model rather than per-adult. Read-only: they are migrated on load and never written
     /// again, so the adults' own values stay the single source of truth.
@@ -994,13 +1003,19 @@ public struct IntakeModel: Codable, Hashable {
                     .reduce(0) { $0 + $1.marketValueUsd }
                 retirement += max(stated, itemized)
             }
+            // The HSA is a stated balance only. Nothing can be itemized into it: the
+            // held-away chip offers the three TREATMENTS, and `acctId` files every
+            // `.taxFree` holding into the Roth, so there is no itemized total to reconcile
+            // against. Added here as a plain term — not inside the max() loop — so it
+            // cannot be silently absorbed by a Roth holding.
+            retirement += a.hsaUsd
         }
         return taxable + retirement
     }
 
     /// The stated balances alone, before any itemisation is reconciled against them. Kept for
     /// the places that genuinely mean "what the client typed in the balance fields".
-    public var statedInvestableUsd: Usd { taxableUsd + traditionalUsd + rothUsd }
+    public var statedInvestableUsd: Usd { taxableUsd + traditionalUsd + rothUsd + hsaUsd }
     /// Age of the primary adult in calendar year `currentYear`. Intake wheels still use the
     /// module year; CRM export and the engine must call `primaryAge(asOf:)` so a 2027 review
     /// does not ship a 2026 age next to 2027 economics.
@@ -1331,10 +1346,10 @@ public extension IntakeModel {
         // better evidence than a rounded balance, so the account holds it and synthesizes
         // nothing on top. The contradiction is surfaced to the form (`overItemisedAccounts`)
         // rather than silently rebalanced away.
-        func addAccount(_ id: String, _ label: String, _ treatment: AccountTaxTreatment, _ balance: Usd, _ ownership: AccountOwnership) {
+        func addAccount(_ id: String, _ label: String, _ treatment: AccountTaxTreatment, _ balance: Usd, _ ownership: AccountOwnership, isHsa: Bool = false) {
             let itemized = itemizedByAccount[id] ?? 0
             guard balance > 0 || itemized > 0 else { return }
-            if !accounts.contains(where: { $0.id == id }) { accounts.append(Account(id: id, label: label, treatment: treatment, ownership: ownership)) }
+            if !accounts.contains(where: { $0.id == id }) { accounts.append(Account(id: id, label: label, treatment: treatment, ownership: ownership, isHsa: isHsa)) }
             let remainder = max(0, balance - itemized)   // synthesize only what the client didn't itemize
             if remainder > 0 {
                 positions.append(contentsOf: Self.synthesizePositions(accountId: id, treatment: treatment, balance: remainder, gainPct: taxableUnrealizedGainPct, equityPct: currentEquityPct))
@@ -1358,6 +1373,11 @@ public extension IntakeModel {
             let owner = AccountOwnership(kind: .individual, ownerPersonId: "p_\(i)")
             addAccount("acct_trad\(suffix)", "\(who) traditional (IRA/401k)", .taxDeferred, a.traditionalUsd, owner)
             addAccount("acct_roth\(suffix)", "\(who) Roth", .taxFree, a.rothUsd, owner)
+            // The HSA is its OWN `.taxFree` account, not a line inside the Roth. Separate
+            // because the flag has to hang off something: pooling it into `acct_roth` would
+            // leave the plan unable to say how much of the tax-free bucket carries a
+            // conditional exemption, which is the one fact an HSA adds.
+            addAccount("acct_hsa\(suffix)", "\(who) HSA", .taxFree, a.hsaUsd, owner, isHsa: true)
         }
 
         // Liabilities.

@@ -681,6 +681,22 @@ extension Engine {
                                magnitudeUsd: rothTaxSavedUsd))
         }
 
+        // HSA: the tax-free bucket's exemption is CONDITIONAL on the withdrawal being for
+        // qualified medical expense. The engine prices the HSA as `.taxFree` — which is
+        // exactly right when it is spent on medical and overstates after-tax wealth by the
+        // ordinary tax when it is not — and states the condition rather than forecasting
+        // medical spending, which it has no basis for and which `resolveTargets` forbids.
+        // The ordinary-income figure is the SIZE OF THE APPROXIMATION, not a prediction: it
+        // is what the plan is overstating IF none of the balance is ever spent on medical.
+        if h.hsaValueUsd > 0 {
+            let hsa = h.hsaValueUsd
+            let rate = h.estate.heirBracketBps > 0 ? h.estate.heirBracketBps : 2400
+            out.append(Finding(ruleId: "hsa_exemption_is_conditional", module: .tax, severity: .soft,
+                               title: "HSA priced as tax-free: the exemption is conditional",
+                               detail: "\(Fmt.usdShort(hsa)) of the \(Fmt.usdShort(h.value(in: .taxFree))) tax-free bucket is an HSA, and the plan prices it like Roth. That is right only for dollars spent on qualified medical expense — Medicare Part B, Part D and Advantage premiums count, Medigap does not. After 65 a non-medical withdrawal is ordinary income (no penalty), so pricing it as Roth overstates after-tax wealth by up to \(Fmt.usdShort(hsa * rate.frac)) at a \(Fmt.pctBps(rate)) rate. Reimburse medical costs from it first, and do not leave it to a non-spouse heir: they include the whole balance in income in the year of death, with no 10-year spread — which makes it the worst asset to bequeath and the best to route to charity.",
+                               magnitudeUsd: hsa * rate.frac))
+        }
+
         // Transition: scheduled realized gains outrunning the annual budget.
         if h.transitionGainBudgetUsd > 0 && h.transitionAnnualRealizedGainUsd > h.transitionGainBudgetUsd {
             out.append(Finding(ruleId: "transition_gain_budget_exceeded", module: .planning, severity: .hard,

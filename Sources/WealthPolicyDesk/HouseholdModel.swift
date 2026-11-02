@@ -294,8 +294,21 @@ public struct Account: Identifiable, Sendable, Hashable {
     public var treatment: AccountTaxTreatment
     /// Who owns it — titling drives the basis step-up at death. Defaults to individual.
     public var ownership: AccountOwnership = .individual
-    public init(id: String, label: String, treatment: AccountTaxTreatment, ownership: AccountOwnership = .individual) {
+    /// An HSA. Carried as a FLAG on a `.taxFree` account rather than a fourth
+    /// `AccountTaxTreatment` case, because the two differ in exactly one respect and agree
+    /// in every other: no RMD ever, no tax on growth, and tax-free on a qualified-medical
+    /// withdrawal — which is what `.taxFree` already means to the allocation, rebalancing,
+    /// deferred-tax and decumulation engines. The difference is that an HSA's exemption is
+    /// CONDITIONAL on the withdrawal being medical; after 65 a non-medical withdrawal is
+    /// ordinary income (no penalty), and a non-spouse beneficiary includes the whole balance
+    /// in income in the year of death. A fourth case would have had to be taught to
+    /// seventeen call sites — four caught by the compiler, one in a view file `swift test`
+    /// never compiles, and twelve that compile clean and are simply wrong (see
+    /// `hsaValueUsd`). A flag changes nothing until something reads it.
+    public var isHsa: Bool = false
+    public init(id: String, label: String, treatment: AccountTaxTreatment, ownership: AccountOwnership = .individual, isHsa: Bool = false) {
         self.id = id; self.label = label; self.treatment = treatment; self.ownership = ownership
+        self.isHsa = isHsa
     }
 }
 
@@ -524,6 +537,15 @@ public struct Household: Identifiable, Sendable, Hashable {
     }
     public func value(in treatment: AccountTaxTreatment) -> Usd {
         positions(in: treatment).reduce(0) { $0 + $1.marketValueUsd }
+    }
+    /// The HSA slice of the tax-free bucket. A SUBSET of `value(in: .taxFree)`, never a
+    /// fourth bucket — which is the point of the flag. Everything that sums the three
+    /// treatments (`Engine.cmeFrictionDragBps`, `Decumulation.decumulation`'s opening
+    /// balances, `IntakeModel.totalInvestableUsd`) therefore still sees every dollar; a
+    /// fourth `AccountTaxTreatment` case would have dropped the HSA out of all three
+    /// without breaking a single compile, and the suite has no test that would notice.
+    public var hsaValueUsd: Usd {
+        positions.filter { account($0.accountId)?.isHsa == true }.reduce(0) { $0 + $1.marketValueUsd }
     }
 }
 
