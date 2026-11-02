@@ -100,7 +100,24 @@ final class PerOwnerRmdTests: XCTestCase {
         noDeferred.positions = noDeferred.positions.filter { h.treatment(of: $0) != .taxDeferred }
         let with = Engine.currentOrdinaryIncome(h, asOf: asOf, capGains: 0)
         let without = Engine.currentOrdinaryIncome(noDeferred, asOf: asOf, capGains: 0)
-        XCTAssertEqual(with.gross - without.gross, expectedRmd, accuracy: 1.0,
+
+        // `gross` is NOT linear in the RMD, so the rise in gross is not the bare
+        // distribution. Gross is `wages + pension + RMD + taxable Social Security`, and the
+        // taxable-SS worksheet is a function of the other income: at 75 she is collecting
+        // $28,800, whose provisional income without the RMD ($14,400) sits under the $32,000
+        // MFJ base and is untaxed, while the RMD pushes provisional past $44,000 and drags
+        // part of the benefit into income with it. Here that drag is $10,037 on top of the
+        // $34,350 distribution — which is why asserting the bare RMD against a gross delta
+        // was wrong from the start, not because any RMD moved. The projection this preview
+        // mirrors stacks SS the same way (`ordinaryIncome = ordinaryExSS + ssTaxable` in
+        // `Decumulation.swift`), so the RMD is isolated from the worksheet rather than the
+        // worksheet being dropped. Note that `without` is identical in wages, pension and
+        // benefit — only the distribution differs — so the drag below is the whole gap.
+        let ss = Engine.socialSecurityAnnual(h, year: 0, asOf: asOf)
+        let ssDrag = Engine.taxableSocialSecurity(ss: ss, otherIncome: expectedRmd, filing: h.filingStatus)
+                   - Engine.taxableSocialSecurity(ss: ss, otherIncome: 0, filing: h.filingStatus)
+        XCTAssertGreaterThan(ssDrag, 1, "fixture check: this case must exercise the SS nonlinearity")
+        XCTAssertEqual(with.gross - without.gross, expectedRmd + ssDrag, accuracy: 1.0,
                        "the spouse's RMD must land in the sell preview even though the primary is under RMD age")
         XCTAssertGreaterThan(with.gross - without.gross, 1,
                              "gating the whole pool on the primary would report $0 extra ordinary income")

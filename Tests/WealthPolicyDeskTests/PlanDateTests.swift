@@ -157,9 +157,10 @@ final class PlanDateTests: XCTestCase {
         XCTAssertEqual(e.itemization.input.taxYear, 2031,
                        "muni / paydown / itemization MAGI must use 2031, not a leftover 2026 pin")
 
-        guard let vea = h.positions.first(where: { $0.ticker == "VEA" }) else {
+        guard let veaIndex = h.positions.firstIndex(where: { $0.ticker == "VEA" }) else {
             return XCTFail("fixture check: sample holds VEA")
         }
+        let vea = h.positions[veaIndex]
         let action = PlannedAction(sellAccountId: vea.accountId, sellTicker: "VEA",
                                    sellUsd: 10_000, buyTicker: "XLP")
         let after = h.applying(action)
@@ -167,14 +168,64 @@ final class PlanDateTests: XCTestCase {
         XCTAssertEqual(bought?.lots.last?.acquisitionDate, later,
                        "a buy lot must be dated on the household's plan date, not the 2026 pin")
 
-        // The 2026-03-15 VEA lot is short-term as of the pin and long-term by 2031.
-        let (stPin, _) = vea.realizedGainSplit(sellUsd: 90_000, asOf: Engine.planningAsOf)
-        let (stLater, _) = vea.realizedGainSplit(sellUsd: 90_000, asOf: later)
-        XCTAssertGreaterThan(stPin, 0, "fixture check: the recent lot is short-term on the pin")
-        XCTAssertEqual(stLater, 0, accuracy: 0.5, "five years on, that lot is long-term")
+        // Re-date the VEA lots FROM the dates under test instead of trusting the seed's
+        // literals. January 1 of the pin's OWN year is inside the one-year window on any
+        // plan date in that year and outside it five years on, whatever the pin is moved
+        // to; the seed's "2026-03-15" only read as recent while the pin sat in 2026.
+        let pin = Engine.planningAsOf
+        let fiveYearsOn: IsoDate = "\(Engine.year(pin) + 5)-06-30"      // == `later` while the pin is 2026
+        let recentAcq: IsoDate = "\(pin.prefix(4))-01-01"
+        let seasonedAcq: IsoDate = "\(Engine.year(pin) - 7)-01-01"
+        h.positions[veaIndex].lots = [
+            TaxLot(id: "vea_seasoned", marketValueUsd: 220_000, costBasisUsd: 200_000, acquisitionDate: seasonedAcq),
+            TaxLot(id: "vea_recent", marketValueUsd: 90_000, costBasisUsd: 68_000, acquisitionDate: recentAcq),
+        ]
+        let lotted = h.positions[veaIndex]
+        XCTAssertFalse(lotted.lots[1].isLongTerm(asOf: pin),
+                       "fixture check: the recent lot is short-term on the pin")
+        XCTAssertTrue(lotted.lots[1].isLongTerm(asOf: fiveYearsOn),
+                      "fixture check: five years on, the recent lot has seasoned to long-term")
+        XCTAssertTrue(lotted.lots[0].isLongTerm(asOf: pin),
+                      "fixture check: the seasoned lot is long-term on both dates")
 
-        let pinTax = Engine.realizedGainTaxOn(h, vea, sellUsd: 90_000, asOf: Engine.planningAsOf)
-        let laterTax = Engine.realizedGainTaxOn(h, vea, sellUsd: 90_000, asOf: later)
+        // Sell the WHOLE position. `realizedGainSplit` picks lots tax-first (losses, then
+        // long-term, short-term last), so a partial sale smaller than the seasoned lot
+        // never reaches the recent one at EITHER date and reports shortTerm == 0 both
+        // times — which is exactly how this check lost its teeth.
+        let whole = lotted.marketValueUsd
+        let (stPin, ltPin) = lotted.realizedGainSplit(sellUsd: whole, asOf: pin)
+        let (stLater, ltLater) = lotted.realizedGainSplit(sellUsd: whole, asOf: fiveYearsOn)
+        XCTAssertGreaterThan(stPin, 0, "on the pin the recent lot's gain is short-term")
+        XCTAssertEqual(stLater, 0, accuracy: 0.5, "five years on, that lot is long-term")
+        XCTAssertEqual(stPin + ltPin, stLater + ltLater, accuracy: 0.5,
+                       "the same sale realizes the same total gain either way — only the split moves")
+
+        // The tax half needs an income context derived from the pin too. The seed's 1963 /
+        // 1965 birth years leave both earners retired on any pin past 2029, and a retired
+        // couple drops the whole gain into the 0% LTCG bracket — zero tax on BOTH dates,
+        // which silently disarms every tax assertion below. Date each earner two years
+        // short of their own retirement age on the pin, so they are working on the pin and
+        // retired five years on, whatever the pin is set to.
+        var working = h
+        for i in working.people.indices where working.people[i].role != .dependent {
+            working.people[i].birthDate = "\(Engine.year(pin) - (working.people[i].expectedRetirementAge - 2))-01-01"
+        }
+
+        // Taxing the same sale in the SAME income year, with only the recent lot's vintage
+        // moved across the one-year line, isolates the holding-period rule. The pin-vs-five-
+        // years-on comparison that follows ALSO moves the household's whole income profile,
+        // so on its own it still passes when the short/long split is ignored entirely.
+        var allSeasoned = lotted
+        allSeasoned.lots[1].acquisitionDate = seasonedAcq
+        let shortTermTax = Engine.realizedGainTaxOn(working, lotted, sellUsd: whole, asOf: pin)
+        let longTermTax = Engine.realizedGainTaxOn(working, allSeasoned, sellUsd: whole, asOf: pin)
+        XCTAssertEqual(shortTermTax.gainUsd, longTermTax.gainUsd, accuracy: 0.5,
+                       "same sale, same realized gain — only the holding period differs")
+        XCTAssertGreaterThan(shortTermTax.taxUsd, longTermTax.taxUsd,
+                             "a short-term lot must cost more than the identical seasoned lot in the same income year")
+
+        let pinTax = Engine.realizedGainTaxOn(working, lotted, sellUsd: whole, asOf: pin)
+        let laterTax = Engine.realizedGainTaxOn(working, lotted, sellUsd: whole, asOf: fiveYearsOn)
         XCTAssertGreaterThan(pinTax.taxUsd, laterTax.taxUsd,
                              "the planning-tab preview must tax the same lot as ordinary on the pin and as LTCG five years on")
     }
