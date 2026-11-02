@@ -78,6 +78,13 @@ struct TaxTab: View {
                         Spacer()
                         Text("spread \(Fmt.bpsSigned(p.spreadBps))").font(.system(size: 12.5, design: .monospaced)).foregroundStyle(p.spreadBps > 0 ? Theme.debt : Theme.asset)
                     }
+                    // A promotional row is the one place the rate above is NOT the rate the
+                    // balance carries today, so both rates and the deadline are stated beside
+                    // it rather than left to the rationale alone.
+                    if let m = p.monthsToPromoRevert {
+                        Text("promotional \(Fmt.pctBps(p.currentRateBps)) → \(Fmt.pctBps(p.postPromoRateBps)) in \(m) month\(m == 1 ? "" : "s")")
+                            .font(.system(size: 12.5, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.amber)
+                    }
                     Text(p.rationale).font(.system(size: 13)).foregroundStyle(Theme.ink.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 7)
@@ -189,7 +196,10 @@ struct TaxTab: View {
         }
     }
 
-    private func liabilityLabel(_ id: String) -> String { eval.household.liabilities.first { $0.id == id }?.kind.label ?? id }
+    /// The client's own name for the row where they gave one. Two cards and two student
+    /// loans all render as their kind otherwise, and a list of four rows reading
+    /// "Credit card / Credit card / Student (federal) / Student (private)" cannot be acted on.
+    private func liabilityLabel(_ id: String) -> String { eval.household.liabilities.first { $0.id == id }?.displayLabel ?? id }
     private func recColor(_ r: PaydownAnalysis.Recommendation) -> Color {
         switch r { case .payDown: return Theme.debt; case .maintain: return Theme.asset; case .borrowMore: return Theme.accent; case .refinance: return Theme.amber }
     }

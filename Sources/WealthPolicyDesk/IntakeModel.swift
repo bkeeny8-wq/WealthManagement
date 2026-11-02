@@ -315,6 +315,69 @@ public struct IntakeHeldPosition: Codable, Hashable, Identifiable {
     }
 }
 
+// MARK: - Debts
+
+/// ONE debt the household actually holds.
+///
+/// `otherDebtUsd` + `otherDebtRateBps` is the answer a client gives when they cannot break
+/// the total down; this is the same money once they can. The scalar keeps working — a
+/// household with a single number still gets a liability — but a blended rate cannot carry
+/// the fact that matters most about revolving debt: $16,717 at 0% expiring in March, $8,545
+/// of float that costs nothing because it is paid every month, and $8,607 at 6% blend to one
+/// 2% balance, and the 2% says nothing true about any of the three. Most of all it cannot
+/// express a DATE, and the date is the whole decision.
+public struct IntakeDebt: Codable, Hashable, Identifiable {
+    public var id = UUID()
+    /// The client's own name for it ("Chase 0% promo", "Aidvantage"). Two items share a kind
+    /// routinely — two cards, two student loans — so the kind label cannot identify a row.
+    public var label: String = ""
+    public var kind: LiabilityKind = .creditCard
+    public var balanceUsd: Usd = 0
+    public var rateBps: Bps = 0
+    /// The date a promotional rate ends. Empty = the rate above is simply the rate.
+    public var promoExpiry: IsoDate = ""
+    /// What it reverts to. Must EXCEED `rateBps` for the revert to be modelled: an expiry
+    /// typed with no revert rate is a half-filled row, and honouring it would move a verdict
+    /// on no information. Entering 0% → 0% is not a revert.
+    public var postPromoRateBps: Bps = 0
+    /// Float paid in full every statement. Still owed, still on the balance sheet, but it
+    /// accrues no interest — so it carries no rate to compare and gets no paydown verdict.
+    public var paidMonthlyInFull: Bool = false
+    public init() {}
+
+    public var hasPromo: Bool { !promoExpiry.isEmpty && postPromoRateBps > rateBps }
+
+    /// Duration the household is SHORT through this item. One flat 3.0 for everything — what
+    /// the scalar had to assume — put a revolving card and a ten-year student loan on the same
+    /// clock, which is the household's net duration quietly wrong by years.
+    public var defaultDurationYears: Double {
+        switch kind {
+        case .creditCard: return paidMonthlyInFull ? 0.08 : 0.25
+        case .studentFederal, .studentPrivate: return 5.0
+        case .auto: return 3.0
+        case .heloc, .sbloc, .margin: return 0.25
+        case .mortgagePrimary, .mortgageInvestment: return 7.5
+        default: return 3.0
+        }
+    }
+
+    /// Defaults-first decode, matching the rest of this file: a newly added key missing from
+    /// older JSON must not fail the whole value, because the parent decodes the array inside
+    /// a `try?` and one failed element would discard every debt the client entered.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        if let v = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil { id = v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? nil { label = v }
+        if let v = (try? c.decodeIfPresent(LiabilityKind.self, forKey: .kind)) ?? nil { kind = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .balanceUsd)) ?? nil { balanceUsd = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .rateBps)) ?? nil { rateBps = v }
+        if let v = (try? c.decodeIfPresent(IsoDate.self, forKey: .promoExpiry)) ?? nil { promoExpiry = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .postPromoRateBps)) ?? nil { postPromoRateBps = v }
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: .paidMonthlyInFull)) ?? nil { paidMonthlyInFull = v }
+    }
+}
+
 // MARK: - Additional goals
 
 public enum GoalType: String, Codable, CaseIterable, Hashable {
@@ -570,6 +633,19 @@ public struct IntakeModel: Codable, Hashable {
     public var helocUsd: Usd = 0
     public var otherDebtUsd: Usd = 0
     public var otherDebtRateBps: Bps = 700
+    /// The ITEMIZED debts, when the client can break the total down. An itemized list WINS
+    /// over the scalar above rather than adding to it — the two are the same money asked two
+    /// ways, exactly as `rsuGrants` and `employerStockUsd` are — so nothing is double-counted
+    /// and a household that only has a total is unaffected.
+    public var debts: [IntakeDebt] = []
+
+    /// Non-home debt as the engine will see it: the itemized list when there is one, else the
+    /// scalar. The single place that resolves the two, so the balance sheet, the life-insurance
+    /// need and the liability list can never disagree about how much this household owes.
+    public var resolvedOtherDebtUsd: Usd {
+        let listed = debts.filter { $0.balanceUsd > 0 }
+        return listed.isEmpty ? otherDebtUsd : listed.reduce(0) { $0 + $1.balanceUsd }
+    }
 
     // 6 — external income
     public var pensionAnnualUsd: Usd = 0
@@ -741,6 +817,7 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(Bool.self, forKey: .ownsHome)) ?? nil { ownsHome = v }
         else { ownsHome = homeValueUsd > 0 || mortgageBalanceUsd > 0 || helocUsd > 0 }
         if let v = (try? c.decodeIfPresent(Bps.self, forKey: .otherDebtRateBps)) ?? nil { otherDebtRateBps = v }
+        if let v = (try? c.decodeIfPresent([IntakeDebt].self, forKey: .debts)) ?? nil { debts = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .pensionAnnualUsd)) ?? nil { pensionAnnualUsd = v }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .ssClaimAge)) ?? nil { ssClaimAge = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .retirementSpendingUsd)) ?? nil { retirementSpendingUsd = v }
@@ -1294,7 +1371,28 @@ public extension IntakeModel {
             liabilities.append(Liability(id: "liab_heloc", kind: .heloc, balanceUsd: effHeloc, rateBps: 780, fixed: false, maturityDate: nil,
                                          durationYears: 0.25, interestDeductible: false, afterTaxRateBps: 780, revocable: true))
         }
-        if otherDebtUsd > 0 {
+        // Itemized debts win over the scalar — the same rule `rsuGrants` follows against
+        // `employerStockUsd`, for the same reason: carrying both would count the same money
+        // twice. A household that only typed a total still gets its one blended liability.
+        let listedDebts = debts.filter { $0.balanceUsd > 0 }
+        if !listedDebts.isEmpty {
+            for (i, d) in listedDebts.enumerated() {
+                // A promotional balance reprices ON its expiry date, so time-to-expiry IS its
+                // duration. Everything else takes the duration its kind implies.
+                let dur = d.hasPromo
+                    ? max(0.08, Double(max(0, Engine.monthsBetween(asOf, d.promoExpiry))) / 12.0)
+                    : d.defaultDurationYears
+                liabilities.append(Liability(
+                    id: "liab_debt_\(i)", kind: d.kind, balanceUsd: d.balanceUsd,
+                    rateBps: d.rateBps, fixed: !d.kind.revocable, maturityDate: nil,
+                    durationYears: dur, interestDeductible: false, afterTaxRateBps: d.rateBps,
+                    revocable: d.kind.revocable,
+                    promoRateExpiry: d.hasPromo ? d.promoExpiry : nil,
+                    postPromoRateBps: d.hasPromo ? d.postPromoRateBps : 0,
+                    paidMonthlyInFull: d.paidMonthlyInFull,
+                    label: d.label.isEmpty ? nil : d.label))
+            }
+        } else if otherDebtUsd > 0 {
             liabilities.append(Liability(id: "liab_other", kind: .auto, balanceUsd: otherDebtUsd, rateBps: otherDebtRateBps, fixed: true, maturityDate: nil,
                                          durationYears: 3.0, interestDeductible: false, afterTaxRateBps: otherDebtRateBps, revocable: false))
         }
@@ -1341,7 +1439,7 @@ public extension IntakeModel {
             let monthlyIncome = adults.reduce(0) { $0 + $1.salaryUsd + $1.bonusUsd } / 12
             let diNeed = diEngaged ? monthlyIncome * 0.60 : 0                     // 60% replacement target
             let diCoverage = diEngaged ? (disabilityIndividualMonthlyUsd + disabilityGroupMonthlyUsd * (disabilityBenefitsTaxable ? 0.72 : 1.0)) : 0
-            let totalDebt = effMortgage + effHeloc + otherDebtUsd
+            let totalDebt = effMortgage + effHeloc + resolvedOtherDebtUsd
             let primaryIncome = adults.first.map { $0.salaryUsd + $0.bonusUsd } ?? 0
             let survivorYears = Double(max(0, retirementStartAge - primaryAge))
             let lifeNeed = lifeEngaged ? max(0, totalDebt + 150_000 * Double(children.count) + survivorYears * primaryIncome - totalInvestableUsd) : 0

@@ -215,10 +215,19 @@ extension Engine {
 
     public static func ladder(_ h: Household, policy: InvestmentPolicy, asOf: IsoDate) -> LadderPlan {
         let years = policy.ladder.yearsCovered
+        // A promotional balance reverting inside twelve months is a near-term outflow of a
+        // KNOWN size on a KNOWN date. It belongs in the floor for the same reason next year's
+        // spending does: the money has to come from assets that can actually be spent, and
+        // funding it by selling equities after a drawdown is the same sequence risk. Without
+        // this term a 36-year-old renter with no near-term spending outflows has a floor of
+        // the rebalance reserve alone, so a $16,717 deadline against $2,000 of cash is
+        // invisible to the one rule whose whole job is near-term liquidity.
+        let promoDue = promoDueWithinUsd(h, asOf: asOf, months: 12)
         guard years > 0, let spending = h.goals.first(where: { $0.kind == .spending }) else {
             let reserve = policy.ladder.rebalanceReserveBps.frac * h.portfolioValueUsd
             let defensive = defensiveLiquidUsd(h)
-            return LadderPlan(yearsCovered: 0, netAnnualOutflowUsd: 0, ladderSizeUsd: 0, rebalanceReserveUsd: reserve, twelveMonthFloorUsd: 0, requiredLiquidUsd: reserve, availableDefensiveUsd: defensive, covered: defensive >= reserve)
+            let req = reserve + promoDue
+            return LadderPlan(yearsCovered: 0, netAnnualOutflowUsd: 0, ladderSizeUsd: 0, rebalanceReserveUsd: reserve, twelveMonthFloorUsd: 0, promoRetirementUsd: promoDue, requiredLiquidUsd: req, availableDefensiveUsd: defensive, covered: defensive >= req)
         }
         // Pre-fund only GENUINELY near-term outflows — those within the ladder's
         // horizon (`years`) measured from today. Using `prefix(years)` grabbed the
@@ -235,11 +244,21 @@ extension Engine {
         let ladderSize = nets.reduce(0, +)
         let reserve = policy.ladder.rebalanceReserveBps.frac * h.portfolioValueUsd
         let floor = netAnnual
-        let required = ladderSize + reserve + floor
+        let required = ladderSize + reserve + floor + promoDue
         let defensive = defensiveLiquidUsd(h)
         return LadderPlan(yearsCovered: years, netAnnualOutflowUsd: netAnnual, ladderSizeUsd: ladderSize,
-                          rebalanceReserveUsd: reserve, twelveMonthFloorUsd: floor, requiredLiquidUsd: required,
+                          rebalanceReserveUsd: reserve, twelveMonthFloorUsd: floor, promoRetirementUsd: promoDue,
+                          requiredLiquidUsd: required,
                           availableDefensiveUsd: defensive, covered: defensive >= required)
+    }
+
+    /// Promotional balances reverting within `months` of `asOf`. Only balances still inside
+    /// their promotional window count — once the rate has reverted there is no deadline left,
+    /// just an expensive balance that `paydown` prices like any other.
+    static func promoDueWithinUsd(_ h: Household, asOf: IsoDate, months: Int) -> Usd {
+        h.liabilities
+            .filter { $0.isFixedIncomeOffset && ($0.monthsToPromoRevert(asOf: asOf) ?? Int.max) <= months }
+            .reduce(0) { $0 + $1.balanceUsd }
     }
 
     /// Sellable-today assets. Used for CAPITAL CALLS, where the question really is "could
@@ -295,6 +314,11 @@ extension Engine {
 
     // MARK: - Pay down or invest
 
+    /// How close a promotional revert has to be before it, rather than today's teaser rate,
+    /// governs the paydown decision. Twelve months, matching the liquidity floor's own
+    /// twelve-month outflow window — the same horizon the desk already calls "near term".
+    public static let promoRevertHorizonMonths = 12
+
     public static func paydown(_ l: Liability, household h: Household, tax: TaxParameterSet, asOf: IsoDate? = nil) -> PaydownAnalysis {
         let date = asOf ?? h.planAsOf
         let magi = estimatedMagi(h, asOf: date)
@@ -305,7 +329,21 @@ extension Engine {
         // so its interest is fully incremental (deductible at the margin).
         let saltWindowActive = item.itemizes && item.marginalValueOfMortgageInterestBps > 0
         let deductibleValue = (l.interestDeductible && saltWindowActive) ? item.marginalValueOfMortgageInterestBps : 0
-        let afterTaxDebt = Int(Double(l.rateBps) * (1 - deductibleValue.frac))
+        // A promotional balance costs its teaser rate until a CONTRACTUAL date and its revert
+        // rate from that date on. That is a dated term of the agreement, not a capital-market
+        // forecast, so the decision may read it: inside `promoRevertHorizonMonths` the rate
+        // that governs a paydown decision is the one the balance is about to carry.
+        //
+        // Pricing it at today's 0% is the trap. The spread comes out at -430bp, the verdict
+        // reads MAINTAIN, and the household holds the balance straight through the revert into
+        // the most expensive money they owe. Pricing it at the revert rate unconditionally is
+        // the mirror fault — it says PAY DOWN on a 0% balance that has three years to run,
+        // throwing away free money. The date decides, and both rates are reported.
+        let monthsToRevert = l.monthsToPromoRevert(asOf: date)
+        let revertInHorizon = (monthsToRevert ?? Int.max) <= promoRevertHorizonMonths
+        let currentRate = l.effectiveRateBps(asOf: date)
+        let governingRate = revertInHorizon ? l.postPromoRateBps : currentRate
+        let afterTaxDebt = Int(Double(governingRate) * (1 - deductibleValue.frac))
         // Comparable FI is Treasury, after tax at the marginal rate (risk-matched).
         let comparableFi = Int(430.0 * (1 - marginal.frac))
         let spread = afterTaxDebt - comparableFi
@@ -313,7 +351,13 @@ extension Engine {
         let liquidityCost = l.balanceUsd
         let rec: PaydownAnalysis.Recommendation
         let why: String
-        if l.revocable {
+        if let m = monthsToRevert, revertInHorizon {
+            rec = .payDown
+            why = "\(Fmt.pctBps(currentRate)) promotional until \(l.promoRateExpiry ?? "") — \(m) month\(m == 1 ? "" : "s") away — then \(Fmt.pctBps(l.postPromoRateBps)), \(Fmt.usd(l.balanceUsd * l.postPromoRateBps.frac)) a year. Retire it BEFORE that date: the comparison above is against the rate it is about to carry, because that is the rate any money left on it will pay. This is a deadline, not a rate call."
+        } else if let m = monthsToRevert {
+            rec = .maintain
+            why = "\(Fmt.pctBps(currentRate)) promotional until \(l.promoRateExpiry ?? ""), \(m) months out, then \(Fmt.pctBps(l.postPromoRateBps)). Free money until then — hold it and earn the FI yield — but the balance has to be GONE by that date, and \(Fmt.usd(l.balanceUsd)) is what has to be found by then."
+        } else if l.revocable {
             rec = .payDown
             why = "Revocable, un-deductible, \(Fmt.pctBps(l.rateBps)). Retiring it is a risk-free \(Fmt.pctBps(l.rateBps)) bond that also removes a line that disappears in a drawdown."
         } else if spread > 50 {
@@ -330,7 +374,9 @@ extension Engine {
         }
         return PaydownAnalysis(liabilityId: l.id, afterTaxDebtRateBps: afterTaxDebt, comparableFiYieldAfterTaxBps: comparableFi,
                                spreadBps: spread, liquidityCostOfPaydownUsd: liquidityCost, saltWindowActive: saltWindowActive,
-                               recommendation: rec, rationale: why)
+                               recommendation: rec, rationale: why,
+                               monthsToPromoRevert: monthsToRevert, postPromoRateBps: l.hasPromoRevert ? l.postPromoRateBps : 0,
+                               currentRateBps: currentRate)
     }
 
 
@@ -350,6 +396,24 @@ extension Engine {
                                detail: "FI assets less debt is \(Fmt.usdSigned(bs.netFixedIncomeUsd)). The household believes it holds a defensive allocation while running net short duration — a fact no brokerage statement shows.",
                                magnitudeUsd: abs(bs.netFixedIncomeUsd)))
         }
+        // A 0% promotional balance is the only line on this desk with a DEADLINE. Every other
+        // rule here compares two rates; this one compares a date to today, so it gets its own
+        // rule rather than being folded into the paydown spread. It is also the one debt fact
+        // a blended rate destroys outright — $16,717 at 0% and $8,607 at 6% blend to 2%, and
+        // the 2% tells you nothing about what happens in March.
+        for l in h.liabilities where l.isFixedIncomeOffset {
+            guard let m = l.monthsToPromoRevert(asOf: asOf), m <= promoRevertHorizonMonths else { continue }
+            let annualCost = l.balanceUsd * l.postPromoRateBps.frac
+            // Hard inside six months, soft from six to twelve. The split is about what the
+            // household can still DO: a year out this is a savings plan, six months out the
+            // cash has to already be on its way, and after the date the rate is simply the
+            // rate and `paydown` prices it like any other balance.
+            out.append(Finding(ruleId: "promo_rate_expiring", module: .fixedIncome,
+                               severity: m <= 6 ? .hard : .soft, key: l.id,
+                               title: "Promotional rate expires in \(m) month\(m == 1 ? "" : "s"): \(l.displayLabel)",
+                               detail: "\(Fmt.usdShort(l.balanceUsd)) at \(Fmt.pctBps(l.rateBps)) reverts to \(Fmt.pctBps(l.postPromoRateBps)) on \(l.promoRateExpiry ?? "") — \(Fmt.usd(annualCost)) a year from that date, which would make it the most expensive money the household owes. Retiring it before the revert is a risk-free \(Fmt.pctBps(l.postPromoRateBps)) with no credit and no duration risk; retiring it after is the same purchase at a worse price.",
+                               magnitudeUsd: l.balanceUsd))
+        }
         for p in h.positions where muniTickers.contains(p.ticker) {
             let t = h.treatment(of: p)
             if t == .taxDeferred || t == .taxFree {
@@ -368,7 +432,7 @@ extension Engine {
         if !lad.covered {
             out.append(Finding(ruleId: "liquidity_floor", module: .policy, severity: .hard,
                                title: "Liquidity floor not covered",
-                               detail: "Cash and fixed income (\(Fmt.usdShort(lad.availableDefensiveUsd))) fall short of the ladder + reserve + 12 months of outflows (\(Fmt.usdShort(lad.requiredLiquidUsd))). Funding near-term spending from equities is the sequence risk the ladder exists to avoid."))
+                               detail: "Cash and fixed income (\(Fmt.usdShort(lad.availableDefensiveUsd))) fall short of the ladder + reserve + 12 months of outflows\(lad.promoRetirementUsd > 0 ? " + \(Fmt.usdShort(lad.promoRetirementUsd)) of promotional balances reverting inside 12 months" : "") (\(Fmt.usdShort(lad.requiredLiquidUsd))). Funding near-term spending from equities is the sequence risk the ladder exists to avoid."))
         }
         let unfunded = h.liabilities.filter { $0.kind == .unfundedCommitment }.reduce(0) { $0 + $1.balanceUsd }
         if unfunded > 0 {

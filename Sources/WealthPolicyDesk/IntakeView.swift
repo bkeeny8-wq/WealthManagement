@@ -748,8 +748,26 @@ struct IntakeWizard: View {
                     Note("No home — renters skip this. Home equity and any mortgage are left out of the balance sheet.")
                 }
             }
-            Card("Other debts") {
-                MoneyField(label: "Other debt (auto, student…)", value: $intake.otherDebtUsd)
+            Card("Other debts", help: Teach.help("paydown")) {
+                Note("List the pieces separately. One blended rate cannot say the thing that matters most about revolving debt — a 0% promotional balance EXPIRES, and that date is the decision. If you only have a total, leave the list empty and type it at the bottom.")
+                ForEach($intake.debts) { $d in
+                    DebtForm(debt: $d) { intake.debts.removeAll { $0.id == d.id } }
+                }
+                Button { intake.debts.append(IntakeDebt()) } label: {
+                    Label("Add a debt (card, student loan, auto…)", systemImage: "plus.circle").font(.system(size: 14, weight: .semibold))
+                }.buttonStyle(.plain).foregroundStyle(Theme.accent).padding(.top, 4)
+                // The scalar and the list are the same money asked two ways, so only ONE of
+                // them is ever live — the same rule the RSU step follows for a dated grant
+                // against an undated lump. Showing both fields at once invited the advisor to
+                // fill them both and double the household's debt.
+                if intake.debts.contains(where: { $0.balanceUsd > 0 }) {
+                    Note("Itemized — the blended total is ignored while this list has a balance in it, so the same money is never counted twice.",
+                         icon: "checkmark.circle", color: Theme.asset)
+                } else {
+                    MoneyField(label: "Other debt (auto, student…)", value: $intake.otherDebtUsd)
+                    PercentField(label: "Blended rate", value: bpsAsPct($intake.otherDebtRateBps), maxPct: 0.30,
+                                 presets: [0.0, 0.06, 0.12, 0.22])
+                }
             }
         }
     }
@@ -1510,6 +1528,51 @@ struct EducationGoalForm: View {
             StepperRow(label: "Number of years", value: $goal.years, range: 1...8)
             WheelRow(label: "Start year", selection: $goal.startYear, options: years(IntakeModel.currentYear...(IntakeModel.currentYear + 30)))
             MoneyField(label: "529 balance", value: $goal.five29BalanceUsd)
+        }
+        .padding(11)
+        .background(Theme.paper, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.rule))
+    }
+}
+
+/// ONE debt. The promotional block is the point of the whole list: a date, and the rate the
+/// balance reverts to on it. A blended rate can carry neither.
+struct DebtForm: View {
+    @Binding var debt: IntakeDebt
+    var onRemove: () -> Void
+    private static let kinds: [LiabilityKind] = [.creditCard, .studentFederal, .studentPrivate, .auto, .margin, .business]
+    private func pct(_ b: Binding<Bps>) -> Binding<Double> {
+        Binding(get: { Double(b.wrappedValue) / 10_000 }, set: { b.wrappedValue = Int(($0 * 10_000).rounded()) })
+    }
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(debt.label.isEmpty ? debt.kind.label : debt.label).font(.system(size: 15, weight: .semibold, design: .serif)).foregroundStyle(Theme.ink)
+                Spacer()
+                ConfirmTrashButton(onRemove: onRemove, title: "Remove this debt?")
+            }
+            .padding(.vertical, 5)
+            .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
+            FieldLabel("What is it?") { ChoiceChips(Self.kinds.map { ($0, $0.label) }, selection: debt.kind) { debt.kind = $0 } }
+            FormText(label: "Name (optional)", value: $debt.label)
+            MoneyField(label: "Balance", value: $debt.balanceUsd)
+            PercentField(label: "Rate today", value: pct($debt.rateBps), maxPct: 0.30, presets: [0.0, 0.06, 0.22, 0.25])
+            FormToggle(label: "Paid in full every month (float)", isOn: $debt.paidMonthlyInFull)
+            if debt.paidMonthlyInFull {
+                Note("Float costs nothing, so there is no pay-down-or-invest decision to make about it. It still appears on the balance sheet, because it is still owed.")
+            } else {
+                FormText(label: "0% promo ends (YYYY-MM-DD, blank if none)", value: $debt.promoExpiry)
+                if !debt.promoExpiry.isEmpty {
+                    PercentField(label: "Rate it reverts to", value: pct($debt.postPromoRateBps), maxPct: 0.35, presets: [0.0, 0.22, 0.25, 0.29])
+                    if debt.postPromoRateBps <= debt.rateBps {
+                        Note("Enter the revert rate too — a date on its own is ignored. Guessing the rate would move the recommendation on no information.",
+                             icon: "exclamationmark.triangle", color: Theme.amber)
+                    } else {
+                        Note("This is the deadline the plan gets built around: \(Fmt.pctBps(debt.rateBps)) until \(debt.promoExpiry), then \(Fmt.pctBps(debt.postPromoRateBps)) — \(Fmt.usd(debt.balanceUsd * debt.postPromoRateBps.frac)) a year. Retire it BEFORE that date.",
+                             icon: "calendar.badge.exclamationmark", color: Theme.amber)
+                    }
+                }
+            }
         }
         .padding(11)
         .background(Theme.paper, in: RoundedRectangle(cornerRadius: 8))

@@ -55,7 +55,7 @@ public struct MuniCrossover: Sendable, Hashable {
 
 // MARK: - Liabilities
 
-public enum LiabilityKind: String, CaseIterable, Identifiable, Sendable, Hashable {
+public enum LiabilityKind: String, Codable, CaseIterable, Identifiable, Sendable, Hashable {
     case mortgagePrimary = "mortgage_primary", mortgageInvestment = "mortgage_investment"
     case heloc, sbloc, margin
     case studentFederal = "student_federal", studentPrivate = "student_private"
@@ -100,11 +100,53 @@ public struct Liability: Identifiable, Sendable, Hashable {
     /// A fixed-rate mortgage is a callable bond the household is short and holds
     /// the call on. Refinance option value rises as rates fall.
     public var refinanceOptionValueUsd: Usd?
-    public init(id: String, kind: LiabilityKind, balanceUsd: Usd, rateBps: Bps, fixed: Bool, maturityDate: IsoDate?, durationYears: Double, interestDeductible: Bool, afterTaxRateBps: Bps, revocable: Bool, refinanceOptionValueUsd: Usd? = nil) {
+    /// A PROMOTIONAL rate that EXPIRES. `rateBps` is the rate in force until this date;
+    /// `postPromoRateBps` is what it reverts to. nil = the rate is the rate.
+    ///
+    /// This is the one fact about a household's card debt that a blended rate cannot carry,
+    /// and it is the most important one: a 0% balance is the cheapest money they owe until a
+    /// contractual date and the most expensive money they owe the day after. It is a DATED
+    /// PLANNING EVENT, not a rate — which is why it lives here as a date rather than being
+    /// averaged into `rateBps`.
+    public var promoRateExpiry: IsoDate?
+    /// The rate the promotional balance reverts to. Must EXCEED `rateBps` for the revert to
+    /// be modelled: an expiry typed with no revert rate is a half-filled row, and letting it
+    /// through would flip a paydown verdict on no information at all.
+    public var postPromoRateBps: Bps
+    /// Transactional float — a card balance paid in full every statement. Owed, and on the
+    /// balance sheet, but it accrues no interest, so there is no rate to compare and no
+    /// pay-down-or-invest decision to make about it.
+    public var paidMonthlyInFull: Bool
+    /// The client's own name for this item. Two items can share a kind — this household
+    /// carries two cards and two student loans — so `kind.label` alone cannot identify a row.
+    public var label: String?
+    public init(id: String, kind: LiabilityKind, balanceUsd: Usd, rateBps: Bps, fixed: Bool, maturityDate: IsoDate?, durationYears: Double, interestDeductible: Bool, afterTaxRateBps: Bps, revocable: Bool, refinanceOptionValueUsd: Usd? = nil,
+                promoRateExpiry: IsoDate? = nil, postPromoRateBps: Bps = 0, paidMonthlyInFull: Bool = false, label: String? = nil) {
         self.id = id; self.kind = kind; self.balanceUsd = balanceUsd; self.rateBps = rateBps
         self.fixed = fixed; self.maturityDate = maturityDate; self.durationYears = durationYears
         self.interestDeductible = interestDeductible; self.afterTaxRateBps = afterTaxRateBps
         self.revocable = revocable; self.refinanceOptionValueUsd = refinanceOptionValueUsd
+        self.promoRateExpiry = promoRateExpiry; self.postPromoRateBps = postPromoRateBps
+        self.paidMonthlyInFull = paidMonthlyInFull; self.label = label
+    }
+    /// The display name: the client's own, else the kind's.
+    public var displayLabel: String { (label?.isEmpty == false ? label : nil) ?? kind.label }
+    /// Whether this item carries a modelled promotional revert at all.
+    public var hasPromoRevert: Bool {
+        guard let e = promoRateExpiry, !e.isEmpty else { return false }
+        return postPromoRateBps > rateBps
+    }
+    /// The rate actually in force on `asOf`. ISO dates compare lexicographically, which for
+    /// YYYY-MM-DD is chronological — so this reads no clock and needs no Calendar.
+    public func effectiveRateBps(asOf: IsoDate) -> Bps {
+        guard hasPromoRevert, let e = promoRateExpiry else { return rateBps }
+        return asOf < e ? rateBps : postPromoRateBps
+    }
+    /// Whole months from `asOf` to the revert, or nil when there is no revert still ahead.
+    /// Zero means the revert lands in the plan's own month — already urgent, not "no promo".
+    public func monthsToPromoRevert(asOf: IsoDate) -> Int? {
+        guard hasPromoRevert, let e = promoRateExpiry, asOf < e else { return nil }
+        return max(0, Engine.monthsBetween(asOf, e))
     }
     /// A liability is a fixed-income asset the household is SHORT. Excludes the
     /// synthetic accrual liabilities (deferred/estate tax) from the FI offset.
@@ -134,12 +176,24 @@ public struct PaydownAnalysis: Identifiable, Sendable, Hashable {
     public var saltWindowActive: Bool
     public var recommendation: Recommendation
     public var rationale: String
+    /// Months from the plan date to a promotional revert, nil when there is none. When this
+    /// is set and inside the decision horizon, `afterTaxDebtRateBps` above is the rate the
+    /// balance is ABOUT TO carry, not the one it carries today — so the badge, the spread and
+    /// the rationale all describe the same decision.
+    public var monthsToPromoRevert: Int?
+    /// The rate the promotional balance reverts to, and the rate in force today. Both are
+    /// reported so a 0.00%-today / 22.90%-soon row can never be read as only one of them.
+    public var postPromoRateBps: Bps
+    public var currentRateBps: Bps
     public var id: String { liabilityId }
-    public init(liabilityId: String, afterTaxDebtRateBps: Bps, comparableFiYieldAfterTaxBps: Bps, spreadBps: Bps, liquidityCostOfPaydownUsd: Usd, saltWindowActive: Bool, recommendation: Recommendation, rationale: String) {
+    public init(liabilityId: String, afterTaxDebtRateBps: Bps, comparableFiYieldAfterTaxBps: Bps, spreadBps: Bps, liquidityCostOfPaydownUsd: Usd, saltWindowActive: Bool, recommendation: Recommendation, rationale: String,
+                monthsToPromoRevert: Int? = nil, postPromoRateBps: Bps = 0, currentRateBps: Bps = 0) {
         self.liabilityId = liabilityId; self.afterTaxDebtRateBps = afterTaxDebtRateBps
         self.comparableFiYieldAfterTaxBps = comparableFiYieldAfterTaxBps; self.spreadBps = spreadBps
         self.liquidityCostOfPaydownUsd = liquidityCostOfPaydownUsd; self.saltWindowActive = saltWindowActive
         self.recommendation = recommendation; self.rationale = rationale
+        self.monthsToPromoRevert = monthsToPromoRevert; self.postPromoRateBps = postPromoRateBps
+        self.currentRateBps = currentRateBps
     }
 }
 

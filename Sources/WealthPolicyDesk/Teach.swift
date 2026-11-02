@@ -92,7 +92,7 @@ public enum Teach {
             return BlockHelp(
                 what: "Pay down debt or invest? Paying down debt is buying a bond yielding the after-tax debt rate, with zero credit and zero duration risk.",
                 moves: "So the comparison is after-tax debt rate vs after-tax fixed-income yield, risk-matched — not mortgage rate vs expected equity return. In the SALT window a deductible mortgage's after-tax rate drops, weakening the paydown case.",
-                watch: "Revocable lines (HELOC, SBLOC) are the exception: they disappear in exactly the drawdown you'd need them in, so retiring them buys real safety.")
+                watch: "Two exceptions break the rate comparison. Revocable lines (HELOC, SBLOC) disappear in exactly the drawdown you'd need them in, so retiring them buys real safety. And a 0% PROMOTIONAL balance has no rate to compare at all — it has a DATE. It is the cheapest money you owe until that date and the most expensive the day after, so inside a year the desk prices it at the rate it is about to carry and the verdict is a deadline, not a spread.")
         default:
             return BlockHelp(what: "", moves: "", watch: "")
         }

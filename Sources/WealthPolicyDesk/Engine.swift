@@ -106,6 +106,10 @@ public struct LadderPlan: Sendable, Hashable {
     public var ladderSizeUsd: Usd
     public var rebalanceReserveUsd: Usd
     public var twelveMonthFloorUsd: Usd
+    /// Promotional balances whose 0% window closes inside the same twelve months. A dated,
+    /// certain outflow with a penalty for missing it — exactly what the floor exists to
+    /// pre-fund — and the only debt term in `requiredLiquidUsd`.
+    public var promoRetirementUsd: Usd = 0
     public var requiredLiquidUsd: Usd
     /// Cash + fixed income. NOT every position: funding near-term spending out of
     /// equities is precisely the sequence risk the ladder exists to avoid.
@@ -197,6 +201,18 @@ public enum Engine {
     // MARK: dates
 
     public static func year(_ iso: IsoDate) -> Int { Int(iso.prefix(4)) ?? 2026 }
+    /// Whole CALENDAR months from `a` to `b`, positive when `b` is later. Day of month is
+    /// ignored: a promotional rate that reverts "in March" is a statement-cycle fact, and
+    /// pretending to know the day would be false precision. String-parsed, so there is no
+    /// clock read and no Calendar/TimeZone dependence — the engine stays deterministic.
+    public static func monthsBetween(_ a: IsoDate, _ b: IsoDate) -> Int {
+        func idx(_ s: IsoDate) -> Int {
+            let y = Int(s.prefix(4)) ?? 0
+            let m = s.count >= 7 ? (Int(s.dropFirst(5).prefix(2)) ?? 1) : 1
+            return y * 12 + max(0, min(11, m - 1))
+        }
+        return idx(b) - idx(a)
+    }
     public static func age(birthDate: IsoDate, asOf: IsoDate) -> Int { max(0, year(asOf) - year(birthDate)) }
 
     // MARK: top-level entry point
@@ -259,7 +275,10 @@ public enum Engine {
         let item = analyzeItemization(itemizationInput(for: h, asOf: asOf), tax: tax)
         let disp = dispositions(h, tax: tax, asOf: asOf)
         let mc = muniCrossover(h, tax: tax, asOf: asOf, muniYieldBps: assumedMuniYieldBps, treasuryYieldBps: 430, corporateYieldBps: 520)
-        let pays = h.liabilities.filter { $0.isFixedIncomeOffset }.map { paydown($0, household: h, tax: tax, asOf: asOf) }
+        // Float paid in full every statement accrues no interest: there is nothing to compare
+        // against the FI yield, so it gets NO verdict rather than a 0.00% row badged MAINTAIN,
+        // which reads as advice to keep carrying a card.
+        let pays = h.liabilities.filter { $0.isFixedIncomeOffset && !$0.paidMonthlyInFull }.map { paydown($0, household: h, tax: tax, asOf: asOf) }
         let decum = rothStrategy(h, tax: tax, rr: rr, asOf: asOf)
         // Solvable is known before findings: an unsolvable plan must not emit a
         // Roth-conversion "opportunity" grown at the ±5%/20% clamp.
