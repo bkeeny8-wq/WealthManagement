@@ -78,9 +78,8 @@ public extension Engine {
     static func humanCapitalAtYear(_ h: Household, yearsFromNow k: Int) -> Usd {
         var pv: Usd = 0
         for hc in h.humanCapital where hc.yearsRemaining > k {
-            let g = hc.realGrowthRateBps.frac
             for t in (k + 1)...hc.yearsRemaining {
-                pv += hc.annualIncomeUsd * pow(1 + g, Double(t - 1)) / pow(1 + humanCapitalDiscount, Double(t - k))
+                pv += hc.projectedIncomeUsd(planYear: t) / pow(1 + humanCapitalDiscount, Double(t - k))
             }
         }
         return pv

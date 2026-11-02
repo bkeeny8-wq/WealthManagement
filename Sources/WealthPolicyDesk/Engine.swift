@@ -399,7 +399,7 @@ public enum Engine {
         h.people.reduce(0.0) { acc, p in
             guard p.role != .dependent,
                   age(birthDate: p.birthDate, asOf: asOf) + t < p.expectedRetirementAge else { return acc }
-            return acc + (h.humanCapital.first { $0.personId == p.id }?.annualIncomeUsd ?? 0)
+            return acc + (h.humanCapital.first { $0.personId == p.id }?.statedIncomeUsd(planYear: t) ?? 0)
         }
     }
 
@@ -436,6 +436,19 @@ public enum Engine {
             let keep = 1 - min(1, max(0, g.withholdingBps.frac))
             return acc + g.vesting.filter { year($0.date) == base + t }.reduce(0) { $0 + $1.grossUsd * keep }
         }
+    }
+
+    /// TOTAL compensation reaching the household in plan year `t`: stated CASH wages plus what
+    /// VESTS, net of withholding.
+    ///
+    /// The two terms are disjoint by construction — cash comes from `humanCapital`
+    /// (`baseSalaryUsd`/`expectedBonusUsd`, or the `compensationSchedule` when one is stated)
+    /// and stock comes from `deferredComp` vest tranches. This is the ONE place they may be
+    /// summed. No other site adds them, so a double count cannot arise from the engine; the
+    /// only remaining way to produce one is for a user to type a vest into the cash-bonus
+    /// field, which `comp_schedule_vest_overlap` surfaces because no arithmetic can see it.
+    public static func totalCompensationAtPlanYear(_ h: Household, year t: Int, asOf: IsoDate) -> Usd {
+        wagesAtPlanYear(h, year: t, asOf: asOf) + vestingNetInYear(h, year: t, asOf: asOf)
     }
 
     /// The last plan year any tranche vests — the horizon over which the client is still tied to
@@ -746,14 +759,10 @@ public enum Engine {
         let mortgage = h.liabilities.filter { $0.kind == .mortgagePrimary || $0.kind == .mortgageInvestment }.reduce(0) { $0 + $1.balanceUsd }
         let realEstateGross = homeEquity + mortgage
 
-        // Human capital PV.
-        var hcPv: Usd = 0
-        for hc in h.humanCapital where hc.yearsRemaining > 0 {
-            let g = hc.realGrowthRateBps.frac
-            for t in 1...hc.yearsRemaining {
-                hcPv += hc.annualIncomeUsd * pow(1 + g, Double(t - 1)) / pow(1 + humanCapitalDiscount, Double(t))
-            }
-        }
+        // Human capital PV. Via `hcPvOne` — this used to be a second copy of the same loop,
+        // and the total-balance-sheet equity split below has always read `hcPvOne`, so the
+        // two could price the same earner differently.
+        let hcPv: Usd = h.humanCapital.reduce(0) { $0 + hcPvOne($1) }
         // Social Security PV.
         var ssPv: Usd = 0
         let horizon = 35
@@ -855,9 +864,8 @@ public enum Engine {
 
     static func hcPvOne(_ hc: HumanCapital) -> Usd {
         guard hc.yearsRemaining > 0 else { return 0 }   // retiree: no human capital left
-        let g = hc.realGrowthRateBps.frac
         var pv: Usd = 0
-        for t in 1...hc.yearsRemaining { pv += hc.annualIncomeUsd * pow(1 + g, Double(t - 1)) / pow(1 + humanCapitalDiscount, Double(t)) }
+        for t in 1...hc.yearsRemaining { pv += hc.projectedIncomeUsd(planYear: t) / pow(1 + humanCapitalDiscount, Double(t)) }
         return pv
     }
 

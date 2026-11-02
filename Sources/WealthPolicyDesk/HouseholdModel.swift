@@ -54,6 +54,23 @@ public enum IncomeCharacter: String, CaseIterable, Sendable, Hashable {
     }
 }
 
+/// One STATED year of cash compensation, in today's dollars.
+///
+/// `year` is a plan-year offset from the evaluation date — the same index `Outflow.year` and
+/// `Engine.wagesAtPlanYear` use. 0 is the current calendar year, 1 is next year.
+public struct CompensationYear: Identifiable, Sendable, Hashable {
+    public var year: Int
+    public var salaryUsd: Usd
+    /// CASH bonus only. Compensation delivered as stock is a `DeferredCompensation` vest
+    /// tranche and is counted from there; entering it here as well counts it twice.
+    public var cashBonusUsd: Usd
+    public var id: Int { year }
+    public init(year: Int, salaryUsd: Usd, cashBonusUsd: Usd) {
+        self.year = year; self.salaryUsd = salaryUsd; self.cashBonusUsd = cashBonusUsd
+    }
+    public var totalUsd: Usd { salaryUsd + cashBonusUsd }
+}
+
 /// Income as an asset. Present value is computed by the engine.
 public struct HumanCapital: Identifiable, Sendable, Hashable {
     public var id: String { personId }
@@ -68,13 +85,68 @@ public struct HumanCapital: Identifiable, Sendable, Hashable {
     public var realGrowthRateBps: Bps
     /// Correlation of job loss with a market drawdown.
     public var jobLossInDrawdownProbabilityBps: Bps
-    public init(personId: String, baseSalaryUsd: Usd, expectedBonusUsd: Usd, bonusVolatilityBps: Bps, character: IncomeCharacter, impliedBeta: Double, sector: Sector?, yearsRemaining: Int, realGrowthRateBps: Bps, jobLossInDrawdownProbabilityBps: Bps) {
+
+    /// A KNOWN near-term compensation path, for the careers one number cannot describe.
+    ///
+    /// The first real case study earns a $50,000 bonus THIS year — prorated after a mid-year
+    /// move — against a $200,000+ target from the next year on. `expectedBonusUsd` is either
+    /// wrong this year or wrong every year after it. A promotion or a job move is the SAME
+    /// construct: one entry, at the year the new level starts.
+    ///
+    /// The reading rules live in `statedCompUsd(planYear:)` so no two engines can disagree:
+    ///  • the entry with the greatest `year` at or below `t` governs year `t`;
+    ///  • before the first entry — and whenever the array is EMPTY — the single-number
+    ///    `annualIncomeUsd` governs, so every household written before this is unchanged;
+    ///  • past the last entry the governing level grows at `realGrowthRateBps`.
+    /// The schedule never extends a career. `yearsRemaining` and the retirement gate in
+    /// `Engine.wagesAtPlanYear` still decide when earning stops, so an entry past retirement
+    /// is simply never reached.
+    public var compensationSchedule: [CompensationYear] = []
+
+    public init(personId: String, baseSalaryUsd: Usd, expectedBonusUsd: Usd, bonusVolatilityBps: Bps, character: IncomeCharacter, impliedBeta: Double, sector: Sector?, yearsRemaining: Int, realGrowthRateBps: Bps, jobLossInDrawdownProbabilityBps: Bps, compensationSchedule: [CompensationYear] = []) {
         self.personId = personId; self.baseSalaryUsd = baseSalaryUsd; self.expectedBonusUsd = expectedBonusUsd
         self.bonusVolatilityBps = bonusVolatilityBps; self.character = character; self.impliedBeta = impliedBeta
         self.sector = sector; self.yearsRemaining = yearsRemaining; self.realGrowthRateBps = realGrowthRateBps
         self.jobLossInDrawdownProbabilityBps = jobLossInDrawdownProbabilityBps
+        self.compensationSchedule = compensationSchedule
     }
     public var annualIncomeUsd: Usd { baseSalaryUsd + expectedBonusUsd }
+
+    /// THE primitive: the stated salary and CASH bonus governing plan year `t`, in today's
+    /// dollars, with no growth applied. An empty schedule returns the single-number pair,
+    /// which is why every pre-schedule household keeps its exact numbers.
+    ///
+    /// Salary and bonus stay separate here deliberately. `bonusVolatilityBps` describes
+    /// dispersion around the BONUS, and once a path exists the band has to be taken around
+    /// the governing year's bonus, not around a stale `expectedBonusUsd`.
+    public func statedCompUsd(planYear t: Int) -> (salary: Usd, cashBonus: Usd) {
+        guard let e = compensationSchedule.filter({ $0.year <= t }).max(by: { $0.year < $1.year })
+        else { return (baseSalaryUsd, expectedBonusUsd) }
+        return (e.salaryUsd, e.cashBonusUsd)
+    }
+
+    /// Total stated cash compensation governing plan year `t` — the WAGE LEVEL, flat in real
+    /// terms, which is the convention `Engine.wagesAtPlanYear` and the savings cap have always
+    /// used. Stock is not here; it is counted from the vest schedule.
+    public func statedIncomeUsd(planYear t: Int) -> Usd {
+        let c = statedCompUsd(planYear: t); return c.salary + c.cashBonus
+    }
+
+    /// PROJECTED cash compensation in plan year `t`: the governing level grown at
+    /// `realGrowthRateBps` from the year that level was stated — the convention every
+    /// human-capital PV in this engine uses. With no schedule this is exactly
+    /// `annualIncomeUsd * (1 + g)^(t - 1)`, the term those PVs already contained, so the
+    /// existing households' present values do not move.
+    ///
+    /// At a stated year the growth exponent is zero, so `projectedIncomeUsd` and
+    /// `statedIncomeUsd` agree there by construction. That identity is the only thing
+    /// stopping the wage level and the PV path from drifting apart.
+    public func projectedIncomeUsd(planYear t: Int) -> Usd {
+        let g = realGrowthRateBps.frac
+        guard let e = compensationSchedule.filter({ $0.year <= t }).max(by: { $0.year < $1.year })
+        else { return annualIncomeUsd * pow(1 + g, Double(max(0, t - 1))) }
+        return e.totalUsd * pow(1 + g, Double(max(0, t - e.year)))
+    }
 }
 
 /// One dated slice of a grant: the units that convert on a particular day.

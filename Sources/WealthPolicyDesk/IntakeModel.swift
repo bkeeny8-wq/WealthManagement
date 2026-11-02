@@ -122,6 +122,16 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
     public var employerStockUsd: Usd = 0
     public var deferredCashUsd: Usd = 0
 
+    /// Stated compensation by CALENDAR year, for the careers `salaryUsd` + `bonusUsd` cannot
+    /// describe — a prorated bonus this year against a target from next year on, or a
+    /// promotion/job move at a known date. Empty = the single-number case, unchanged.
+    ///
+    /// Calendar years here, plan-year offsets in `HumanCapital.compensationSchedule`: a client
+    /// says "2027", and only `buildHousehold` knows what the evaluation date is. Years already
+    /// behind the evaluation date are HISTORY and are dropped — a stale 2025 row left in the
+    /// file would otherwise be the entry governing this year's wages.
+    public var compYears: [IntakeCompYear] = []
+
     /// Equity grants that vest on a SCHEDULE, one entry per grant.
     ///
     /// `employerStockUsd` above is the undated lump this replaces for anyone who can say when
@@ -185,7 +195,32 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .hsaUsd)) ?? nil { hsaUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .socialSecurityMonthlyUsd)) ?? nil { socialSecurityMonthlyUsd = v }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .ssClaimAge)) ?? nil { ssClaimAge = v }
+        if let v = (try? c.decodeIfPresent([IntakeCompYear].self, forKey: .compYears)) ?? nil { compYears = v }
         sector = (try? c.decodeIfPresent(Sector.self, forKey: .sector)) ?? nil
+    }
+}
+
+/// One stated compensation year as the CLIENT says it: an absolute calendar year.
+public struct IntakeCompYear: Identifiable, Codable, Hashable {
+    public var id = UUID()
+    public var calendarYear: Int = 0
+    public var salaryUsd: Usd = 0
+    /// CASH bonus only. Stock belongs in `rsuGrants` / `expectedAnnualGrantUsd`, and entering
+    /// it here as well counts the same compensation twice.
+    public var cashBonusUsd: Usd = 0
+    public init() {}
+    public init(calendarYear: Int, salaryUsd: Usd, cashBonusUsd: Usd) {
+        self.calendarYear = calendarYear; self.salaryUsd = salaryUsd; self.cashBonusUsd = cashBonusUsd
+    }
+
+    /// Defaults-first decode, matching the rest of this file.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        if let v = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? nil { id = v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: .calendarYear)) ?? nil { calendarYear = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .salaryUsd)) ?? nil { salaryUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .cashBonusUsd)) ?? nil { cashBonusUsd = v }
     }
 }
 
@@ -1115,7 +1150,16 @@ public extension IntakeModel {
                                              bonusVolatilityBps: a.bonusStability.volatilityBps, character: a.incomeCharacter,
                                              impliedBeta: a.incomeCharacter.impliedBeta, sector: a.sector,
                                              yearsRemaining: max(0, a.retirementAge - age), realGrowthRateBps: 100,
-                                             jobLossInDrawdownProbabilityBps: a.incomeCharacter == .equityLike || a.incomeCharacter == .leveredEquity ? 3000 : 1200))
+                                             jobLossInDrawdownProbabilityBps: a.incomeCharacter == .equityLike || a.incomeCharacter == .leveredEquity ? 3000 : 1200,
+                                             // Calendar years → plan-year offsets. Years already
+                                             // behind `asOf` are history: left in, a stale row
+                                             // would be the entry governing year 0's wages.
+                                             compensationSchedule: a.compYears
+                                                 .filter { $0.calendarYear >= yr }
+                                                 .sorted { $0.calendarYear < $1.calendarYear }
+                                                 .map { CompensationYear(year: $0.calendarYear - yr,
+                                                                         salaryUsd: $0.salaryUsd,
+                                                                         cashBonusUsd: $0.cashBonusUsd) }))
             // Dated grants win over the undated lump. Carrying both would double-count the same
             // units: `employerStockUsd` is the answer a client gives when they cannot break the
             // total down, and `rsuGrants` is the same money once they can.
@@ -1192,7 +1236,10 @@ public extension IntakeModel {
 
         // Income profile.
         let sameSector = adults.count > 1 && adults[0].sector != nil && adults[0].sector == adults[1].sector
-        let incomes = adults.map { $0.salaryUsd + $0.bonusUsd }
+        // This year's income split, on the SAME rule the wage term uses — so a prorated year
+        // stated in `compYears` splits the household by what the two actually earn now, not by
+        // the steady-state single numbers.
+        let incomes = humanCapital.map { $0.statedIncomeUsd(planYear: 0) }
         let primaryShare = incomes.reduce(0, +) > 0 ? (incomes.first ?? 0) / incomes.reduce(0, +) : 1
         let incomeProfile = HouseholdIncomeProfile(incomeCorrelation: sameSector ? 0.75 : 0.4,
                                                    primaryShareOfIncomeBps: primaryShare.bps, survivableOnSingleIncome: survivableOnOneIncome)

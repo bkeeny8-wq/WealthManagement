@@ -478,6 +478,27 @@ extension Engine {
                 break
             }
         }
+        // A STATED cash bonus in a year that also has stock vesting.
+        //
+        // Cash and stock live in different stores and are summed only in
+        // `Engine.totalCompensationAtPlanYear`, so the engine cannot double-count them. The one
+        // route left is a user entering the vest into the cash-bonus box — indistinguishable
+        // from a genuinely large bonus by arithmetic alone, so it is surfaced, not guessed at.
+        // Fires only when BOTH stores are non-zero in the SAME year: a schedule with no vesting,
+        // vesting with no schedule, and a scheduled year whose cash bonus is zero are all silent.
+        for hc in h.humanCapital {
+            guard let clash = hc.compensationSchedule
+                .filter({ $0.cashBonusUsd > 0 && Engine.vestingNetInYear(h, year: $0.year, asOf: asOf) > 0 })
+                .min(by: { $0.year < $1.year }) else { continue }
+            let vest = Engine.vestingNetInYear(h, year: clash.year, asOf: asOf)
+            let total = Engine.totalCompensationAtPlanYear(h, year: clash.year, asOf: asOf)
+            let who = h.people.first { $0.id == hc.personId }?.label ?? "Earner"
+            out.append(Finding(ruleId: "comp_schedule_vest_overlap", module: .household, severity: .soft,
+                               key: hc.personId,
+                               title: "Stated bonus and a vest land in the same year",
+                               detail: "\(who)'s \(year(asOf) + clash.year) cash bonus of \(Fmt.usdShort(clash.cashBonusUsd)) is modelled alongside \(Fmt.usdShort(vest)) of stock vesting net of withholding — \(Fmt.usdShort(total)) of total compensation. Confirm the bonus figure is CASH ONLY: stock is counted from the vest schedule, and entering it in both places counts it twice.",
+                               magnitudeUsd: vest))
+        }
         // Employer credit concentration (the only HARD household rule).
         // Union so a grant that is both RSU and credit-exposed counts once.
         // Awarded grants only — a grant the employer has not made yet is not exposure.
