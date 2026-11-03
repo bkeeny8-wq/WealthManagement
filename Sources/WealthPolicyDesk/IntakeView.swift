@@ -682,10 +682,69 @@ struct IntakeWizard: View {
     }
 
     private var savingsStep: some View {
-        Card("Savings & reserve", help: Teach.help("requiredReturn")) {
-            MoneyField(label: "Real savings per year", value: $intake.annualSavingsUsd)
-            MoneyField(label: "Emergency reserve target", value: $intake.emergencyReserveUsd)
-            Note("Savings are added to the corpus each year until you retire — they lower the required return.")
+        VStack(spacing: 14) {
+            Card("Savings & reserve", help: Teach.help("requiredReturn")) {
+                MoneyField(label: "Real savings per year", value: $intake.annualSavingsUsd)
+                MoneyField(label: "Emergency reserve target", value: $intake.emergencyReserveUsd)
+                Note("Savings are added to the corpus each year until you retire — they lower the required return.")
+            }
+
+            // Today's spending. The figure above asks for a CONCLUSION; this asks for a fact,
+            // and the engine derives the conclusion from it. Shown unconditionally rather than
+            // behind a Yes/No gate: a gate's "No" would have to destroy whatever was already
+            // typed to stay single-sourced, and zero in both fields already means "not asked".
+            Card("What you spend today", help: Teach.help("requiredReturn")) {
+                MoneyField(label: "Fixed spending per year (rent/mortgage, insurance, debt)",
+                           value: $intake.currentFixedSpendingUsd)
+                MoneyField(label: "Everything else per year",
+                           value: $intake.currentVariableSpendingUsd)
+                PercentField(label: "Real spending growth per year",
+                             value: bpsBinding($intake.spendingRealGrowthBps),
+                             maxPct: 0.05, presets: [0, 0.005, 0.01, 0.02])
+                if derivedSurplus != nil {
+                    PercentField(label: "Your effective state wage tax rate (optional)",
+                                 value: bpsBinding($intake.stateWageTaxEffectiveBps),
+                                 maxPct: 0.14, presets: [0, 0.03, 0.045, 0.06])
+                    PercentField(label: "Or pin the whole tax bill to one rate (optional)",
+                                 value: bpsBinding($intake.effectiveTaxRateBpsOverride),
+                                 maxPct: 0.60, presets: [0, 0.28, 0.32, 0.36])
+                    YesNoRow(label: "Count stock not yet granted as saving?",
+                             value: $intake.countFutureGrantsAsSavings)
+                }
+                derivedNote
+            }
+        }
+    }
+
+    /// What the paystub implies, for plan year 0 — or nil when spending has not been answered,
+    /// which is the case the engine treats as "never asked".
+    private var derivedSurplus: Usd? {
+        guard intake.currentFixedSpendingUsd > 0 || intake.currentVariableSpendingUsd > 0 else { return nil }
+        let asOf = todayIsoDate(Date())
+        let h = intake.buildHousehold(asOf: asOf)
+        guard let cf = h.cashFlow else { return nil }
+        return CashFlow.year(h, cf, year: 0, asOf: asOf).investableSurplusUsd
+    }
+
+    /// The whole point of the section, said in the client's own terms. `CashFlow.year` is a
+    /// handful of arithmetic — no `Engine.evaluate`, which is ~66ms — so this is cheap enough
+    /// to recompute as the fields change.
+    @ViewBuilder private var derivedNote: some View {
+        if let derived = derivedSurplus {
+            let stated = intake.annualSavingsUsd
+            let gap = derived - stated
+            if derived < 0 {
+                Note("Your pay does not cover that outlay: this derives \(Fmt.usdShort(derived)) a year, which means the portfolio is being spent rather than funded. The plan will say so.")
+            } else if stated > 0 && abs(gap) > 5_000 {
+                Note("Your paystub derives \(Fmt.usdShort(derived)) a year, \(Fmt.usdShort(abs(gap))) \(gap > 0 ? "MORE" : "LESS") than the \(Fmt.usdShort(stated)) above. "
+                     + (gap > 0
+                        ? "The difference is mostly the deferrals and the match, which never reach your bank account — so the plan needs less return than you thought."
+                        : "The plan would be funded with money the waterfall cannot find. Worth reconciling before you rely on either number."))
+            } else {
+                Note("Your paystub derives \(Fmt.usdShort(derived)) a year of investable surplus. Leave the figure above blank and the plan will run on this instead.")
+            }
+        } else {
+            Note("Answer these and the plan derives your saving from income, deferrals, tax and outlay, instead of taking the figure above on trust. Leave them blank and nothing changes.")
         }
     }
 
@@ -1152,6 +1211,27 @@ struct AdultForm: View {
                 labeledChips("Income character") { ChoiceChips(IncomeCharacter.allCases.map { ($0, $0.label) }, selection: adult.incomeCharacter) { adult.incomeCharacter = $0 } }
                 MoneyField(label: "Employer stock (RSUs)", value: $adult.employerStockUsd)
                 MoneyField(label: "Deferred cash comp", value: $adult.deferredCashUsd)
+
+                // The paystub lines. These are what turn "how much do you save?" — a question
+                // nobody can answer accurately — into arithmetic. Each is kept SEPARATE
+                // because they do different things: the deferral and the match are saved, the
+                // premium is consumed, and the deferral reduces income tax while the HSA and
+                // the premium also reduce FICA.
+                Text("Off the top of your pay")
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 10).padding(.bottom, 2)
+                PercentField(label: "401(k) you defer (of base)",
+                             value: bpsBinding($adult.retirementDeferralBps),
+                             maxPct: 0.50, presets: [0.03, 0.06, 0.10, 0.15])
+                MoneyField(label: "…or a flat amount instead", value: $adult.retirementDeferralUsdOverride)
+                PercentField(label: "Employer match (of base)",
+                             value: bpsBinding($adult.employerMatchBps),
+                             maxPct: 0.15, presets: [0.03, 0.04, 0.05, 0.06])
+                MoneyField(label: "HSA you contribute per year", value: $adult.hsaAnnualContributionUsd)
+                YesNoRow(label: "Is the HSA on family coverage?", value: $adult.hsaFamilyCoverage)
+                MoneyField(label: "Medical/dental/transit premiums per year", value: $adult.benefitPremiumsUsd)
+                Note("The 401(k), the HSA and the match are SAVED — they reach the portfolio without passing through your bank account, which is why a client reading their own statement undercounts what they save. Premiums are spent and gone.")
             }
         }
     }
@@ -1164,6 +1244,14 @@ struct AdultForm: View {
         .padding(.vertical, 7)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Theme.rule), alignment: .bottom)
     }
+}
+
+/// `PercentField` works in 0…1 and the model stores basis points, which are integers. One
+/// bridge, defined once: a per-call closure would round in several places and the slider would
+/// jitter differently in each.
+func bpsBinding(_ b: Binding<Bps>) -> Binding<Double> {
+    Binding(get: { Double(b.wrappedValue) / 10_000 },
+            set: { b.wrappedValue = Int(($0 * 10_000).rounded()) })
 }
 
 // MARK: - Form controls
@@ -1218,6 +1306,13 @@ struct PercentField: View {
     @Binding var value: Double     // 0..1
     var maxPct: Double = 0.95
     var presets: [Double] = []
+    /// Explicit granularity. nil derives it from the range, because a fixed 1% step is far too
+    /// coarse on a narrow one: a 0…5% field could only land on whole points, so its own 0.5%
+    /// preset chip set a value the slider could not represent and the next drag snapped it
+    /// away. A preset the control cannot reach is the "input that cannot reach its full range"
+    /// failure in a new disguise.
+    var step: Double? = nil
+    private var effectiveStep: Double { step ?? (maxPct <= 0.20 ? 0.0025 : 0.01) }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -1225,7 +1320,14 @@ struct PercentField: View {
                 Spacer()
                 Text(Fmt.pct(value)).font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.ink)
             }
-            Slider(value: $value, in: 0...maxPct, step: 0.01).tint(Theme.ink)
+            // An explicit track. The system's unfilled track is all but invisible on this
+            // background, so at zero a slider rendered as a knob floating in white space —
+            // it read as broken rather than as empty. Every slider here had it; only a field
+            // that DEFAULTS to zero made it visible.
+            ZStack {
+                Capsule().fill(Theme.rule).frame(height: 3)
+                Slider(value: $value, in: 0...maxPct, step: effectiveStep).tint(Theme.ink)
+            }
             if !presets.isEmpty {
                 HStack(spacing: 5) {
                     ForEach(presets, id: \.self) { p in
