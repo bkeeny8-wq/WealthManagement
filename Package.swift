@@ -23,6 +23,7 @@ let package = Package(
             exclude: ["WealthPolicyDesk.h"],
             sources: [
                 "AllocationSolver.swift", "Book.swift", "CapitalMarketModel.swift", "CapitalMarketRisk.swift",
+                "CashFlowModel.swift",
                 "Decumulation.swift", "Engine.swift", "EngineAnalyses.swift", "EquityCompModel.swift",
                 "EquityStyleModel.swift",
                 "ExposureLookthrough.swift", "ExposureModel.swift", "FactorLookthrough.swift", "FixedIncomeModel.swift",

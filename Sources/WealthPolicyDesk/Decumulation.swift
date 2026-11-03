@@ -155,7 +155,15 @@ public extension Engine {
         if accumYears > 0 {
             let g = pow(1 + r, Double(accumYears))
             taxable *= g; roth *= g; growDeferred(g)
-            let fvSavings = r > 0 ? h.annualSavingsUsd * (g - 1) / r : h.annualSavingsUsd * Double(accumYears)
+            // A year-varying surplus has no closed form: the annuity factor above assumed one
+            // flat number for every accumulation year. Summing the real per-year figures
+            // forward reproduces that factor EXACTLY when the surplus is constant, which is
+            // every household without a cash-flow profile.
+            var fvSavings: Usd = 0
+            for k in 1...accumYears {
+                fvSavings += Engine.investableSurplusAtPlanYear(h, year: k, asOf: asOf)
+                    * pow(1 + r, Double(accumYears - k))
+            }
             let deferredNow = deferredTotal()
             let bal = taxable + deferredNow + roth
             if bal > 0 {
@@ -272,7 +280,7 @@ public extension Engine {
             // Only past `accumYears`: the accumulation block above already compounded the
             // savings for plan-years 1...accumYears, and this loop's FIRST year is t ==
             // accumYears — crediting there would book that year's saving twice.
-            if t > accumYears { taxable += min(h.annualSavingsUsd, wagesLeft) }
+            if t > accumYears { taxable += min(Engine.investableSurplusAtPlanYear(h, year: t, asOf: asOf), wagesLeft) }
 
             years.append(DecumulationYear(
                 year: startYear + t, age: ageNow, spendingNeedUsd: spend, guaranteedIncomeUsd: ss + pension,

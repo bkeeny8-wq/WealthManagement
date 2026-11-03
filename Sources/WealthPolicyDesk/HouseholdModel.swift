@@ -103,14 +103,35 @@ public struct HumanCapital: Identifiable, Sendable, Hashable {
     /// is simply never reached.
     public var compensationSchedule: [CompensationYear] = []
 
-    public init(personId: String, baseSalaryUsd: Usd, expectedBonusUsd: Usd, bonusVolatilityBps: Bps, character: IncomeCharacter, impliedBeta: Double, sector: Sector?, yearsRemaining: Int, realGrowthRateBps: Bps, jobLossInDrawdownProbabilityBps: Bps, compensationSchedule: [CompensationYear] = []) {
+    /// Tie this earner's real wage growth to the dated GDP-TREND snapshot, plus a career
+    /// premium in basis points, instead of to the rate typed in `realGrowthRateBps`.
+    ///
+    /// nil means the typed rate governs — the manual override, and the default, so no record
+    /// written before this field moves by a cent. Non-nil means the rate is DERIVED:
+    /// `Seed.gdpTrendRealGrowthBps + premium`, read through `effectiveRealGrowthBps`.
+    ///
+    /// The premium is where a career differs from an economy. Trend GDP is what wages do in
+    /// aggregate; an earner on a promotion track beats it and a mature role does not, and that
+    /// is a judgement to state rather than bury inside one blended number.
+    public var gdpTrendPremiumBps: Bps? = nil
+
+    public init(personId: String, baseSalaryUsd: Usd, expectedBonusUsd: Usd, bonusVolatilityBps: Bps, character: IncomeCharacter, impliedBeta: Double, sector: Sector?, yearsRemaining: Int, realGrowthRateBps: Bps, jobLossInDrawdownProbabilityBps: Bps, compensationSchedule: [CompensationYear] = [], gdpTrendPremiumBps: Bps? = nil) {
         self.personId = personId; self.baseSalaryUsd = baseSalaryUsd; self.expectedBonusUsd = expectedBonusUsd
         self.bonusVolatilityBps = bonusVolatilityBps; self.character = character; self.impliedBeta = impliedBeta
         self.sector = sector; self.yearsRemaining = yearsRemaining; self.realGrowthRateBps = realGrowthRateBps
         self.jobLossInDrawdownProbabilityBps = jobLossInDrawdownProbabilityBps
         self.compensationSchedule = compensationSchedule
+        self.gdpTrendPremiumBps = gdpTrendPremiumBps
     }
     public var annualIncomeUsd: Usd { baseSalaryUsd + expectedBonusUsd }
+
+    /// THE real wage-growth rate for this earner. Every growth exponent in the engine reads
+    /// this, never `realGrowthRateBps` directly — otherwise setting the GDP tie would move
+    /// some paths and not others, and the balance sheet would value a career the projection
+    /// was not running.
+    public var effectiveRealGrowthBps: Bps {
+        gdpTrendPremiumBps.map { Seed.gdpTrendRealGrowthBps + $0 } ?? realGrowthRateBps
+    }
 
     /// THE primitive: the stated salary and CASH bonus governing plan year `t`, in today's
     /// dollars, with no growth applied. An empty schedule returns the single-number pair,
@@ -142,10 +163,25 @@ public struct HumanCapital: Identifiable, Sendable, Hashable {
     /// `statedIncomeUsd` agree there by construction. That identity is the only thing
     /// stopping the wage level and the PV path from drifting apart.
     public func projectedIncomeUsd(planYear t: Int) -> Usd {
-        let g = realGrowthRateBps.frac
+        let c = projectedCompUsd(planYear: t); return c.salary + c.cashBonus
+    }
+
+    /// The projected pair behind `projectedIncomeUsd`, which is simply its sum — ONE formula,
+    /// so the split and the total can never disagree.
+    ///
+    /// The pair is what the cash-flow waterfall needs: an elective deferral and an employer
+    /// match are shares of BASE, not of base-plus-bonus, and a client whose bonus is a third
+    /// of their pay would have their retirement saving overstated by half if the two were
+    /// lumped.
+    public func projectedCompUsd(planYear t: Int) -> (salary: Usd, cashBonus: Usd) {
+        let g = effectiveRealGrowthBps.frac
         guard let e = compensationSchedule.filter({ $0.year <= t }).max(by: { $0.year < $1.year })
-        else { return annualIncomeUsd * pow(1 + g, Double(max(0, t - 1))) }
-        return e.totalUsd * pow(1 + g, Double(max(0, t - e.year)))
+        else {
+            let f = pow(1 + g, Double(max(0, t - 1)))
+            return (baseSalaryUsd * f, expectedBonusUsd * f)
+        }
+        let f = pow(1 + g, Double(max(0, t - e.year)))
+        return (e.salaryUsd * f, e.cashBonusUsd * f)
     }
 }
 
@@ -532,6 +568,19 @@ public struct Household: Identifiable, Sendable, Hashable {
     /// Real (above-inflation) savings added to the corpus each year until the
     /// primary earner retires. Drives the funding side of required return.
     public var annualSavingsUsd: Usd
+
+    /// DERIVED cash flow, when the household was asked for its paystub and its outlay.
+    ///
+    /// nil — the default, and every record saved before this field existed — means the
+    /// household was never asked, and `annualSavingsUsd` above is the stated figure the plan
+    /// runs on. Non-nil means the savings number is derived from income, deferrals, tax and
+    /// today's spending, and the stated figure is kept beside it only as a check: the gap
+    /// between what a client believes they save and what their own paystub implies is usually
+    /// the most useful number on the screen.
+    ///
+    /// It carries no wage schedule. The income path is `HumanCapital.compensationSchedule`,
+    /// here as everywhere.
+    public var cashFlow: CashFlowProfile? = nil
 
     /// Terminal-wealth floor for the legacy claim (today's dollars). The required
     /// return solves so the corpus ENDS at this value rather than at zero.

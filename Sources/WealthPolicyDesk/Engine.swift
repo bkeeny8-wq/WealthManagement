@@ -518,7 +518,7 @@ public enum Engine {
             // External income offsets. Savings occur in working years 1…saveYears — never
             // year 0 (today's draw), so a retired household never books a phantom saving.
             var inflow: Usd = 0
-            if t >= 1 && t <= saveYears { inflow += min(h.annualSavingsUsd, wagesAtPlanYear(h, year: t, asOf: asOf)) }
+            if t >= 1 && t <= saveYears { inflow += investableSurplusAtPlanYear(h, year: t, asOf: asOf) }
             inflow += socialSecurityAnnual(h, year: t, asOf: asOf)
             inflow += pensionAnnual(h, year: t)
             inflow += homeEquityOffset(h, year: t)
@@ -582,8 +582,12 @@ public enum Engine {
             liabilityPv += (grossOut + (annualTaxUsd[t] ?? 0)) / disc
             externalPv += (socialSecurityAnnual(h, year: t, asOf: asOf) + pensionAnnual(h, year: t) + homeEquityOffset(h, year: t)) / disc
             if t >= 1 && t <= saveYears {
-                let capped = min(h.annualSavingsUsd, wagesAtPlanYear(h, year: t, asOf: asOf))
-                if capped > 0 { savingsPv += capped / disc }
+                // SIGNED. A household that outspends its pay has a NEGATIVE surplus, and
+                // dropping it here while the recursion above still charges it is the one-sided
+                // shape this codebase keeps re-growing: the required return would rise while
+                // the funded ratio pretended nothing had happened. The stated path cannot be
+                // negative, so this is inert for every record without a cash-flow profile.
+                savingsPv += investableSurplusAtPlanYear(h, year: t, asOf: asOf) / disc
             }
         }
         // The legacy floor is itself a liability the resources must cover, in PV.

@@ -55,13 +55,19 @@ public struct EstateParameters: Sendable, Hashable {
     }
 }
 
-/// A state's EFFECTIVE tax profile, used only to estimate the itemized-deduction inputs
-/// (SALT) that drive the muni-crossover and mortgage-paydown comparisons.
+/// A state's tax profile, used to estimate the itemized-deduction inputs (SALT) that drive
+/// the muni-crossover and mortgage-paydown comparisons, and the state leg of the cash-flow
+/// waterfall.
 ///
-/// These are dated, teaching-grade effective rates to VERIFY — not a tax table and not a
-/// substitute for a return. `incomeRate` is an effective (not marginal) rate applied to
-/// MAGI, and is 0 for states with no broad income tax; `propertyRate` is the effective
-/// annual property tax as a share of home value.
+/// These are dated, teaching-grade rates to VERIFY — not a tax table and not a substitute for
+/// a return. `incomeRate` is the state's TOP MARGINAL rate, 0 for states with no broad income
+/// tax; see its own doc for the two places that want different things from it, and why every
+/// EFFECTIVE use of it can only overstate. `propertyRate` is the effective annual property tax
+/// as a share of home value.
+///
+/// This comment used to call `incomeRate` "an effective (not marginal) rate", flatly
+/// contradicting the field three lines below it. Two readers acting on the two halves is how a
+/// top-bracket rate ends up priced as an effective one in silence.
 public struct StateTaxProfile: Sendable, Hashable {
     public var code: String
     public var name: String

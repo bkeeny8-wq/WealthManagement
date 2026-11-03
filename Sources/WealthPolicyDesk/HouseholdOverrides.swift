@@ -114,7 +114,12 @@ public extension Household {
         var h = self
         if let v = o.legacyFloorUsd { h.legacyFloorUsd = v }
         if let v = o.toleranceMaxDrawdownBps { h.statedToleranceMaxDrawdownBps = v }
-        if let v = o.annualSavingsUsd { h.annualSavingsUsd = v }   // feeds the corpus recursion directly
+        // Feeds the corpus recursion directly — and DROPS BACK to the stated path, because
+        // `investableSurplusAtPlanYear` prefers the derived profile and would otherwise swallow
+        // the slider whole: the what-if would move nothing and report success. An arbitrary
+        // surplus figure cannot be decomposed back into income, tax and spending, and "what if
+        // they saved X instead" is exactly a stated number.
+        if let v = o.annualSavingsUsd { h.annualSavingsUsd = v; h.cashFlow = nil }
         // Retirement age: the primary retires at a new age → shift the spending schedule,
         // recompute working years (human capital), and update the person. saveYears and
         // decumulation read expectedRetirementAge directly, so they follow automatically.

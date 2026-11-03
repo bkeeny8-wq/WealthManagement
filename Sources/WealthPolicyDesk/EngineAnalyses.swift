@@ -718,6 +718,57 @@ extension Engine {
                                magnitudeUsd: hsa * rate.frac))
         }
 
+        // --- Derived cash flow ---
+        //
+        // Only when the household was actually asked. A stated savings number produces no
+        // findings here, because there is nothing to compare it against: the whole point of
+        // the three below is that a DERIVED figure can contradict the stated one, can be
+        // negative, and rests on a state rate the app does not really have.
+        if let cf = h.cashFlow {
+            let cfy = CashFlow.year(h, cf, year: 0, asOf: asOf)
+
+            // The state leg is the weakest number in the waterfall, and it is weak in a KNOWN
+            // DIRECTION. `incomeRate` is a top marginal rate; applied as an effective rate it
+            // can only overstate, so the finding names the ceiling rather than pretending to
+            // a figure the app cannot source. Silent where it cannot bite: a manual rate, and
+            // the no-income-tax states, where the proxy is exactly right at zero.
+            if cfy.stateIncomeTaxUsd > 0, case .topMarginalProxy = cf.stateWageTax {
+                let p = Seed.stateTaxProfile(for: h.stateOfResidence)
+                out.append(Finding(ruleId: "state_wage_tax_is_estimated", module: .tax, severity: .soft,
+                                   title: "State wage tax is an estimate, and it is high",
+                                   detail: "The \(Fmt.usdShort(cfy.stateIncomeTaxUsd)) of \(p.name) wage tax in the cash-flow waterfall is \(String(format: "%.2f", p.incomeRate * 100))% applied flat — the state's TOP MARGINAL rate, which is the only state figure this app carries. \(p.name) is graduated, so the true effective rate on these wages is lower and the tax shown is a CEILING: the real surplus is at least this good, never worse. Read the effective rate off the client's own return and enter it as the state basis to replace the estimate.",
+                                   magnitudeUsd: cfy.stateIncomeTaxUsd))
+            }
+
+            // The household outspends its net pay. Hard: it is not a tuning remark, it is the
+            // corpus going backwards while the plan assumes it is being funded.
+            if cfy.investableSurplusUsd < 0 {
+                out.append(Finding(ruleId: "cash_flow_deficit", module: .planning, severity: .hard,
+                                   title: "The household is spending its corpus, not funding it",
+                                   detail: "Spending of \(Fmt.usdShort(cfy.spendingUsd)) against \(Fmt.usdShort(cfy.netPayUsd)) of net pay leaves \(Fmt.usdShort(cfy.leftoverCashUsd)), and even crediting the \(Fmt.usdShort(cfy.retirementDeferralUsd + cfy.hsaDeferralUsd + cfy.employerMatchUsd)) of deferrals and match the total is \(Fmt.usdShort(cfy.investableSurplusUsd)). The required return is solved against a corpus that shrinks every working year. No allocation fixes this; the outlay or the income has to move.",
+                                   magnitudeUsd: -cfy.investableSurplusUsd))
+            }
+
+            // The gap between what the client believes they save and what their own paystub
+            // implies. BOTH DIRECTIONS, because each is a different error: stating more than
+            // the paystub supports funds the plan with money that is not there, and stating
+            // less hides saving that is already happening and overstates the risk needed.
+            let stated = h.annualSavingsUsd
+            let derived = cfy.investableSurplusUsd
+            let gap = derived - stated
+            let scale = max(abs(derived), abs(stated))
+            if stated > 0, scale > 0, abs(gap) > 5_000, abs(gap) / scale > 0.10 {
+                let over = gap < 0
+                out.append(Finding(ruleId: "stated_savings_contradicts_paystub", module: .planning, severity: .soft,
+                                   title: over ? "Stated saving is above what the paystub supports"
+                                               : "The paystub saves more than the client thinks",
+                                   detail: "The household states \(Fmt.usdShort(stated))/yr. Income, deferrals, tax and today's outlay derive \(Fmt.usdShort(derived))/yr — a gap of \(Fmt.usdShort(abs(gap))). " + (over
+                                        ? "The plan is being funded with \(Fmt.usdShort(abs(gap))) a year the waterfall cannot find, which flatters the funded ratio and understates the return the goals require."
+                                        : "The deferrals and the employer match never pass through net pay, so a client reading their own bank statement undercounts their saving by roughly that amount. The plan needs LESS return than the stated figure implies.") + " Reconcile the two before the policy statement quotes either.",
+                                   magnitudeUsd: abs(gap)))
+            }
+        }
+
         // Transition: scheduled realized gains outrunning the annual budget.
         if h.transitionGainBudgetUsd > 0 && h.transitionAnnualRealizedGainUsd > h.transitionGainBudgetUsd {
             out.append(Finding(ruleId: "transition_gain_budget_exceeded", module: .planning, severity: .hard,

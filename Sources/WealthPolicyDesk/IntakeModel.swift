@@ -170,6 +170,29 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
     /// owned, and its balance was previously folded into `traditionalUsd`, which charged it
     /// ordinary income on every withdrawal and put it on an RMD clock it does not have.
     public var hsaUsd: Usd = 0
+
+    // MARK: Paystub mechanics (the derived-cash-flow inputs)
+
+    /// Elective 401(k)/403(b) deferral as a share of BASE salary. A rate rather than a dollar
+    /// figure so it tracks a salary that steps, which is what a percent election actually does.
+    public var retirementDeferralBps: Bps = 0
+    /// A flat annual deferral, which WINS over the rate when > 0 — the client who maxes out
+    /// regardless of what their base does.
+    public var retirementDeferralUsdOverride: Usd = 0
+    /// Annual HSA contribution, and whether the HDHP is family coverage (which more than
+    /// doubles the statutory cap). This is the CONTRIBUTION; `hsaUsd` above is the BALANCE.
+    public var hsaAnnualContributionUsd: Usd = 0
+    public var hsaFamilyCoverage: Bool = false
+    /// Medical, dental, vision, transit — pre-tax and CONSUMED, never saved. Kept apart from
+    /// the deferrals above for exactly that reason.
+    public var benefitPremiumsUsd: Usd = 0
+    /// Employer match as a share of base.
+    public var employerMatchBps: Bps = 0
+    /// Tie this earner's real wage growth to the dated GDP-trend snapshot plus this premium,
+    /// in bps, instead of the engine's default rate. nil = use the default, which is what every
+    /// existing record does.
+    public var gdpTrendPremiumBps: Bps? = nil
+
     public init() {}
 
     /// Defaults-first decode, matching IntakeModel's own decoder. Synthesized Codable
@@ -196,6 +219,13 @@ public struct IntakeAdult: Codable, Hashable, Identifiable {
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .socialSecurityMonthlyUsd)) ?? nil { socialSecurityMonthlyUsd = v }
         if let v = (try? c.decodeIfPresent(Int.self, forKey: .ssClaimAge)) ?? nil { ssClaimAge = v }
         if let v = (try? c.decodeIfPresent([IntakeCompYear].self, forKey: .compYears)) ?? nil { compYears = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .retirementDeferralBps)) ?? nil { retirementDeferralBps = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .retirementDeferralUsdOverride)) ?? nil { retirementDeferralUsdOverride = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .hsaAnnualContributionUsd)) ?? nil { hsaAnnualContributionUsd = v }
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: .hsaFamilyCoverage)) ?? nil { hsaFamilyCoverage = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .benefitPremiumsUsd)) ?? nil { benefitPremiumsUsd = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .employerMatchBps)) ?? nil { employerMatchBps = v }
+        gdpTrendPremiumBps = (try? c.decodeIfPresent(Bps.self, forKey: .gdpTrendPremiumBps)) ?? nil
         sector = (try? c.decodeIfPresent(Sector.self, forKey: .sector)) ?? nil
     }
 }
@@ -622,6 +652,32 @@ public struct IntakeModel: Codable, Hashable {
     public var annualSavingsUsd: Usd = 0
     public var emergencyReserveUsd: Usd = 0
 
+    /// TODAY'S spending, which is what makes saving derivable instead of asserted.
+    ///
+    /// `annualSavingsUsd` above asks the client for a conclusion; these two ask for facts.
+    /// Net pay minus outlay IS the investable surplus, and the deferrals the client never
+    /// sees in their bank account are added on top — which is why the derived figure is
+    /// routinely LARGER than the stated one, not smaller. Both are kept: the gap between
+    /// them is reported as a finding rather than silently resolved.
+    ///
+    /// Fixed is separated from variable because the resilience engine needs to know which
+    /// half can actually be cut in a bad year. Zero in both means "not asked", and the plan
+    /// keeps running on the stated figure.
+    public var currentFixedSpendingUsd: Usd = 0
+    public var currentVariableSpendingUsd: Usd = 0
+    /// Real (above-inflation) drift in the household's own outlay. 0 = flat in real terms.
+    public var spendingRealGrowthBps: Bps = 0
+    /// The effective state wage rate off the client's own return. 0 = not supplied, and the
+    /// waterfall falls back to the top-marginal proxy, which overstates and says so.
+    public var stateWageTaxEffectiveBps: Bps = 0
+    /// One blended rate replacing the whole computed tax leg — the client's own "effective
+    /// 31.8%". 0 = compute it. Present so the engine can be pinned to the figure the client
+    /// already believes, and the gap against the computed one becomes visible.
+    public var effectiveTaxRateBpsOverride: Bps = 0
+    /// Count expected FUTURE grants as investable surplus when they vest. Off by default:
+    /// stock that has not been granted is not income anyone can spend yet.
+    public var countFutureGrantsAsSavings: Bool = false
+
     // 4 — accounts & holdings
     public var taxableUsd: Usd = 0
     /// Household totals, computed over the adults who actually own the accounts.
@@ -833,6 +889,12 @@ public struct IntakeModel: Codable, Hashable {
         if let v = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil { state = v }
         if let v = (try? c.decodeIfPresent(Bool.self, forKey: .survivableOnOneIncome)) ?? nil { survivableOnOneIncome = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .annualSavingsUsd)) ?? nil { annualSavingsUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .currentFixedSpendingUsd)) ?? nil { currentFixedSpendingUsd = v }
+        if let v = (try? c.decodeIfPresent(Usd.self, forKey: .currentVariableSpendingUsd)) ?? nil { currentVariableSpendingUsd = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .spendingRealGrowthBps)) ?? nil { spendingRealGrowthBps = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .stateWageTaxEffectiveBps)) ?? nil { stateWageTaxEffectiveBps = v }
+        if let v = (try? c.decodeIfPresent(Bps.self, forKey: .effectiveTaxRateBpsOverride)) ?? nil { effectiveTaxRateBpsOverride = v }
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: .countFutureGrantsAsSavings)) ?? nil { countFutureGrantsAsSavings = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .emergencyReserveUsd)) ?? nil { emergencyReserveUsd = v }
         if let v = (try? c.decodeIfPresent(Usd.self, forKey: .taxableUsd)) ?? nil { taxableUsd = v }
         // Legacy shape: these were household totals stored on the model, with every
@@ -1159,7 +1221,8 @@ public extension IntakeModel {
                                                  .sorted { $0.calendarYear < $1.calendarYear }
                                                  .map { CompensationYear(year: $0.calendarYear - yr,
                                                                          salaryUsd: $0.salaryUsd,
-                                                                         cashBonusUsd: $0.cashBonusUsd) }))
+                                                                         cashBonusUsd: $0.cashBonusUsd) },
+                                             gdpTrendPremiumBps: a.gdpTrendPremiumBps))
             // Dated grants win over the undated lump. Carrying both would double-count the same
             // units: `employerStockUsd` is the answer a client gives when they cannot break the
             // total down, and `rsuGrants` is the same money once they can.
@@ -1566,6 +1629,34 @@ public extension IntakeModel {
             transitionGainBudgetUsd: annualGainBudgetUsd, transitionAnnualRealizedGainUsd: realizedGain,
             permanentHoldPolicy: permanentHoldPolicy, estate: estateInputs, protection: protectionProfile, equityComp: equityMechanics)
         h.planAsOf = asOf          // travels with the plan, so evaluate() ages it correctly
+
+        // Derived cash flow, attached ONLY when the household was actually asked what it
+        // spends. Without an outlay there is nothing to derive — net pay minus nothing is not
+        // a surplus — so the plan keeps running on the stated `annualSavingsUsd`, and
+        // `investableSurplusAtPlanYear` returns the same expression it always did.
+        //
+        // Deductions are carried whether or not spending was answered, because they are a
+        // fact about the paystub; they simply have nothing to feed until the outlay arrives.
+        if currentFixedSpendingUsd > 0 || currentVariableSpendingUsd > 0 {
+            let earners: [EarnerCashFlow] = adults.enumerated().map { i, a in
+                EarnerCashFlow(personId: "p_\(i)",
+                               deductions: PretaxDeductions(
+                                   retirementBps: a.retirementDeferralBps,
+                                   retirementUsdOverride: a.retirementDeferralUsdOverride,
+                                   hsaUsd: a.hsaAnnualContributionUsd,
+                                   hsaFamilyCoverage: a.hsaFamilyCoverage,
+                                   benefitPremiumsUsd: a.benefitPremiumsUsd,
+                                   employerMatchBps: a.employerMatchBps))
+            }
+            h.cashFlow = CashFlowProfile(
+                earners: earners,
+                spending: CurrentSpending(fixedUsd: currentFixedSpendingUsd,
+                                          variableUsd: currentVariableSpendingUsd,
+                                          realGrowthBps: spendingRealGrowthBps),
+                stateWageTax: stateWageTaxEffectiveBps > 0 ? .manual(stateWageTaxEffectiveBps) : .topMarginalProxy,
+                effectiveTaxRateBpsOverride: effectiveTaxRateBpsOverride > 0 ? effectiveTaxRateBpsOverride : nil,
+                includesFutureEquityGrants: countFutureGrantsAsSavings)
+        }
         return h
     }
 
