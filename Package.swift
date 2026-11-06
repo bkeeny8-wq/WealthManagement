@@ -28,6 +28,7 @@ let package = Package(
                 "EquityStyleModel.swift",
                 "ExposureLookthrough.swift", "ExposureModel.swift", "FactorLookthrough.swift", "FixedIncomeModel.swift",
                 "FrontierModel.swift", "HouseholdModel.swift", "HouseholdOverrides.swift", "IPSReview.swift",
+                "IntakeEditSession.swift",
                 "IntakeModel.swift", "LayerModel.swift", "MacroIndicators.swift", "MacroModel.swift",
                 "ModelLibraryStore.swift", "ModelPortfolio.swift",
                 "OwnershipModel.swift", "Planning.swift", "PolicyModel.swift", "PortfolioModel.swift", "PracticeMetadata.swift",
