@@ -74,6 +74,8 @@ framework_files = [
     "PracticeMetadata.swift",
     # book of business (multi-client CRM store + interchange export)
     "Book.swift",
+    # what the intake editor opens on, and what a record will accept back from it
+    "IntakeEditSession.swift",
     # the evaluation engine (implements the declared/implied pure functions)
     "Engine.swift",
     "EngineAnalyses.swift",

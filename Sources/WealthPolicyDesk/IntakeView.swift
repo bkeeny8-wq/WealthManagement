@@ -34,26 +34,30 @@ public struct RootView: View {
     @State private var intake: IntakeModel?      // nil ⇒ the sample (no CRM record)
     @State private var practice = PracticeMetadata()
 
-    @State private var showWizard = false
     @State private var showEcon = false          // the firm-wide Econ backdrop, top-level (no client)
-    @State private var wizardSeed = IntakeModel()
-    @State private var wizardPractice = PracticeMetadata()
-    @State private var wizardEditingId: UUID?    // nil ⇒ creating a new client
+    /// Non-nil ⇒ the intake editor is up, opened on exactly these answers. The seed
+    /// travels WITH the presentation rather than being written to separate state and
+    /// read back when the cover appears — read back, it came back stale and blank.
+    /// See IntakeEditSession.
+    @State private var editSession: IntakeEditSession? = nil
     @State private var bookNotice: BookNotice? = nil
 
     private enum BookNotice: Identifiable {
         case saveFailed
         case corrupt(String)
+        case wouldBlankRecord
         var id: String {
             switch self {
             case .saveFailed: return "save"
             case .corrupt(let n): return "corrupt-\(n)"
+            case .wouldBlankRecord: return "blank"
             }
         }
         var title: String {
             switch self {
             case .saveFailed: return "Couldn't save the book"
             case .corrupt: return "A previous book file was unreadable"
+            case .wouldBlankRecord: return "That would erase this client's plan"
             }
         }
         var message: String {
@@ -62,6 +66,8 @@ public struct RootView: View {
                 return "The last change is still on screen but was not written to disk. Check available storage and try again — uncommitted work has not been discarded."
             case .corrupt(let name):
                 return "The unreadable file was moved aside as \(name). The book is empty until you add a client; the backup is still on the device if you need to recover it."
+            case .wouldBlankRecord:
+                return "The form you just saved from holds no answers at all, and this client's saved plan does. Nothing was written. Close the form and reopen it from the desk — if it comes up empty again, the plan is still safe in the book."
             }
         }
     }
@@ -82,7 +88,7 @@ public struct RootView: View {
                     canPersist: activeId != nil,
                     onCommit: persistStaged,
                     onCommitTilts: commitTilts,
-                    onEditIntake: { wizardSeed = intake ?? IntakeModel(); wizardPractice = practice; wizardEditingId = activeId; showWizard = true },
+                    onEditIntake: { editSession = .open(activeId, in: book) },
                     currentHoldings: intake?.heldAwayPositions ?? [],
                     adults: intake?.adults ?? [],
                     onUpdateHoldings: updateHoldings,
@@ -130,13 +136,16 @@ public struct RootView: View {
         }
         // Full-screen (not a sheet): the intake is a long single page, and a form-sheet's
         // swipe/tap-outside dismissal would silently discard everything typed so far.
-        .fullScreenCover(isPresented: $showWizard) {
-            IntakeWizard(intake: wizardSeed, practice: wizardPractice,
-                         previewAsOf: intakePreviewAsOf(
-                            editingPlanAsOf: wizardEditingId.flatMap { id in book.first { $0.id == id }?.planAsOf },
-                            today: todayIsoDate(Date()))) { builtIntake, builtPractice in
-                if saveFromWizard(builtIntake, builtPractice) { showWizard = false }
-            } onCancel: { showWizard = false }
+        // `item:`, not `isPresented:`. The session is handed to this closure by the
+        // presentation itself, so the answers the editor opens on cannot be a stale read
+        // of state written alongside a separate flag — which is exactly how a populated
+        // client came up as an empty form.
+        .fullScreenCover(item: $editSession) { session in
+            IntakeWizard(intake: session.intake, practice: session.practice,
+                         previewAsOf: intakePreviewAsOf(editingPlanAsOf: session.planAsOf,
+                                                        today: todayIsoDate(Date()))) { builtIntake, builtPractice in
+                if saveFromWizard(session, builtIntake, builtPractice) { editSession = nil }
+            } onCancel: { editSession = nil }
         }
     }
 
@@ -147,9 +156,7 @@ public struct RootView: View {
         activeId = id; intake = rec.intake; practice = rec.practice
         household = rec.household()
     }
-    private func startNewClient() {
-        wizardSeed = IntakeModel(); wizardPractice = PracticeMetadata(); wizardEditingId = nil; showWizard = true
-    }
+    private func startNewClient() { editSession = .newClient() }
     private func openSample() {
         activeId = nil; intake = nil; practice = PracticeMetadata(); household = Seed.sampleHousehold
     }
@@ -172,16 +179,22 @@ public struct RootView: View {
     /// appending a new one — then open it on the desk. Returns whether the write
     /// succeeded; the wizard stays open on failure so the answers are not discarded.
     @discardableResult
-    private func saveFromWizard(_ builtIntake: IntakeModel, _ builtPractice: PracticeMetadata) -> Bool {
+    private func saveFromWizard(_ session: IntakeEditSession, _ builtIntake: IntakeModel, _ builtPractice: PracticeMetadata) -> Bool {
         let snapshot = book
+        // Which record is written, and whether it may be written at all, is decided in
+        // `IntakeCommit` — a pure function the suite can reach. The view only reports
+        // the outcome and persists.
+        let result = IntakeCommit.apply(session, intake: builtIntake, practice: builtPractice,
+                                        to: book, newRecordPlanAsOf: todayIsoDate(Date()))
         let id: UUID
-        if let editId = wizardEditingId, let i = book.firstIndex(where: { $0.id == editId }) {
-            book[i].intake = builtIntake; book[i].practice = builtPractice; book[i].touch()
-            id = editId
-        } else {
-            let rec = ClientRecord(intake: builtIntake, practice: builtPractice, planAsOf: todayIsoDate(Date()))
-            book.append(rec); id = rec.id
+        switch result.outcome {
+        case .refusedWouldBlankRecord:
+            bookNotice = .wouldBlankRecord
+            return false
+        case .updated(let recordId), .appended(let recordId):
+            id = recordId
         }
+        book = result.book
         guard BookStore.save(book) else {
             book = snapshot
             bookNotice = .saveFailed
