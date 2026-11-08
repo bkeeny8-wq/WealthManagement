@@ -228,15 +228,22 @@ struct PolicyStatementTab: View {
     }
 
     private var fundedText: String {
-        let hasFlex = rr.requiredRealReturnWithFlexibilityBps < rr.requiredRealReturnBps
+        // A signed statement may not attribute the flexibility figure to "a goal" in the
+        // abstract. The engine flexes each goal's own outflows only, so the sentence names
+        // which goal's flexibility was spent and which claims were held fixed — otherwise
+        // this paragraph asserts a concession the client never made about a goal they
+        // called fixed. See `Engine.goalFlexibilitySummary`.
+        let flex = Engine.goalFlexibilitySummary(eval.household)
+        let hasFlex = flex.anyFlexible && rr.requiredRealReturnWithFlexibilityBps < rr.requiredRealReturnBps
         let flexPct = Fmt.pctBps(rr.requiredRealReturnWithFlexibilityBps)
+        let held = flex.rigidLabels.isEmpty ? "" : " \(flex.rigidLabels.joined(separator: ", ")) is stated as fixed and is not reduced in that figure."
         if isFunded {
             let base = "The household's resources currently fund its goals in full (funded ratio \(Fmt.pctBps(bs.fundedRatioBps))); the required return is the rate that keeps it so."
-            return hasFlex ? base + " Modest goal flexibility would ease the requirement to \(flexPct)." : base
+            return hasFlex ? base + " Flexing \(flex.phrase) would ease the requirement to \(flexPct).\(held)" : base
         }
         let base = "The household's resources currently fund about \(Fmt.pctBps(bs.fundedRatioBps)) of its goals; the required return is the rate that would fund the remainder."
         return hasFlex
-            ? base + " Deferring or scaling a goal lowers the requirement to \(flexPct) — closing the gap through flexibility, savings, or return, not by taking risk the plan cannot bear."
+            ? base + " Deferring or scaling \(flex.phrase) lowers the requirement to \(flexPct) — closing the gap through flexibility, savings, or return, not by taking risk the plan cannot bear.\(held)"
             : base + " Closing the gap is a matter of savings or return, not risk the plan cannot bear."
     }
 

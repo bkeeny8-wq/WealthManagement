@@ -38,13 +38,30 @@ struct RequiredReturnTab: View {
                                  : "to spend the corpus down to zero — no legacy",
                                color: rr.requiredRealReturnBps > 500 ? Theme.debt : Theme.asset)
                 Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(Fmt.pctBps(rr.requiredRealReturnWithFlexibilityBps))
-                        .font(.system(size: 27, weight: .bold, design: .monospaced)).foregroundStyle(Theme.accent)
-                    Text("with goal flexibility").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                let flex = Engine.goalFlexibilitySummary(eval.household)
+                if flex.anyFlexible {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(Fmt.pctBps(rr.requiredRealReturnWithFlexibilityBps))
+                            .font(.system(size: 27, weight: .bold, design: .monospaced)).foregroundStyle(Theme.accent)
+                        Text("flexing \(flex.phrase)").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                    }
                 }
             }
-            Note("The gap of \(Fmt.bps(rr.requiredRealReturnBps - rr.requiredRealReturnWithFlexibilityBps)) is what deferring and scaling the spending goal buys — for free. Deferring a goal beats taking more risk.", icon: "arrow.down.right", color: Theme.accent)
+            // The figure names the goals it came from. It used to say "the spending goal",
+            // singular, and "for free" — while the engine took the most flexible setting on
+            // ANY goal and charged it to all of them, retirement included, whatever the
+            // client had answered. Each goal now flexes only its own outflows, so the
+            // sentence has to say whose flexibility is being spent.
+            let flex = Engine.goalFlexibilitySummary(eval.household)
+            if flex.anyFlexible {
+                let gap = rr.requiredRealReturnBps - rr.requiredRealReturnWithFlexibilityBps
+                Note("Flexing \(flex.phrase) — deferring or scaling that goal's own outflows, nothing else — lowers the requirement by \(Fmt.bps(gap)). It is cheaper than reaching for return, but it is not free: it is less of that goal, later."
+                     + (flex.rigidLabels.isEmpty ? "" : " \(flex.rigidLabels.joined(separator: ", ")) is held fixed and is not scaled here."),
+                     icon: "arrow.down.right", color: Theme.accent)
+            } else {
+                Note("Every spending goal here is stated as fixed, so there is no flexibility figure to show. If any of them could in fact be deferred or trimmed, capture that on the goal and this becomes the cheapest lever on the board.",
+                     icon: "lock", color: Theme.muted)
+            }
         }
 
         Card("Expected vs required — is the market priced to fund this plan?") {
@@ -57,7 +74,13 @@ struct RequiredReturnTab: View {
             if rec.unpricedResidualBps > 25 {
                 Note("\(Fmt.pctBps(rec.unpricedResidualBps)) of current holdings aren't mapped to a sleeve (e.g. a concentrated stock) and are priced here as US-large equity.", icon: "questionmark.circle", color: Theme.muted)
             }
-            Note("Both figures are REAL. \"Expected\" — what the market is priced to deliver on this allocation (Econ → Capital market expectations) — is stated NET of a \(Fmt.pctBps(rec.frictionDragBps)) fund-fee + annual-tax friction dial, so it sits on the same after-tax basis as \"required,\" the rate the corpus must actually compound at after funding its own withdrawal taxes. A gap the market isn't priced to close is closed by saving more, spending less, or deferring a goal (required with flexibility: \(Fmt.pctBps(rec.requiredFlexBps))) — not by reaching for risk the market isn't paying for.", icon: "scalemass")
+            // The flexibility clause is conditional for the same reason the headline figure
+            // is: with no flexible goal, `requiredFlexBps` EQUALS the required return, and
+            // printing it as a lever offers the reader a concession that buys nothing.
+            let flexHere = Engine.goalFlexibilitySummary(eval.household)
+            Note("Both figures are REAL. \"Expected\" — what the market is priced to deliver on this allocation (Econ → Capital market expectations) — is stated NET of a \(Fmt.pctBps(rec.frictionDragBps)) fund-fee + annual-tax friction dial, so it sits on the same after-tax basis as \"required,\" the rate the corpus must actually compound at after funding its own withdrawal taxes. A gap the market isn't priced to close is closed by saving more, spending less"
+                 + (flexHere.anyFlexible ? ", or flexing \(flexHere.phrase) (required that way: \(Fmt.pctBps(rec.requiredFlexBps)))" : "")
+                 + " — not by reaching for risk the market isn't paying for.", icon: "scalemass")
         }
 
         Card("After-tax — the tax drag", help: Teach.help("requiredReturn")) {

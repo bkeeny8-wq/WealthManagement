@@ -489,6 +489,72 @@ public enum Engine {
         return year0Claim ? 0 : 1
     }
 
+    /// PER-GOAL flexibility: what ONE goal's own `flexibility` does to ITS OWN outflows,
+    /// and to nothing else.
+    ///
+    /// The engine used to take a single household-wide pair — `.max(deferrableYears)` and
+    /// `.max(scalableDownBps)` across every spending goal — and charge it to all of them.
+    /// So a client who answered "No — it's fixed" about retirement spending had that stream
+    /// scaled down 15–50% and pushed out anyway, because an education goal (1yr/3000bps),
+    /// an extra goal (0/1500) or a goal added from the IPS screen (3/5000) carried a
+    /// flexible default they were never asked for. The figure is published at 27pt on the
+    /// Required Return tab and asserted in the signed statement, so the whole claim rested
+    /// on the most flexible goal in the book. A rigid goal must never scale or defer
+    /// because some OTHER goal was flexible.
+    ///
+    /// `.reserve` claims never flex, flexed or not — a reserve that can be deferred is not a
+    /// reserve. That is unchanged, and is why the `.spending` test stays here rather than
+    /// being folded into the caller's `where` clause.
+    static func goalFlex(_ g: Goal, flexed: Bool) -> (shift: Int, scale: Double) {
+        guard flexed, g.kind == .spending else { return (0, 1.0) }
+        return (max(0, g.flexibility.deferrableYears), 1.0 - g.flexibility.scalableDownBps.frac)
+    }
+
+    /// How far past the stated horizon the recursion must keep running so outflows the flex
+    /// solve pushed out are still FUNDED rather than silently dropped off the end.
+    ///
+    /// This one IS a max across goals, and that is not the rule `goalFlex` deletes: it is a
+    /// loop bound that has to cover the latest shifted outflow of ANY goal, not a flexibility
+    /// charged to a goal. Dropping the distinction is what made the old code look reasonable.
+    static func flexHorizonExtensionYears(_ h: Household, flexed: Bool) -> Int {
+        guard flexed else { return 0 }
+        return h.goals.filter { $0.kind == .spending }
+            .map { max(0, $0.flexibility.deferrableYears) }.max() ?? 0
+    }
+
+    /// WHICH goals the "with goal flexibility" figure came from, and which were left alone.
+    ///
+    /// This is here, not in a view, because it is a decision — and because the captions that
+    /// read it were making a claim the engine had stopped supporting. Both the Required
+    /// Return tab and the signed statement attributed the discount to "the spending goal",
+    /// singular, when it could come from an education ladder or a goal added on the IPS
+    /// screen, and described it as bought "for free". Nothing in `swift test` compiles those
+    /// files, so no assertion could have contradicted them.
+    public struct GoalFlexibilitySummary: Sendable, Hashable {
+        /// Spending goals whose own flexibility moves their own outflows, by label.
+        public var flexibleLabels: [String]
+        /// Spending goals the client called fixed. Under the old household-wide rule these
+        /// were scaled and deferred anyway.
+        public var rigidLabels: [String]
+        public var anyFlexible: Bool { !flexibleLabels.isEmpty }
+        /// A caption that names the goals instead of asserting "the spending goal".
+        public var phrase: String {
+            switch flexibleLabels.count {
+            case 0: return "no goal"
+            case 1: return flexibleLabels[0]
+            case 2: return "\(flexibleLabels[0]) and \(flexibleLabels[1])"
+            default: return "\(flexibleLabels[0]) and \(flexibleLabels.count - 1) other goals"
+            }
+        }
+    }
+
+    public static func goalFlexibilitySummary(_ h: Household) -> GoalFlexibilitySummary {
+        let spending = h.goals.filter { $0.kind == .spending }
+        return GoalFlexibilitySummary(
+            flexibleLabels: spending.filter { $0.flexibility.deferrableYears > 0 || $0.flexibility.scalableDownBps > 0 }.map { $0.label },
+            rigidLabels: spending.filter { $0.flexibility.deferrableYears <= 0 && $0.flexibility.scalableDownBps <= 0 }.map { $0.label })
+    }
+
     /// `annualTaxUsd` (plan-year t → projected federal tax + IRMAA) makes the recursion
     /// AFTER-TAX: the corpus must fund spending PLUS the tax the withdrawals generate.
     /// Empty ⇒ the pre-tax number.
@@ -504,12 +570,11 @@ public enum Engine {
         // worse the more it earns. The savings inflow is capped at the same year's wages
         // for the mirror reason — a stated savings rate booked in a year with no wages
         // credits money that does not exist.
-        func netOutflow(_ t: Int, deferYears: Int, scaleDownBps: Bps) -> Usd {
+        func netOutflow(_ t: Int, flexed: Bool) -> Usd {
             var out: Usd = annualTaxUsd[t] ?? 0
             for g in h.goals where g.kind == .spending || g.kind == .reserve {
                 let excess = g.inflationSeries.realExcessBps.frac
-                let scale = g.kind == .spending ? (1.0 - scaleDownBps.frac) : 1.0
-                let shift = g.kind == .spending ? deferYears : 0
+                let (shift, scale) = goalFlex(g, flexed: flexed)
                 for o in g.outflows where (o.year + shift) == t {
                     let esc = o.inflationLinked ? pow(1.0 + excess, Double(max(0, t - 1))) : 1.0
                     out += o.amountUsd * scale * esc
@@ -517,24 +582,39 @@ public enum Engine {
             }
             // External income offsets. Savings occur in working years 1…saveYears — never
             // year 0 (today's draw), so a retired household never books a phantom saving.
+            //
+            // EXTERNAL INCOME STOPS AT THE STATED HORIZON. Past it only the deferred
+            // outflows remain. The flex solve runs the recursion `flexHorizonExtensionYears`
+            // past the horizon so a deferred claim is still funded at its later year, and
+            // crediting Social Security and pension through those extra years — against a
+            // retirement stream whose outflow list ENDS at the horizon — handed the plan
+            // free income for years in which, by construction, nothing is spent. It made
+            // deferring a late $400,000 claim price 2 bps CHEAPER than not having the claim
+            // at all (433 vs 435 on the sample), which is a plain impossibility and would
+            // have been published as "what flexibility buys — for free". The un-flexed
+            // solve and both PV loops stop at the horizon, so this gate is inert for every
+            // number other than the flex figure, which it makes conservative instead of
+            // fictitious. `testADeferredOutflowIsStillFundedRatherThanDropped` is the bound.
             var inflow: Usd = 0
             if t >= 1 && t <= saveYears { inflow += investableSurplusAtPlanYear(h, year: t, asOf: asOf) }
-            inflow += socialSecurityAnnual(h, year: t, asOf: asOf)
-            inflow += pensionAnnual(h, year: t)
-            inflow += homeEquityOffset(h, year: t)
+            if t <= horizon {
+                inflow += socialSecurityAnnual(h, year: t, asOf: asOf)
+                inflow += pensionAnnual(h, year: t)
+                inflow += homeEquityOffset(h, year: t)
+            }
             return out - inflow
         }
 
         // Corpus recursion terminal balance at rate r.
-        func terminal(_ r: Double, deferYears: Int, scaleDownBps: Bps) -> Usd {
+        func terminal(_ r: Double, flexed: Bool) -> Usd {
             // A retiree's current-year draw comes straight off the top — no growth year
             // precedes today's spending — so subtract year 0 before compounding begins.
             var b = A
-            if startT == 0 { b -= netOutflow(0, deferYears: deferYears, scaleDownBps: scaleDownBps) }
-            // Extend the horizon by the deferral so shifted outflows are still
-            // funded at their later years rather than silently dropped.
-            for t in 1...(horizon + deferYears) {
-                b = b * (1 + r) - netOutflow(t, deferYears: deferYears, scaleDownBps: scaleDownBps)
+            if startT == 0 { b -= netOutflow(0, flexed: flexed) }
+            // Extend the horizon by the longest deferral any goal takes, so shifted
+            // outflows are still funded at their later years rather than silently dropped.
+            for t in 1...(horizon + flexHorizonExtensionYears(h, flexed: flexed)) {
+                b = b * (1 + r) - netOutflow(t, flexed: flexed)
             }
             return b
         }
@@ -543,29 +623,27 @@ public enum Engine {
         // A floor of 0 is a pure spend-down; a positive floor prices the
         // perpetual legacy claim and raises the required return.
         let legacyFloor = max(0, h.legacyFloorUsd)
-        func solve(deferYears: Int, scaleDownBps: Bps, floor: Usd) -> Double {
+        func solve(flexed: Bool, floor: Usd) -> Double {
             var lo = -0.05, hi = 0.20
             // If even 20% real can't reach the floor, cap; if 0% overshoots it, floor.
-            if terminal(hi, deferYears: deferYears, scaleDownBps: scaleDownBps) < floor { return hi }
-            if terminal(lo, deferYears: deferYears, scaleDownBps: scaleDownBps) > floor { return lo }
+            if terminal(hi, flexed: flexed) < floor { return hi }
+            if terminal(lo, flexed: flexed) > floor { return lo }
             for _ in 0..<60 {
                 let mid = (lo + hi) / 2
-                if terminal(mid, deferYears: deferYears, scaleDownBps: scaleDownBps) > floor { hi = mid } else { lo = mid }
+                if terminal(mid, flexed: flexed) > floor { hi = mid } else { lo = mid }
             }
             return (lo + hi) / 2
         }
 
-        let r = solve(deferYears: 0, scaleDownBps: 0, floor: legacyFloor)
-        let rSpendDown = solve(deferYears: 0, scaleDownBps: 0, floor: 0)
-        let deferMax = h.goals.filter { $0.kind == .spending }.map { $0.flexibility.deferrableYears }.max() ?? 0
-        let scaleMax = h.goals.filter { $0.kind == .spending }.map { $0.flexibility.scalableDownBps }.max() ?? 0
-        // KNOWN APPROXIMATION: the flexibility solve shifts spending later (deferYears) but
-        // reuses `annualTaxUsd` from the NON-deferred decumulation, so spending pushed past
-        // the original horizon carries no withdrawal tax — the flex number is slightly
+        let r = solve(flexed: false, floor: legacyFloor)
+        let rSpendDown = solve(flexed: false, floor: 0)
+        // KNOWN APPROXIMATION: the flexibility solve shifts spending later but reuses
+        // `annualTaxUsd` from the NON-deferred decumulation, so spending pushed past the
+        // original horizon carries no withdrawal tax — the flex number is slightly
         // optimistic. It is a secondary, advisory figure ("flexibility would ease the
         // requirement to X"); re-projecting the decumulation tax under the deferred schedule
         // is left as future work.
-        let rFlex = solve(deferYears: deferMax, scaleDownBps: scaleMax, floor: legacyFloor)
+        let rFlex = solve(flexed: true, floor: legacyFloor)
 
         // PVs at the safe real rate for the funded ratio and the resource split.
         var liabilityPv: Usd = 0, externalPv: Usd = 0, savingsPv: Usd = 0
@@ -601,10 +679,10 @@ public enum Engine {
         // path disagrees with the rate printed above it.
         var proj: [YearBalance] = []
         var b = A
-        if startT == 0 { b -= netOutflow(0, deferYears: 0, scaleDownBps: 0) }
+        if startT == 0 { b -= netOutflow(0, flexed: false) }
         proj.append(YearBalance(year: year(asOf), balanceUsd: max(0, b)))
         for t in 1...horizon {
-            b = b * (1 + r) - netOutflow(t, deferYears: 0, scaleDownBps: 0)
+            b = b * (1 + r) - netOutflow(t, flexed: false)
             proj.append(YearBalance(year: year(asOf) + t, balanceUsd: max(0, b)))
         }
 
