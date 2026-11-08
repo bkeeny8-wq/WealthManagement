@@ -528,12 +528,44 @@ extension Engine {
             // and this rule would not fire, because it only saw the growth half.
             let equityUsd = h.positions.filter { isEquity($0) }.reduce(0) { $0 + $1.marketValueUsd }
             let equityBps = (equityUsd / portfolio).bps + heldAltEquityEquivalentBps(h)
+            // THE DISCLOSURE. The stated limit is below the drawdown of EVERY portfolio this
+            // household's menu contains, so the ceiling the plan is built at is a
+            // substitution, not their answer. It is a hard finding because the plan of
+            // record is solved at that ceiling (`Engine.swift` spends
+            // `riskProfile?.bindingEquityBps` as the solver's `equityCeilingBps`), it is
+            // frozen into the IPS snapshot, and the advisor otherwise has no way to learn
+            // it: the dial in the editor moves and nothing downstream changes. Naming the
+            // direction is the whole point, the way `state_wage_tax_is_estimated` and
+            // `hsa_exemption_is_conditional` do.
+            //
+            // Gated on a real book. `drawdownByCeiling` prices the solver's MENU from policy
+            // weights, not balances, so it returns a floor for a household with no assets
+            // too — and an untouched intake defaults to a 2100 bps limit nobody typed, below
+            // a 3156 bps floor. Firing there would put "Must resolve 1" on a blank client
+            // over an answer they never gave, which is the same class of fabricated
+            // assertion `Evaluation.isSolvable` exists to prevent. There is no plan of
+            // record to be built at a substituted ceiling until there is something to build.
+            if !rp.hasTolerableBand, h.portfolioValueUsd > 0 {
+                out.append(Finding(ruleId: "tolerance_below_menu_floor", module: .policy, severity: .hard,
+                                   title: "Stated loss limit is below anything this plan can build",
+                                   detail: "The household stated it could tolerate a \(Fmt.pctBps(rp.statedMaxDrawdownBps)) single-year loss, but the most defensive portfolio this desk will build for them still models \(Fmt.pctBps(rp.minDrawdownBps)) — \(Fmt.pctBps(rp.toleranceShortfallBps)) more than they said. The plan is therefore solved at the most defensive ceiling available (\(Fmt.pctBps(rp.toleranceImpliedEquityBps))), which is NOT what their tolerance implies: no ceiling implies it. Re-ask the loss question against a real dollar figure, or state plainly that the plan carries more downside than they asked for.",
+                                   magnitudeUsd: 0))
+            }
             let over = equityBps - rp.bindingEquityBps
             if over > 300 {   // >3 points above the binding ceiling
                 let capBound = rp.bindingIsCapacity
+                // With no tolerable band the ceiling came from neither capacity nor
+                // tolerance — it is the menu's floor. Calling it "tolerance, what you'll
+                // stomach" attributed the engine's substitution to the client, and did so
+                // by construction: the fallback sits below the capacity clamp, so
+                // `bindingIsCapacity` is false in every empty-band case.
+                let source = !rp.hasTolerableBand
+                    ? "the most defensive mix available — their stated limit is below all of it"
+                    : (capBound ? "capacity, what the situation can afford" : "tolerance, what you'll stomach")
                 out.append(Finding(ruleId: "equity_exceeds_binding", module: .policy, severity: capBound ? .hard : .soft,
-                                   title: capBound ? "Equity above risk capacity" : "Equity above stated tolerance",
-                                   detail: "The book holds \(Fmt.pctBps(equityBps)) equity against a binding ceiling of \(Fmt.pctBps(rp.bindingEquityBps)) — \(capBound ? "capacity, what the situation can afford" : "tolerance, what you'll stomach"). \(Fmt.pctBps(over)) over, about \(Fmt.usdShort(over.frac * portfolio)) of equity to trim.",
+                                   title: !rp.hasTolerableBand ? "Equity above the most defensive mix available"
+                                        : (capBound ? "Equity above risk capacity" : "Equity above stated tolerance"),
+                                   detail: "The book holds \(Fmt.pctBps(equityBps)) equity against a binding ceiling of \(Fmt.pctBps(rp.bindingEquityBps)) — \(source). \(Fmt.pctBps(over)) over, about \(Fmt.usdShort(over.frac * portfolio)) of equity to trim.",
                                    magnitudeUsd: over.frac * portfolio))
             }
             // Closes the loop honestly: when the derived equity TARGET is already
@@ -544,7 +576,13 @@ extension Engine {
             // liquidity-bound below it) and the plan is still underfunded.
             let sleeveEquityTarget = policy.sleeves.filter { $0.role == .growth }.reduce(0) { $0 + $1.targetBps }
             let totalRiskTarget = sleeveEquityTarget + Engine.altEquityEquivalentBps(policy)
-            if bs.fundedRatioBps < 9_800, totalRiskTarget + 50 >= rp.bindingEquityBps {
+            // Suppressed entirely when there is no tolerable band, because it would invert
+            // the fact: the ceiling is then the LEAST equity the menu can build, and this
+            // finding calls it "the most equity your tolerance allows". The condition is
+            // also self-fulfilling there — the target is built AT that floor, so
+            // `totalRiskTarget >= bindingEquityBps` holds for every underfunded household.
+            // `tolerance_below_menu_floor` above is the honest statement of the same state.
+            if rp.hasTolerableBand, bs.fundedRatioBps < 9_800, totalRiskTarget + 50 >= rp.bindingEquityBps {
                 out.append(Finding(ruleId: "underfunded_at_risk_ceiling", module: .policy, severity: .soft,
                                    title: "At the risk ceiling, still underfunded",
                                    detail: "The target already carries the most equity your \(rp.bindingIsCapacity ? "capacity" : "tolerance") allows (\(Fmt.pctBps(rp.bindingEquityBps))), yet the plan funds only \(Fmt.pctBps(bs.fundedRatioBps)) of its claims. More equity is not the lever — close the gap by deferring or scaling a goal, or saving more.",

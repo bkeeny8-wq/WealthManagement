@@ -350,13 +350,20 @@ public enum Engine {
     /// aware: the "defensive" sleeves carry real credit/commodity/alt risk, so this
     /// is usually more conservative than 2×. Uses volatilities/correlations only —
     /// the strategic target stays free of return forecasts.
+    /// The sweep is hoisted so the curve is built ONCE and both the ceiling and the menu's
+    /// drawdown floor are read off the same array. Two sweeps would be two places for the
+    /// floor to drift, which is the whole failure this function is being taught to report.
     public static func riskProfile(_ h: Household, fundedRatioBps: Bps, ladder: LadderPlan) -> RiskProfile? {
         guard h.statedToleranceMaxDrawdownBps > 0 else { return nil }
         let cap = riskCapacityBps(h, fundedRatioBps: fundedRatioBps)
-        let tol = toleranceEquityBps(h, ladder: ladder, maxDrawdownBps: h.statedToleranceMaxDrawdownBps)
+        let curve = drawdownByCeiling(h, ladder: ladder)
+        let res = resolveTolerance(fromCurve: curve, maxDrawdownBps: h.statedToleranceMaxDrawdownBps)
+        let tol = res.equityBps
         let binding = min(cap, tol)
         return RiskProfile(capacityEquityBps: cap, toleranceImpliedEquityBps: tol,
-                           bindingEquityBps: binding, gapBps: abs(cap - tol), bindingIsCapacity: cap <= tol)
+                           bindingEquityBps: binding, gapBps: abs(cap - tol), bindingIsCapacity: cap <= tol,
+                           hasTolerableBand: res.hasTolerableBand, minDrawdownBps: res.minDrawdownBps,
+                           statedMaxDrawdownBps: h.statedToleranceMaxDrawdownBps)
     }
 
     // MARK: - Tax rate helpers

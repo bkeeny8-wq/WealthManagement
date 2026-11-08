@@ -1123,7 +1123,13 @@ struct IntakeWizard: View {
                 LedgerRow("× behavior (history + reaction)", String(format: "%.2f×", intake.behaviorTemperMultiplier), color: Theme.muted)
                 LedgerRow("× outlook", String(format: "%.2f×", intake.worry.toleranceTiltMultiplier), color: Theme.muted)
                 LedgerRow("Effective max drawdown", Fmt.pctBps(intake.effectiveMaxDrawdownBps), color: Theme.ink, bold: true)
-                Note("This is TOLERANCE. Your situation's CAPACITY — horizon, income stability, funded status — is computed on the desk, and the plan binds to the lower of the two: never more risk than you can afford or will stomach. The equity ceiling lives there, not as a 2× rule of thumb here.", icon: "info.circle", color: Theme.muted)
+                // "never more risk than you can afford or will stomach" is the promise the
+                // desk breaks when the stated limit is below every portfolio it can build —
+                // and the intake cannot know that here, because the menu's floor depends on
+                // the household the desk has not built yet. So the promise is stated as the
+                // intent it is, with the one case it does not cover named rather than
+                // implied. The desk reports that case as a hard finding.
+                Note("This is TOLERANCE. Your situation's CAPACITY — horizon, income stability, funded status — is computed on the desk, and the plan aims at the lower of the two: no more risk than you can afford or will stomach. The equity ceiling lives there, not as a 2× rule of thumb here. If your limit turns out to be lower than anything the desk can actually build, it will say so rather than quietly build to it.", icon: "info.circle", color: Theme.muted)
             }
             Card("Is leaving a legacy…") {
                 ChoiceChips(LegacyPriority.allCases.map { ($0, $0.label) }, selection: intake.legacyPriority) { intake.legacyPriority = $0 }

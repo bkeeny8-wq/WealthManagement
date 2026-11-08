@@ -1152,9 +1152,38 @@ public struct RiskProfile: Sendable, Hashable {
     public var bindingEquityBps: Bps
     public var gapBps: Bps
     public var bindingIsCapacity: Bool
-    public init(capacityEquityBps: Bps, toleranceImpliedEquityBps: Bps, bindingEquityBps: Bps, gapBps: Bps, bindingIsCapacity: Bool) {
+    /// Is ANY portfolio the solver will build inside the client's stated drawdown limit.
+    ///
+    /// FALSE MEANS `toleranceImpliedEquityBps` IS A SUBSTITUTION, NOT THE CLIENT'S ANSWER.
+    /// `Engine.toleranceEquityBps` silently returns the most defensive rung when nothing
+    /// fits — correct arithmetic, since nothing lower can be built, but it used to arrive
+    /// here indistinguishable from an honoured tolerance. Every surface then asserted the
+    /// override as the client's own: the ladder badged a rung "YOU" and captioned it with
+    /// the drawdown they ASKED for, the balance sheet printed "tolerance-bound", and the
+    /// IPS said a stated limit "supports up to" that ceiling. Defaults to `true` so the one
+    /// construction site decides it and no reader has to infer it from a sentinel.
+    public var hasTolerableBand: Bool
+    /// The MODELED drawdown of the most defensive portfolio this household's menu contains.
+    /// When `hasTolerableBand` is false this — not the stated limit — is what the plan
+    /// actually carries. Same name and meaning as `FrontierChart.minDrawdownBps`.
+    public var minDrawdownBps: Bps
+    /// The tolerance-implied ceiling, or nil when no portfolio meets the stated limit.
+    /// `FrontierModel` reads THIS rather than re-deciding the question off its own sweep,
+    /// so the two surfaces cannot disagree about whether a band exists.
+    public var frontierToleranceEquityBps: Bps? { hasTolerableBand ? toleranceImpliedEquityBps : nil }
+    /// How far the menu's floor overshoots what the client said they could lose. 0 when a
+    /// band exists. NOT `FrontierChart.targetExceedsToleranceBps`, which measures the solved
+    /// target's overshoot after the glide and capacity cap and is therefore ≥ this.
+    public var toleranceShortfallBps: Bps { hasTolerableBand ? 0 : max(0, minDrawdownBps - statedMaxDrawdownBps) }
+    /// The client's stated limit, carried so the shortfall and every caption can be computed
+    /// from the profile alone rather than re-reading the household.
+    public var statedMaxDrawdownBps: Bps
+    public init(capacityEquityBps: Bps, toleranceImpliedEquityBps: Bps, bindingEquityBps: Bps, gapBps: Bps, bindingIsCapacity: Bool,
+                hasTolerableBand: Bool = true, minDrawdownBps: Bps = 0, statedMaxDrawdownBps: Bps = 0) {
         self.capacityEquityBps = capacityEquityBps; self.toleranceImpliedEquityBps = toleranceImpliedEquityBps
         self.bindingEquityBps = bindingEquityBps; self.gapBps = gapBps; self.bindingIsCapacity = bindingIsCapacity
+        self.hasTolerableBand = hasTolerableBand; self.minDrawdownBps = minDrawdownBps
+        self.statedMaxDrawdownBps = statedMaxDrawdownBps
     }
 }
 

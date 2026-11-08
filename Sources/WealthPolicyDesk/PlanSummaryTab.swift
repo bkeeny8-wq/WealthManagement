@@ -112,11 +112,22 @@ struct PlanSummaryTab: View {
                 Note("Nothing to solve yet. Capacity and the equity ceiling that would fall out of funded status are not numbers that describe this client until the required return has a real solution.",
                      icon: "questionmark.circle", color: Theme.muted)
             } else if let risk = eval.riskProfile {
+                // This card is element 4 of `printBlocks`, so these tiles go into the client's
+                // exported PDF. "Will stomach: 15.0%" there is a claim about the client that
+                // the engine's own substitution produced, printed over their signature.
                 StatGrid([
                     StatTile("Can afford", Fmt.pctBps(risk.capacityEquityBps), sub: "equity capacity", color: Theme.ink),
-                    StatTile("Will stomach", Fmt.pctBps(risk.toleranceImpliedEquityBps), sub: "risk tolerance", color: Theme.ink),
-                    StatTile("Equity ceiling", Fmt.pctBps(risk.bindingEquityBps), sub: "the lower of the two", color: Theme.accent),
+                    risk.hasTolerableBand
+                        ? StatTile("Will stomach", Fmt.pctBps(risk.toleranceImpliedEquityBps), sub: "risk tolerance", color: Theme.ink)
+                        : StatTile("Will stomach", "—", sub: "below the menu floor", color: Theme.debt),
+                    risk.hasTolerableBand
+                        ? StatTile("Equity ceiling", Fmt.pctBps(risk.bindingEquityBps), sub: "the lower of the two", color: Theme.accent)
+                        : StatTile("Equity ceiling", Fmt.pctBps(risk.bindingEquityBps), sub: "most defensive available", color: Theme.debt),
                 ])
+                if !risk.hasTolerableBand {
+                    Note("The stated \(Fmt.pctBps(risk.statedMaxDrawdownBps)) loss limit is below the \(Fmt.pctBps(risk.minDrawdownBps)) the most defensive portfolio here models. The ceiling above is the floor of what can be built, not what the stated tolerance implies.",
+                         icon: "exclamationmark.triangle", color: Theme.debt)
+                }
                 LedgerRow("Chance of missing the goal", Fmt.pctBps(shortfall.shortfallProbBps, 0), color: shortfall.shortfallProbBps > 5000 ? Theme.debt : (shortfall.shortfallProbBps > 3000 ? Theme.amber : Theme.asset), bold: true)
                 Note("The plan CAPS TOTAL equity at the lower of what you can afford and what you can stomach. Two "
                      + "things sit under that ceiling: the growth allocation shown below, and the equity beta the alt "

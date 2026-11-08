@@ -373,6 +373,13 @@ public struct ModelComparison: Sendable, Hashable {
     public var bindingCeilingBps: Bps
     public var bindingIsCapacity: Bool
     public var toleranceElicited: Bool
+    /// False when the client's stated limit is below every portfolio the menu contains, so
+    /// `bindingCeilingBps` came from neither capacity nor tolerance — it is the menu's own
+    /// floor. Without this the divergence finding fell through to the tolerance branch and
+    /// told the advisor to close the gap by "moving the stated drawdown tolerance", an
+    /// instruction that cannot work: every value below the floor resolves to the same
+    /// ceiling, so they would move the dial and watch nothing change.
+    public var hasTolerableBand: Bool
     public var fundedRatioBps: Bps
     public var glideActive: Bool         // funded ratio past fully-funded → equity gliding down
     /// The near-term liquidity floor pushed cash ABOVE its structural share, squeezing the
@@ -437,6 +444,7 @@ public extension Engine {
             bindingCeilingBps: e.riskProfile?.bindingEquityBps ?? 0,
             bindingIsCapacity: e.riskProfile?.bindingIsCapacity ?? false,
             toleranceElicited: e.riskProfile != nil,
+            hasTolerableBand: e.riskProfile?.hasTolerableBand ?? true,
             fundedRatioBps: e.balanceSheet.fundedRatioBps,
             glideActive: e.balanceSheet.fundedRatioBps > fundedFloorBps,
             cashFloorBinding: derivedCash > structuralCash,
@@ -463,6 +471,11 @@ public extension Engine {
             let why: String
             if !c.toleranceElicited {
                 why = "no drawdown tolerance has been elicited, so the ceiling is the firm template's own equity total"
+            } else if !c.hasTolerableBand {
+                // Tested ahead of capacity and the glide: when no portfolio meets the stated
+                // limit the ceiling is the menu's floor, and every other branch would name a
+                // cause that is not the cause.
+                why = "the stated drawdown limit is below every portfolio this desk can build, so the ceiling is the most defensive mix available (\(Fmt.pctBps(c.bindingCeilingBps))) — moving the tolerance dial will not change it"
             } else if c.bindingIsCapacity {
                 why = "equity binds on CAPACITY (\(Fmt.pctBps(c.bindingCeilingBps))) — what the situation affords, not what the model prefers"
             } else if c.glideActive {

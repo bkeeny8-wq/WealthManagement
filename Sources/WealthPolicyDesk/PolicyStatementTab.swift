@@ -252,7 +252,16 @@ struct PolicyStatementTab: View {
             if !eval.isSolvable {
                 p("No risk objective can be stated yet: this household has no solvable required return, so the equity ceiling that would fall out of funded status is not a number that describes this client. Complete the balances and the retirement spending first.")
             } else if let r = eval.riskProfile {
-                p("Risk tolerance is the lower of the household's ABILITY and WILLINGNESS to bear risk. Ability (capacity), reflecting the funded ratio, time horizon, and human capital, supports up to \(Fmt.pctBps(r.capacityEquityBps)) in equities. Willingness, from a stated maximum tolerable one-year drawdown of about \(Fmt.pctBps(h.statedToleranceMaxDrawdownBps)), supports up to \(Fmt.pctBps(r.toleranceImpliedEquityBps)). Prudence binds the portfolio to the lower of the two — an equity ceiling of \(Fmt.pctBps(r.bindingEquityBps)).")
+                // A signed document may not assert that a stated drawdown limit "supports up
+                // to" an equity ceiling when no portfolio on the menu stays inside that
+                // limit. The claim is false by construction in the empty-band case, and the
+                // engine's own sweep already knows it, so the statement says what actually
+                // governs the portfolio instead of attributing it to the client's answer.
+                if r.hasTolerableBand {
+                    p("Risk tolerance is the lower of the household's ABILITY and WILLINGNESS to bear risk. Ability (capacity), reflecting the funded ratio, time horizon, and human capital, supports up to \(Fmt.pctBps(r.capacityEquityBps)) in equities. Willingness, from a stated maximum tolerable one-year drawdown of about \(Fmt.pctBps(h.statedToleranceMaxDrawdownBps)), supports up to \(Fmt.pctBps(r.toleranceImpliedEquityBps)). Prudence binds the portfolio to the lower of the two — an equity ceiling of \(Fmt.pctBps(r.bindingEquityBps)).")
+                } else {
+                    p("Risk tolerance is the lower of the household's ABILITY and WILLINGNESS to bear risk. Ability (capacity), reflecting the funded ratio, time horizon, and human capital, supports up to \(Fmt.pctBps(r.capacityEquityBps)) in equities. Willingness was stated as a maximum tolerable one-year drawdown of about \(Fmt.pctBps(h.statedToleranceMaxDrawdownBps)); NO allocation available to this plan meets that limit, because the most defensive portfolio it will construct still carries a modelled one-year drawdown of approximately \(Fmt.pctBps(r.minDrawdownBps)). The portfolio is therefore set at that most defensive allocation — an equity ceiling of \(Fmt.pctBps(r.bindingEquityBps)) — and the household should understand that it carries roughly \(Fmt.pctBps(r.toleranceShortfallBps)) more downside in a severe year than the figure they stated. Reducing the stated limit further would not change the allocation; only holding assets outside this plan would.")
+                }
                 p("At the policy allocation, the modelled probability of failing to meet the goal over the \(horizonYears)-year horizon is approximately \(Fmt.pctBps(shortfall.shortfallProbBps, 0)). This is a model estimate, not a guarantee; it compares an after-tax required return against an expected return net of a fund-fee and annual-tax friction estimate, so both rest on the same basis, and a thin margin — reflecting the forecast's own uncertainty — should be read as roughly funded rather than a cushion.")
             } else {
                 p("A formal risk tolerance is not yet on file. Completing the household's risk assessment — its maximum tolerable drawdown and its behavioural response to loss — is required before the equity ceiling and shortfall probability that anchor this policy can be set.")
@@ -517,7 +526,20 @@ struct PolicyStatementTab: View {
                            Fmt.solvedPctBps(from.fundedRatioBps, solved: from.solved),
                            Fmt.solvedPctBps(to.fundedRatioBps, solved: to.solved),
                            from.solved && to.solved ? delta(to.fundedRatioBps, from.fundedRatioBps) : "")
-                compareRow("Equity ceiling", Fmt.pctBps(from.equityCeilingBps), Fmt.pctBps(to.equityCeilingBps), delta(to.equityCeilingBps, from.equityCeilingBps))
+                // Gated like the two rows above it. A ceiling that was SUBSTITUTED (no
+                // portfolio met the stated limit) is not comparable with one a tolerance
+                // actually implied: a client who lowers their limit anywhere below the menu
+                // floor shows a 0 bps delta on a row captioned "Equity ceiling", and the
+                // review history reads as stability where there was none.
+                let bothHadBand = from.toleranceHadTolerableBand && to.toleranceHadTolerableBand
+                compareRow("Equity ceiling",
+                           from.toleranceHadTolerableBand ? Fmt.pctBps(from.equityCeilingBps) : "\(Fmt.pctBps(from.equityCeilingBps))*",
+                           to.toleranceHadTolerableBand ? Fmt.pctBps(to.equityCeilingBps) : "\(Fmt.pctBps(to.equityCeilingBps))*",
+                           bothHadBand ? delta(to.equityCeilingBps, from.equityCeilingBps) : "")
+                if !bothHadBand {
+                    Note("* that review's equity ceiling was the most defensive allocation available, not a ceiling the stated drawdown tolerance implied — the two are not comparable, so no change is shown.",
+                         icon: "exclamationmark.triangle", color: Theme.debt)
+                }
                 compareRow("After-tax net worth", Fmt.usdShort(from.afterTaxNetWorthUsd), Fmt.usdShort(to.afterTaxNetWorthUsd), usdDelta(to.afterTaxNetWorthUsd, from.afterTaxNetWorthUsd))
                 compareRow("Goals on file", "\(from.goalCount)", "\(to.goalCount)", countDelta(to.goalCount, from.goalCount))
                 Note("Pick any two dated reviews to see how the objectives and funded status moved between them — not only since the immediately prior review.")

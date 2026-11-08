@@ -120,7 +120,16 @@ public extension Engine {
         // Report the equity CEILING the solver binds to (matches the Balance Sheet /
         // Risk Scale), not the growth-only share of the curve point — the two differ
         // by the alt equity-beta that also counts against the budget.
-        let frontierTolEquity: Bps? = hasBand ? (eval.riskProfile?.toleranceImpliedEquityBps ?? withinTol.map { $0.equityBps }.max()) : nil
+        //
+        // ONE EXPRESSION DECIDES WHETHER A TOLERANCE CEILING EXISTS, and it is
+        // `RiskProfile.frontierToleranceEquityBps`. This used to re-decide it from the
+        // chart's own sweep (1500…9000 step 500) while `Engine.riskProfile` decided it from
+        // a different one (1500…9500 step 250) — two answers to one question, agreeing only
+        // by luck, and only the chart's answer could ever say "no band". Keep the local
+        // `hasBand` for the chart's own narration, but take the ceiling from the profile so
+        // a disagreement is impossible rather than merely unlikely.
+        let frontierTolEquity: Bps? = eval.riskProfile?.frontierToleranceEquityBps
+            ?? (hasBand ? withinTol.map { $0.equityBps }.max() : nil)
         let required = eval.isSolvable ? eval.requiredReturn.requiredRealReturnBps : 0
 
         return FrontierChart(

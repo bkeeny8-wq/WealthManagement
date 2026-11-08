@@ -132,13 +132,73 @@ public extension Engine {
     /// tolerance above that printed "95% equity" verbatim in the client's IPS. Requesting
     /// more than the plateau buys nothing, so reporting more than the plateau is a fiction.
     static func toleranceEquityBps(fromCurve curve: [(ceilingBps: Bps, drawdownBps: Bps)], maxDrawdownBps: Bps) -> Bps {
-        let fallback = curve.first?.ceilingBps ?? 3000
-        let qualifying = curve.filter { $0.drawdownBps <= maxDrawdownBps }
-        guard let peak = qualifying.map({ $0.drawdownBps }).max() else { return fallback }
-        return qualifying.filter { $0.drawdownBps == peak }.map { $0.ceilingBps }.min() ?? fallback
+        resolveTolerance(fromCurve: curve, maxDrawdownBps: maxDrawdownBps).equityBps
     }
 
     static func toleranceEquityBps(_ h: Household, ladder: LadderPlan, maxDrawdownBps: Bps) -> Bps {
         toleranceEquityBps(fromCurve: drawdownByCeiling(h, ladder: ladder), maxDrawdownBps: maxDrawdownBps)
+    }
+
+    /// WHAT THE FALLBACK ABOVE ACTUALLY DID, made visible.
+    ///
+    /// Substituting the most defensive rung when the stated limit is unreachable is the
+    /// right ARITHMETIC — nothing lower can be built — but returning it as a bare `Bps`
+    /// threw away the fact that a substitution happened. `Engine.riskProfile` stored it as
+    /// `toleranceImpliedEquityBps`, the Risk Scale tab badged that rung "YOU" and captioned
+    /// it with the drawdown the client ASKED for, and the IPS snapshotted the result as the
+    /// equity ceiling their tolerance implied. A client who said "I can lose 10%" was shown
+    /// "≤ 10.0% drawdown" on a portfolio the same engine models at 15.7%, under a Note
+    /// promising each rung is "priced as if the plan actually held that much equity".
+    ///
+    /// `FrontierModel` already refuses to do this — `hasTolerableBand`, `minDrawdownBps`,
+    /// `frontierToleranceEquityBps` — and says so on screen. The field names here are
+    /// deliberately ITS names, not new ones: "achievable"/"menuFloor" beside
+    /// "hasTolerableBand"/"minDrawdown" would be a second vocabulary for one fact, and this
+    /// codebase's two-equity-bases history is what reconciling vocabularies produce.
+    ///
+    /// There is deliberately NO shortfall field. `FrontierChart.targetExceedsToleranceBps`
+    /// already owns a number of that shape and means something different — the SOLVED
+    /// TARGET's modeled drawdown minus the stated limit, measured after the glide and the
+    /// capacity cap, so it is ≥ this one. A caller that wants the menu-floor shortfall
+    /// derives `max(0, minDrawdownBps - stated)` and must not call it by that name.
+    ///
+    /// The sweep is never re-run: callers pass the curve they already computed.
+    struct ToleranceResolution: Sendable, Hashable {
+        /// The equity ceiling to BUILD at — a cap on TOTAL exposure. Unchanged from before,
+        /// fallback included: when nothing fits, the most defensive rung really is the right
+        /// thing to build, because nothing lower exists. What was missing is everything else
+        /// in this struct.
+        var equityBps: Bps
+        /// Is ANY swept portfolio inside the stated limit. False means `equityBps` is a
+        /// SUBSTITUTION, not the client's answer, and no surface may report it as their
+        /// tolerance. Same name and meaning as `FrontierChart.hasTolerableBand`.
+        var hasTolerableBand: Bool
+        /// The MODELED drawdown of the most defensive portfolio the solver will build — the
+        /// floor of the whole menu, and what the client would actually live with when the
+        /// band is empty. Same name and meaning as `FrontierChart.minDrawdownBps`.
+        var minDrawdownBps: Bps
+        /// The tolerance-implied ceiling, or nil when there is no band. The nil-able twin of
+        /// `equityBps`, mirroring `FrontierChart.frontierToleranceEquityBps`, so exactly one
+        /// expression in the codebase decides whether a tolerance ceiling exists at all.
+        var frontierToleranceEquityBps: Bps? { hasTolerableBand ? equityBps : nil }
+    }
+
+    static func resolveTolerance(fromCurve curve: [(ceilingBps: Bps, drawdownBps: Bps)], maxDrawdownBps: Bps) -> ToleranceResolution {
+        // `curve.first` is the most defensive rung: `drawdownByCeiling` sweeps upward from
+        // 1500 and appends in order. The `?? 3000` is unreachable with a real curve (the
+        // loop always appends at least one rung) and is kept only as a total-function guard
+        // for a caller that hands in an empty array.
+        let fallback = curve.first?.ceilingBps ?? 3000
+        let floor = curve.map { $0.drawdownBps }.min() ?? 0
+        let qualifying = curve.filter { $0.drawdownBps <= maxDrawdownBps }
+        guard let peak = qualifying.map({ $0.drawdownBps }).max() else {
+            return ToleranceResolution(equityBps: fallback, hasTolerableBand: false, minDrawdownBps: floor)
+        }
+        let eq = qualifying.filter { $0.drawdownBps == peak }.map { $0.ceilingBps }.min() ?? fallback
+        return ToleranceResolution(equityBps: eq, hasTolerableBand: true, minDrawdownBps: floor)
+    }
+
+    static func resolveTolerance(_ h: Household, ladder: LadderPlan, maxDrawdownBps: Bps) -> ToleranceResolution {
+        resolveTolerance(fromCurve: drawdownByCeiling(h, ladder: ladder), maxDrawdownBps: maxDrawdownBps)
     }
 }

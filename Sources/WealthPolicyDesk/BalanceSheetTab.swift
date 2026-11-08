@@ -30,10 +30,22 @@ struct BalanceSheetTab: View {
             Card("Risk — capacity vs tolerance") {
                 StatGrid([
                     StatTile("Capacity", Fmt.pctBps(rp.capacityEquityBps), sub: "equity you CAN hold", color: Theme.ink),
-                    StatTile("Tolerance", Fmt.pctBps(rp.toleranceImpliedEquityBps), sub: "equity you'll STOMACH", color: Theme.ink),
-                    StatTile("Binds at", Fmt.pctBps(rp.bindingEquityBps), sub: rp.bindingIsCapacity ? "capacity-bound" : "tolerance-bound", color: Theme.accent),
+                    // "tolerance-bound" was certain in exactly the case where the tolerance
+                    // was discarded: the substituted floor always sits below the capacity
+                    // clamp, so `bindingIsCapacity` is false whenever the band is empty.
+                    rp.hasTolerableBand
+                        ? StatTile("Tolerance", Fmt.pctBps(rp.toleranceImpliedEquityBps), sub: "equity you'll STOMACH", color: Theme.ink)
+                        : StatTile("Tolerance", "—", sub: "no ceiling meets it", color: Theme.debt),
+                    rp.hasTolerableBand
+                        ? StatTile("Binds at", Fmt.pctBps(rp.bindingEquityBps), sub: rp.bindingIsCapacity ? "capacity-bound" : "tolerance-bound", color: Theme.accent)
+                        : StatTile("Built at", Fmt.pctBps(rp.bindingEquityBps), sub: "the menu's floor", color: Theme.debt),
                 ])
-                Note("Bind to the lower of the two. The \(Fmt.bps(rp.gapBps)) gap is the conversation: \(rp.bindingIsCapacity ? "your situation can afford less equity than you'd stomach" : "you could afford more equity than you'll stomach — flexibility or education, not more risk").")
+                if rp.hasTolerableBand {
+                    Note("Bind to the lower of the two. The \(Fmt.bps(rp.gapBps)) gap is the conversation: \(rp.bindingIsCapacity ? "your situation can afford less equity than you'd stomach" : "you could afford more equity than you'll stomach — flexibility or education, not more risk").")
+                } else {
+                    Note("The stated \(Fmt.pctBps(rp.statedMaxDrawdownBps)) loss limit is below the \(Fmt.pctBps(rp.minDrawdownBps)) this desk's most defensive portfolio models, so no equity ceiling follows from it and the gap figure would be meaningless. The plan is built at the floor of the menu.",
+                         icon: "exclamationmark.triangle", color: Theme.debt)
+                }
             }
         }
 

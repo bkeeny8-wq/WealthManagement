@@ -33,16 +33,27 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
     /// as though it were a rate. Reviews written before this field existed were all taken on
     /// solvable plans in practice, so they default to true.
     public var solved: Bool = true
+    /// Whether `equityCeilingBps` is the ceiling the client's stated tolerance IMPLIED, or
+    /// the most defensive mix substituted in because no portfolio met their limit.
+    ///
+    /// This is `solved`'s counterpart for the risk side, and it exists for the same reason:
+    /// without it the two are byte-identical forever. A client who lowers their stated limit
+    /// anywhere below the menu's floor shows a 0 bps delta on a row captioned "Equity
+    /// ceiling", and a substituted 15% and a genuinely honoured 15% compare as equal. Old
+    /// reviews default to `true` because the flag did not exist to record otherwise — that
+    /// is an admission of ignorance about history, not a claim the tolerance was honoured.
+    public var toleranceHadTolerableBand: Bool = true
 
     public init(id: String = UUID().uuidString, createdAt: Date, note: String = "", confirmedSections: [String] = [],
                 requiredRealReturnBps: Bps, fundedRatioBps: Bps, equityCeilingBps: Bps,
                 afterTaxNetWorthUsd: Usd, goalCount: Int, overrides: HouseholdOverrides = HouseholdOverrides(),
-                planAsOf: IsoDate = Engine.planningAsOf, solved: Bool = true) {
+                planAsOf: IsoDate = Engine.planningAsOf, solved: Bool = true,
+                toleranceHadTolerableBand: Bool = true) {
         self.id = id; self.createdAt = createdAt; self.note = note; self.confirmedSections = confirmedSections
         self.requiredRealReturnBps = requiredRealReturnBps; self.fundedRatioBps = fundedRatioBps
         self.equityCeilingBps = equityCeilingBps; self.afterTaxNetWorthUsd = afterTaxNetWorthUsd
         self.goalCount = goalCount; self.overrides = overrides; self.planAsOf = planAsOf
-        self.solved = solved
+        self.solved = solved; self.toleranceHadTolerableBand = toleranceHadTolerableBand
     }
 
     /// Forward/backward-compatible decode: a missing field never drops the record.
@@ -60,6 +71,7 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
         overrides = ((try? c.decodeIfPresent(HouseholdOverrides.self, forKey: .overrides)) ?? nil) ?? HouseholdOverrides()
         planAsOf = ((try? c.decodeIfPresent(IsoDate.self, forKey: .planAsOf)) ?? nil) ?? Engine.planningAsOf
         solved = ((try? c.decodeIfPresent(Bool.self, forKey: .solved)) ?? nil) ?? true
+        toleranceHadTolerableBand = ((try? c.decodeIfPresent(Bool.self, forKey: .toleranceHadTolerableBand)) ?? nil) ?? true
     }
 
     /// Snapshot the headline figures from an evaluated plan.
@@ -71,6 +83,7 @@ public struct IPSReview: Codable, Sendable, Hashable, Identifiable {
                   equityCeilingBps: e.riskProfile?.bindingEquityBps ?? 0,
                   afterTaxNetWorthUsd: e.balanceSheet.afterTaxNetWorthUsd,
                   goalCount: e.household.goals.filter { $0.kind == .spending }.count,
-                  overrides: overrides, planAsOf: e.asOf, solved: e.isSolvable)
+                  overrides: overrides, planAsOf: e.asOf, solved: e.isSolvable,
+                  toleranceHadTolerableBand: e.riskProfile?.hasTolerableBand ?? true)
     }
 }

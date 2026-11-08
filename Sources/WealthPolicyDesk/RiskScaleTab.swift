@@ -30,12 +30,23 @@ struct RiskScaleTab: View {
             Note("Your allocation is a function of how much drawdown you can stomach. Below is the same plan across the risk spectrum — each rung is the solver's output at that tolerance, priced as if the plan actually held that much equity. Your CAPACITY (what the situation can afford) caps every rung: you can't dial past it. No market forecast is used.")
             if let rp = eval.riskProfile {
                 LedgerRow("Capacity — what you CAN hold", Fmt.pctBps(rp.capacityEquityBps), color: Theme.ink)
-                LedgerRow("Tolerance — what you'll STOMACH", Fmt.pctBps(rp.toleranceImpliedEquityBps), color: Theme.ink)
-                LedgerRow("Binds at the lower", Fmt.pctBps(rp.bindingEquityBps), color: Theme.accent, bold: true)
-                Note(rp.bindingIsCapacity
-                     ? "You bind on CAPACITY — the situation, not your nerves, is the limit. Raising tolerance won't add equity."
-                     : "You bind on TOLERANCE — you could afford more equity than you'll stomach. That gap is a conversation: flexibility or education, not more risk.",
-                     icon: "info.circle", color: Theme.muted)
+                // With no tolerable band there is no tolerance-implied ceiling to print.
+                // Showing the fallback here, and then "Binds at the lower" beneath it, named
+                // the client's nerves as one of two constraints the engine compared — when
+                // the engine had in fact discarded their answer and substituted the floor.
+                if rp.hasTolerableBand {
+                    LedgerRow("Tolerance — what you'll STOMACH", Fmt.pctBps(rp.toleranceImpliedEquityBps), color: Theme.ink)
+                    LedgerRow("Binds at the lower", Fmt.pctBps(rp.bindingEquityBps), color: Theme.accent, bold: true)
+                    Note(rp.bindingIsCapacity
+                         ? "You bind on CAPACITY — the situation, not your nerves, is the limit. Raising tolerance won't add equity."
+                         : "You bind on TOLERANCE — you could afford more equity than you'll stomach. That gap is a conversation: flexibility or education, not more risk.",
+                         icon: "info.circle", color: Theme.muted)
+                } else {
+                    LedgerRow("Tolerance — what you'll STOMACH", "no ceiling implies it", color: Theme.debt)
+                    LedgerRow("Built at the most defensive mix", Fmt.pctBps(rp.bindingEquityBps), color: Theme.accent, bold: true)
+                    Note("You said you could take a \(Fmt.pctBps(rp.statedMaxDrawdownBps)) loss in a bad year. The most defensive portfolio this desk will build still models \(Fmt.pctBps(rp.minDrawdownBps)) — \(Fmt.pctBps(rp.toleranceShortfallBps)) more than you said. So the plan is built at the floor of the menu, not at a ceiling your answer implied: there isn't one. Lowering the stated limit further changes nothing. This is a conversation about what the number means, or about holding cash outside the plan.",
+                         icon: "exclamationmark.triangle", color: Theme.debt)
+                }
             } else {
                 Note("Risk tolerance isn't set for this client — the spectrum below shows capacity-only ceilings. Capture a max-drawdown tolerance in the intake to bind it.", icon: "exclamationmark.triangle", color: Theme.amber)
             }
@@ -58,7 +69,17 @@ struct RiskScaleTab: View {
                         .padding(.horizontal, 6).padding(.vertical, 2).background(Theme.accent, in: Capsule())
                 }
                 Spacer()
-                Text("≤ \(Fmt.pctBps(p.maxDrawdownBps)) drawdown").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                // "≤ the request" was printed over a bar built at `bindingEquityBps`, with
+                // nothing checking that the bar honours it. When the menu has no portfolio
+                // that defensive, state what the rung ACTUALLY models instead of a bound it
+                // misses — the engine knows both numbers, and only one of them is a fact
+                // about the picture beside it.
+                if p.hasTolerableBand {
+                    Text("≤ \(Fmt.pctBps(p.maxDrawdownBps)) drawdown").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                } else {
+                    Text("asked ≤ \(Fmt.pctBps(p.maxDrawdownBps)) · models \(Fmt.pctBps(p.modeledDrawdownBps))")
+                        .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.debt)
+                }
             }
             StackBar([
                 StackSegment("Growth", Double(p.growthBps), Theme.accent),
@@ -72,6 +93,13 @@ struct RiskScaleTab: View {
                     .font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ink)
                 if capped {
                     Text("· capacity-capped").font(.system(size: 11)).foregroundStyle(Theme.amber)
+                }
+                // Dimming was the only signal a rung was unreachable, and it is driven by
+                // `capacityBound` alone — which is false by construction when the menu's
+                // floor is the binding constraint. So the one rung the desk cannot deliver
+                // rendered at full opacity with no marker at all.
+                if !p.hasTolerableBand {
+                    Text("· below the menu floor").font(.system(size: 11)).foregroundStyle(Theme.debt)
                 }
                 Spacer()
                 Text("bonds \(Fmt.pctBps(p.defensiveBps)) · cash \(Fmt.pctBps(p.cashBps))")

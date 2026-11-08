@@ -77,7 +77,13 @@ struct FrontierTab: View {
             LedgerRow("Capacity", "\(pct(f.capacityEquityBps)) equity → σ \(pct(f.capacityVolBps))", color: Theme.muted)
 
             if f.targetExceedsToleranceBps > 100 {
-                Note("The solved target's modeled drawdown (\(pct(f.target.drawdownBps))) sits above the stated tolerance (\(pct(f.toleranceDrawdownBps))) — capacity or a liquidity floor is holding equity here, not tolerance.", icon: "exclamationmark.triangle", color: Theme.amber)
+                // This note fires with certainty when the stated limit is below the menu's
+                // floor, and then offers exactly two explanations — capacity, or a liquidity
+                // floor — neither of which is the cause. `hasTolerableBand` names the third.
+                Note(f.hasTolerableBand
+                     ? "The solved target's modeled drawdown (\(pct(f.target.drawdownBps))) sits above the stated tolerance (\(pct(f.toleranceDrawdownBps))) — capacity or a liquidity floor is holding equity here, not tolerance."
+                     : "The solved target's modeled drawdown (\(pct(f.target.drawdownBps))) sits above the stated tolerance (\(pct(f.toleranceDrawdownBps))), and so does every other portfolio on this curve — the menu's own floor is \(pct(f.minDrawdownBps)). Nothing here can meet that limit, so neither capacity nor liquidity is the binding reason.",
+                     icon: "exclamationmark.triangle", color: f.hasTolerableBand ? Theme.amber : Theme.debt)
             }
             toleranceNote(f)
         }
